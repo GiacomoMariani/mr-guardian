@@ -1,2 +1,1 @@
-"""Markdown report generation package."""
-
+"""Review report generation package."""

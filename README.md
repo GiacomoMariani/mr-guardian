@@ -4,6 +4,14 @@ Python-based Unity Merge Request review assistant.
 
 MR Guardian reviews local Git diffs or GitLab merge requests against Unity best-practice policies.
 
+YAML files in `sources/yaml/` are the runtime source of truth. Markdown files in
+`sources/markdown/` are human guidance only and are not loaded or validated by the tool.
+
+YAML rules can be either:
+
+- `deterministic`: implemented in Python and registered in MR Guardian.
+- `llm`: prompt-driven advisory checks that will be sent to an LLM with review context.
+
 ## Development
 
 Install dependencies:

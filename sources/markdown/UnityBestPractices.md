@@ -1,5 +1,23 @@
 # Unity Best Practices for MR Guardian
 
+## SIZE-FILES-001 — Large file-count changes should be split or explained
+
+Merge requests that touch many files are harder to review safely.
+
+Large file-count changes should be split into focused reviewable units or include a clear explanation of why the broad change is necessary.
+
+## SIZE-LINES-001 — Large line-count changes should be split or explained
+
+Merge requests with large changed-line counts are harder to validate and more likely to hide regressions.
+
+Large line-count changes should be split when practical or include reviewer notes explaining the scope.
+
+## SIZE-DIRECTORIES-001 — Broad directory changes should be split or explained
+
+Merge requests that touch many directories can indicate unrelated scope.
+
+Broad directory changes should be split by concern or include a clear explanation of why the directories changed together.
+
 ## MR-META-001 — MR must include a test plan
 
 Every MR should explain how the author validated the change.
@@ -36,9 +54,9 @@ Gameplay code changes should include automated tests when practical.
 
 When tests are not practical, the MR should include manual validation notes.
 
-## CSHARP-DEBUG-001 — Avoid committed Debug.Log statements
+## CSHARP-DEBUG-001 — Avoid newly introduced debug logging
 
-Debug.Log is useful during development but should not usually be committed into production code.
+Debug.Log and print statements are useful during development but should not usually be committed into production code unless explicitly allowed.
 
 Temporary logs can make AI-generated code look unfinished.
 

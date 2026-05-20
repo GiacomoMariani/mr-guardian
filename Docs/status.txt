@@ -2,14 +2,14 @@
 
 ## [Milestone 1: Project Setup & Scope]
 **Status:** Planned  
-**Evidence:** The MR Guardian plan defines the product goal, positioning, Python-first stack, CLI + Streamlit interfaces, YAML/Markdown policy architecture, review history, and optional GitLab/OpenAI integrations.  
+**Evidence:** The MR Guardian plan defines the product goal, positioning, Python-first stack, CLI + Streamlit interfaces, YAML policy architecture, optional human guidance, review history, and optional GitLab/OpenAI integrations.  
 **Notes:** This status file is initialized from the planning document. Implementation evidence should be updated after repository work begins.
 
 - Define the product goal: a Unity Merge Request review assistant that checks best practices before human review.  
   **Status:** Planned  
   **Evidence:** Goal and positioning are defined in the plan.
 
-- Confirm MVP scope: local Git diff review, YAML policy, Markdown best-practices source, deterministic checks, Markdown report, suggested fixes, and review history.  
+- Confirm MVP scope: local Git diff review, YAML policy, optional human guidance, deterministic checks, review report output, suggested fixes, and review history.  
   **Status:** Planned  
   **Evidence:** MVP scope is described in the implementation plan.
 
@@ -29,39 +29,43 @@
 
 ## [Milestone 2: Policy Architecture]
 **Status:** Planned  
-**Evidence:** The plan defines Markdown as the human-readable best-practices source, YAML as the machine-readable policy, and stable rule IDs as the link between them.  
+**Evidence:** The plan defines YAML as the machine-readable source of truth, with deterministic and LLM rule types, and human guidance as optional best-practices notes.  
 **Notes:** The policy system is a core differentiator and should be implemented before most rules.
 
-- Use Markdown for the best-practices source.  
+- Keep human guidance as optional best-practices notes.  
   **Status:** Planned  
-  **Evidence:** Markdown is defined as the source for rule explanations, examples, and reviewer guidance.
+  **Evidence:** Human guidance notes are useful for explanations and examples, but are not loaded by runtime code.
 
 - Use YAML for the configurable policy file.  
   **Status:** Planned  
   **Evidence:** YAML policy examples are included in the plan.
 
-- Link Markdown and YAML using stable rule IDs.  
+- Support two YAML rule types: deterministic and LLM.  
+  **Status:** Planned  
+  **Evidence:** Deterministic rules are implemented in Python; LLM rules are prompt-driven advisory checks.
+
+- Use stable rule IDs in YAML, findings, and review history.  
   **Status:** Planned  
   **Evidence:** Rule ID format is defined as `AREA-TOPIC-NUMBER`.
 
-- Validate that every YAML rule references an existing Markdown rule ID when `require_rule_id_links` is enabled.  
+- Keep YAML as the runtime source of truth; do not validate YAML rules against human guidance documents.  
   **Status:** Planned  
   **Evidence:** Validation behavior is included in the policy architecture and FAQ.
 
 - Include rule IDs in every finding and stored review record.  
   **Status:** Planned  
-  **Evidence:** Plan requires rule IDs to appear in Markdown, YAML, findings, and review history.
+  **Evidence:** Plan requires rule IDs to appear in YAML, findings, and review history. Human guidance may mirror them for readability.
 
 ---
 
 ## [Milestone 3: Python Core & CLI]
 **Status:** Planned  
-**Evidence:** The plan specifies a Python package with a Typer CLI, local Git provider, rule engine, policy loader, Markdown loader, reporter, and storage layer.  
+**Evidence:** The plan specifies a Python package with a Typer CLI, local Git provider, rule engine, YAML policy loader, reporter, and storage layer.  
 **Notes:** This is the first implementation milestone because it enables local testing before GitLab integration.
 
 - Create the Python package structure under `mr_guardian/`.  
   **Status:** Planned  
-  **Evidence:** Repository structure includes `core`, `providers`, `policy`, `best_practices`, `rules`, `reporting`, `storage`, and `ai` modules.
+  **Evidence:** Repository structure includes `core`, `providers`, `policies`, `rules`, `reporting`, `storage`, and `ai` modules.
 
 - Add a Typer CLI command for local review.  
   **Status:** Planned  
@@ -73,15 +77,15 @@
 
 - Implement core data models for review runs, changed files, findings, severities, rule metadata, and reports.  
   **Status:** Planned  
-  **Evidence:** Tool needs structured findings, review history, and Markdown reporting.
+  **Evidence:** Tool needs structured findings, review history, and review reporting.
 
 - Implement the rule engine.  
   **Status:** Planned  
   **Evidence:** Core components list includes a rule engine that runs checks and returns findings.
 
-- Implement Markdown report generation.  
+- Implement review report generation.  
   **Status:** Planned  
-  **Evidence:** MVP requires a generated Markdown MR review report.
+  **Evidence:** MVP requires a generated review report.
 
 ---
 
@@ -127,7 +131,7 @@
 
 - Build a Review Runner view.  
   **Status:** Planned  
-  **Evidence:** Dashboard plan includes inputs for base branch, policy file, best-practices Markdown file, MR title/description, and optional pasted diff or changed files.
+  **Evidence:** Dashboard plan includes inputs for base branch, policy file, MR title/description, and optional pasted diff or changed files.
 
 - Display latest findings grouped by severity.  
   **Status:** Planned  
@@ -139,7 +143,7 @@
 
 - Build a Rule Explorer view.  
   **Status:** Planned  
-  **Evidence:** Dashboard should show rule ID, YAML configuration, Markdown source link, trigger count, and recent examples.
+  **Evidence:** Dashboard should show rule ID, YAML configuration, trigger count, and recent examples.
 
 - Build a Project Manager Summary view.  
   **Status:** Planned  
@@ -172,7 +176,7 @@
   **Status:** Planned  
   **Evidence:** Policy example includes a `manual_validation` suggested section.
 
-- Include suggested fixes in the Markdown report.  
+- Include suggested fixes in the review report.  
   **Status:** Planned  
   **Evidence:** Reporter output should include suggested author actions.
 
@@ -327,7 +331,7 @@
 
 ## [Milestone 12: Reporting]
 **Status:** Planned  
-**Evidence:** The plan includes an example Markdown review report with risk level, blocking issues, warnings, suggested author actions, and reviewer focus.  
+**Evidence:** The plan includes an example review report with risk level, blocking issues, warnings, suggested author actions, and reviewer focus.  
 **Notes:** Reporting should stay concise and actionable.
 
 - Group findings by severity.  
@@ -350,20 +354,24 @@
   **Status:** Planned  
   **Evidence:** Example report includes reviewer focus areas.
 
-- Store the generated Markdown report in review history.  
+- Store the generated review report in review history.  
   **Status:** Planned  
-  **Evidence:** Review History requires storing generated Markdown report.
+  **Evidence:** Review History requires storing generated review report.
 
 ---
 
 ## [Milestone 13: Optional AI Summary]
 **Status:** Planned, optional  
-**Evidence:** The plan states that AI should only summarize deterministic findings and must not create AI-only blocking findings.  
+**Evidence:** The plan supports prompt-driven LLM rules and AI summaries, both constrained to non-blocking advisory behavior.  
 **Notes:** This should be implemented after deterministic checks and reporting work.
 
 - Build a structured prompt from MR title, MR description, changed files, findings, relevant policy rules, and compact diff summary.  
   **Status:** Planned  
   **Evidence:** Optional AI Summary section defines the input packet.
+
+- Run YAML `type: llm` rules through an LLM rule runner.  
+  **Status:** Planned  
+  **Evidence:** LLM rules include a prompt and diff context in YAML.
 
 - Generate risk summary, reviewer focus areas, suggested author actions, and questions.  
   **Status:** Planned  
@@ -379,7 +387,7 @@
 
 - Prevent AI-only blocking findings.  
   **Status:** Planned  
-  **Evidence:** Principle: rules find issues, AI explains and prioritizes them.
+  **Evidence:** Principle: deterministic rules may block; LLM rules and AI summaries are advisory.
 
 ---
 
@@ -439,7 +447,7 @@
   **Status:** Planned  
   **Evidence:** Portfolio demo requires an AI-generated overreach MR.
 
-- Add snapshot tests for Markdown reports.  
+- Add snapshot tests for review reports.  
   **Status:** Planned  
   **Evidence:** Reporting output needs stable verification.
 
@@ -485,13 +493,13 @@
   **Status:** Planned  
   **Evidence:** Success criteria include local sample Unity repo execution.
 
-- Tool loads YAML policy and Markdown best-practices source.  
+- Tool loads YAML policy as the runtime source of truth.  
   **Status:** Planned  
-  **Evidence:** Success criteria include both YAML and Markdown loading.
+  **Evidence:** Success criteria include YAML policy loading.
 
-- Tool validates rule ID links.  
+- Tool uses YAML rule IDs for findings and history.  
   **Status:** Planned  
-  **Evidence:** Success criteria include stable rule ID validation.
+  **Evidence:** Success criteria include stable rule IDs without external document validation.
 
 - Tool detects scene, prefab, ProjectSettings, and package changes.  
   **Status:** Planned  
@@ -509,9 +517,9 @@
   **Status:** Planned  
   **Evidence:** Success criteria include AI-coding overreach detection.
 
-- Tool produces a clean Markdown report.  
+- Tool produces a clean review report.  
   **Status:** Planned  
-  **Evidence:** Success criteria include Markdown reporting.
+  **Evidence:** Success criteria include review reporting.
 
 - Tool stores review history and shows it in Streamlit.  
   **Status:** Planned  
@@ -533,18 +541,18 @@
 
 **Planning complete / implementation not started.**
 
-MR Guardian is now defined as a Python-based Unity Merge Request review assistant with a CLI, Streamlit dashboard, YAML executable policy, Markdown best-practices source, stable rule IDs, deterministic Unity-specific checks, persistent SQLite review history, and optional AI summaries.
+MR Guardian is now defined as a Python-based Unity Merge Request review assistant with a CLI, Streamlit dashboard, YAML executable policy, optional human guidance, stable rule IDs, deterministic Unity-specific checks, persistent SQLite review history, and optional AI summaries.
 
 The project is positioned as a realistic portfolio piece because it demonstrates agentic coding, policy-as-code, Unity engineering judgment, safe AI-assisted development practices, and workflow analytics for project managers.
 
 ## Main implementation priorities
 
 1. Build the Python core and local CLI.
-2. Implement YAML policy loading and Markdown rule ID validation.
+2. Implement YAML policy loading with deterministic and LLM rule types.
 3. Add SQLite review history.
 4. Add Streamlit dashboard views.
 5. Implement Unity scene, prefab, ProjectSettings, metadata, C#, test, and AI-code risk rules.
-6. Add Markdown reporting and suggested fixes.
+6. Add review reporting and suggested fixes.
 7. Add optional AI summary.
 8. Add GitLab integration after the local MVP works.
 
@@ -553,7 +561,7 @@ The project is positioned as a realistic portfolio piece because it demonstrates
 - Repository has not been created yet.
 - No Python package implementation exists yet.
 - No YAML policy loader exists yet.
-- No Markdown rule ID validator exists yet.
+- No external rule ID document validator is needed; YAML is the only runtime policy source.
 - No rule engine exists yet.
 - No SQLite review history exists yet.
 - No Streamlit dashboard exists yet.

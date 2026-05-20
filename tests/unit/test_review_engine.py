@@ -1,0 +1,219 @@
+from pathlib import Path
+
+from mr_guardian.core import run_review
+from mr_guardian.models.policy import Policy, PolicyRule
+from mr_guardian.models.review import Finding
+from mr_guardian.models.review_input import ChangedFile, ReviewInput
+from mr_guardian.rules import RuleEvaluationContext, RuleRegistry
+
+
+class FakeRule:
+    def __init__(self, rule_id: str, findings: list[Finding]) -> None:
+        self._rule_id = rule_id
+        self._findings = findings
+        self.calls = 0
+
+    @property
+    def rule_id(self) -> str:
+        return self._rule_id
+
+    def evaluate(self, context: RuleEvaluationContext, rule: PolicyRule) -> list[Finding]:
+        self.calls += 1
+        assert context.review_input.base_ref == "main"
+        assert rule.id == self._rule_id
+        return self._findings
+
+
+def make_policy(*rules: PolicyRule) -> Policy:
+    return Policy(
+        version=1,
+        rules=list(rules),
+    )
+
+
+def make_rule(rule_id: str, *, enabled: bool = True, severity: str = "warning") -> PolicyRule:
+    return PolicyRule(
+        id=rule_id,
+        type="deterministic",
+        enabled=enabled,
+        severity=severity,
+        source=f"unity-policy.yml#{rule_id}",
+        description="Test rule.",
+    )
+
+
+def make_review_input() -> ReviewInput:
+    return ReviewInput(
+        base_ref="main",
+        changed_files=[
+            ChangedFile(
+                path=Path("Assets/Scripts/Player.cs"),
+                status="modified",
+                hunks=[],
+            )
+        ],
+    )
+
+
+def make_finding(rule_id: str, *, severity: str = "warning") -> Finding:
+    return Finding(
+        rule_id=rule_id,
+        severity=severity,
+        message="A deterministic finding.",
+        source=f"unity-policy.yml#{rule_id}",
+        file_path=Path("Assets/Scripts/Player.cs"),
+        line_number=12,
+    )
+
+
+def test_runs_review_with_no_rules() -> None:
+    result = run_review(
+        policy=make_policy(),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry(),
+    )
+
+    assert result.findings == []
+    assert result.counts.blocking == 0
+    assert result.counts.high == 0
+    assert result.counts.warning == 0
+    assert result.counts.info == 0
+    assert result.risk == "none"
+
+
+def test_runs_review_with_one_registered_rule() -> None:
+    policy_rule = make_rule("MR-META-001")
+    fake_rule = FakeRule("MR-META-001", [make_finding("MR-META-001")])
+
+    result = run_review(
+        policy=make_policy(policy_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([fake_rule]),
+    )
+
+    assert fake_rule.calls == 1
+    assert len(result.findings) == 1
+
+
+def test_skips_disabled_rules() -> None:
+    policy_rule = make_rule("MR-META-001", enabled=False)
+    fake_rule = FakeRule("MR-META-001", [make_finding("MR-META-001")])
+
+    result = run_review(
+        policy=make_policy(policy_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([fake_rule]),
+    )
+
+    assert fake_rule.calls == 0
+    assert result.findings == []
+
+
+def test_skips_llm_rules_until_llm_runner_exists() -> None:
+    policy_rule = PolicyRule(
+        id="ARCH-DESIGN-001",
+        type="llm",
+        enabled=True,
+        severity="info",
+        source="python-policy.yml#ARCH-DESIGN-001",
+        description="Check architecture concerns.",
+        prompt="Review the diff.",
+    )
+    fake_rule = FakeRule("ARCH-DESIGN-001", [make_finding("ARCH-DESIGN-001")])
+
+    result = run_review(
+        policy=make_policy(policy_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([fake_rule]),
+    )
+
+    assert fake_rule.calls == 0
+    assert result.findings == []
+
+
+def test_collects_findings_from_rule() -> None:
+    policy_rule = make_rule("MR-META-001")
+    finding = make_finding("MR-META-001")
+
+    result = run_review(
+        policy=make_policy(policy_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([FakeRule("MR-META-001", [finding])]),
+    )
+
+    assert result.findings[0].message == "A deterministic finding."
+    assert result.findings[0].file_path == Path("Assets/Scripts/Player.cs")
+    assert result.findings[0].line_number == 12
+
+
+def test_preserves_rule_id_and_severity_from_policy_in_findings() -> None:
+    policy_rule = make_rule("MR-META-001", severity="blocking")
+    finding = make_finding("SOME-OTHER-001", severity="info")
+
+    result = run_review(
+        policy=make_policy(policy_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([FakeRule("MR-META-001", [finding])]),
+    )
+
+    assert result.findings[0].rule_id == "MR-META-001"
+    assert result.findings[0].severity == "blocking"
+    assert result.findings[0].source == "unity-policy.yml#MR-META-001"
+
+
+def test_computes_finding_counts() -> None:
+    policy = make_policy(
+        make_rule("BLOCKING-TEST-001", severity="blocking"),
+        make_rule("HIGH-TEST-001", severity="high"),
+        make_rule("WARNING-TEST-001", severity="warning"),
+        make_rule("INFO-TEST-001", severity="info"),
+    )
+    registry = RuleRegistry(
+        [
+            FakeRule("BLOCKING-TEST-001", [make_finding("BLOCKING-TEST-001")]),
+            FakeRule("HIGH-TEST-001", [make_finding("HIGH-TEST-001")]),
+            FakeRule("WARNING-TEST-001", [make_finding("WARNING-TEST-001")]),
+            FakeRule("INFO-TEST-001", [make_finding("INFO-TEST-001")]),
+        ]
+    )
+
+    result = run_review(
+        policy=policy,
+        review_input=make_review_input(),
+        rule_registry=registry,
+    )
+
+    assert result.counts.blocking == 1
+    assert result.counts.high == 1
+    assert result.counts.warning == 1
+    assert result.counts.info == 1
+
+
+def test_computes_risk_level_from_findings() -> None:
+    warning_policy = make_policy(make_rule("WARNING-TEST-001", severity="warning"))
+    high_policy = make_policy(make_rule("HIGH-TEST-001", severity="high"))
+    blocking_policy = make_policy(make_rule("BLOCKING-TEST-001", severity="blocking"))
+
+    warning_result = run_review(
+        policy=warning_policy,
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry(
+            [FakeRule("WARNING-TEST-001", [make_finding("WARNING-TEST-001")])]
+        ),
+    )
+    high_result = run_review(
+        policy=high_policy,
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry([FakeRule("HIGH-TEST-001", [make_finding("HIGH-TEST-001")])]),
+    )
+    blocking_result = run_review(
+        policy=blocking_policy,
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry(
+            [FakeRule("BLOCKING-TEST-001", [make_finding("BLOCKING-TEST-001")])]
+        ),
+    )
+
+    assert warning_result.risk == "warning"
+    assert high_result.risk == "high"
+    assert blocking_result.risk == "blocking"

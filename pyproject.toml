@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mr-guardian"
 version = "0.1.0"
-description = "Unity Merge Request review assistant using YAML policies, Markdown best practices, review history, and optional AI summaries."
+description = "Unity Merge Request review assistant using YAML policies, review history, and optional AI summaries."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [

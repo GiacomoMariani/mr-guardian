@@ -1,20 +1,11 @@
 """Typed policy models."""
 
-from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 Severity = Literal["blocking", "high", "warning", "info"]
-
-
-class BestPracticesMetadata(BaseModel):
-    """Metadata describing the human-readable best-practices source."""
-
-    model_config = ConfigDict(extra="allow", frozen=True)
-
-    local_markdown_path: Path
-    require_rule_id_links: bool
+RuleType = Literal["deterministic", "llm"]
 
 
 class PolicyRule(BaseModel):
@@ -23,18 +14,29 @@ class PolicyRule(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
 
     id: str
+    type: RuleType
     enabled: bool
     severity: Severity
     source: str
     description: str
 
+    @model_validator(mode="after")
+    def validate_rule_type_constraints(self) -> "PolicyRule":
+        """Validate constraints that depend on the rule type."""
+        if self.type == "llm":
+            if self.severity == "blocking":
+                msg = "LLM rules must not use blocking severity."
+                raise ValueError(msg)
+            if "prompt" not in (self.model_extra or {}):
+                msg = "LLM rules must include a prompt."
+                raise ValueError(msg)
+        return self
+
 
 class Policy(BaseModel):
     """MR Guardian policy file."""
 
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: int
-    best_practices: BestPracticesMetadata
     rules: list[PolicyRule]
-

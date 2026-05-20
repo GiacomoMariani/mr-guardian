@@ -24,7 +24,7 @@ MR Guardian should be a working Python tool with:
 - a Streamlit dashboard for demos and project managers
 - deterministic Unity MR checks
 - a YAML policy file
-- a Markdown best-practices source
+- optional best-practices notes for humans
 - stable rule IDs
 - persistent review history
 - optional AI summarization
@@ -64,7 +64,7 @@ The tool should:
 - inspect changed files
 - inspect MR title and description
 - run Unity-specific best-practice checks
-- generate a Markdown review report
+- generate a review report
 - suggest copy-pasteable fixes when MR information is missing
 - store every review run in a local database
 - show historical review trends in Streamlit
@@ -95,17 +95,17 @@ OpenAI API optional
 
 ## 3. Policy Architecture
 
-MR Guardian uses both Markdown and YAML.
+MR Guardian uses YAML as the runtime source of truth.
 
 ```text
-Markdown = human-readable best-practices source
-YAML     = machine-readable policy
-Rule IDs = stable link between both
+YAML     = executable policy and rule configuration
+Guidance notes = optional human-readable context
+Rule IDs = stable identifiers for findings and history
 ```
 
-Markdown explains the rule:
+Human guidance notes can explain the rule:
 
-```markdown
+```text
 ## UNITY-SCENE-001 — Scene changes require manual validation
 
 Unity scene files can introduce runtime behavior changes that are hard to review from code alone.
@@ -113,13 +113,14 @@ Unity scene files can introduce runtime behavior changes that are hard to review
 Every MR that changes or adds a `.unity` scene must include manual validation notes.
 ```
 
-YAML makes the rule executable:
+YAML makes the rule executable and is what MR Guardian loads at runtime:
 
 ```yaml
 - id: UNITY-SCENE-001
+  type: deterministic
   enabled: true
   severity: high
-  source: UnityBestPractices.md#UNITY-SCENE-001
+  source: unity-policy.yml#UNITY-SCENE-001
   description: Scene changes require manual validation.
   match:
     changed_files:
@@ -130,11 +131,42 @@ YAML makes the rule executable:
   suggested_fix_ref: manual_validation
 ```
 
+MR Guardian supports two YAML rule types:
+
+```text
+deterministic = implemented in Python and registered in the rule registry
+llm           = prompt-driven advisory check evaluated by an LLM runner
+```
+
+Deterministic rules are for reliable checks such as file paths, changed lines, thresholds, and required metadata.
+
+LLM rules are for judgment-based checks. They receive a prompt and review context such as changed files and diff hunks. LLM rules must be advisory and must not create blocking findings.
+
+Example LLM rule:
+
+```yaml
+- id: ARCH-DESIGN-001
+  type: llm
+  enabled: true
+  severity: info
+  source: python-policy.yml#ARCH-DESIGN-001
+  description: Check whether the change adds unnecessary abstraction.
+  prompt: |
+    Review the diff for unnecessary abstraction, over-engineering, or unrelated scope.
+    Only report issues grounded in the provided diff.
+  inputs:
+    include_diff: true
+    include_changed_files: true
+  output_contract:
+    max_findings: 3
+    allow_blocking: false
+```
+
 Every finding should reference the rule ID:
 
 ```text
 ⚠️ [UNITY-SCENE-001] Scene changed without manual validation.
-Source: UnityBestPractices.md#UNITY-SCENE-001
+Source: unity-policy.yml#UNITY-SCENE-001
 ```
 
 ---
@@ -165,10 +197,12 @@ AI-CODE-001
 
 The same ID must appear in:
 
-- the Markdown best-practices document
 - the YAML policy
 - the MR Guardian finding
 - the stored review history
+
+Human guidance may use the same IDs for traceability, but runtime code does not load
+or validate guidance documents.
 
 ---
 
@@ -179,10 +213,9 @@ The same ID must appear in:
 | Core engine | Runs rules and produces findings |
 | Local Git provider | Reads changed files and diffs from a local branch |
 | YAML policy loader | Loads executable rules and thresholds |
-| Markdown source loader | Loads best-practices documentation |
-| Rule ID validator | Ensures YAML rules link to Markdown rule IDs |
 | Rule engine | Runs checks and returns findings |
-| Markdown reporter | Generates the MR review report |
+| LLM rule runner | Runs prompt-driven advisory YAML rules |
+| review reporter | Generates the MR review report |
 | Suggested fix generator | Produces copy-pasteable MR sections |
 | History store | Stores review runs and findings |
 | Streamlit dashboard | Shows current and historical review insights |
@@ -226,7 +259,7 @@ Store:
 - changed file count
 - changed line count
 - whether AI summary was used
-- generated Markdown report
+- generated review report
 
 This makes the tool useful for project managers.
 
@@ -251,7 +284,6 @@ Input:
 
 - base branch
 - policy file
-- best-practices Markdown file
 - optional MR title and description
 - optional pasted diff or changed files
 
@@ -260,7 +292,7 @@ Output:
 - risk level
 - findings grouped by severity
 - suggested author actions
-- generated Markdown MR comment
+- generated review comment
 
 ### Review History
 
@@ -279,7 +311,6 @@ Show:
 
 - rule ID
 - YAML configuration
-- Markdown source link
 - number of times triggered
 - recent examples
 
@@ -315,7 +346,7 @@ When required metadata is missing, suggest a fix.
 
 Example suggested section:
 
-```markdown
+```text
 ### Test Plan
 
 - [ ] Confirm the project compiles.
@@ -391,7 +422,7 @@ Rules:
 
 Example suggested section:
 
-```markdown
+```text
 ### Manual Validation
 
 - [ ] Opened the affected scene.
@@ -460,7 +491,7 @@ Checks:
 
 Suggested section:
 
-```markdown
+```text
 ### AI-Assisted Development Notes
 
 - [ ] Confirmed all changed files are required.
@@ -507,17 +538,15 @@ Humans make the final decision.
 
 ```text
 mr-guardian/
-  best-practices/
-    UnityBestPractices.md
-
-  policies/
-    unity-policy.yml
+  sources/
+    yaml/
+      unity-policy.yml
+      python-policy.yml
 
   mr_guardian/
     core/
     providers/
-    policy/
-    best_practices/
+    policies/
     rules/
     reporting/
     storage/
@@ -554,7 +583,7 @@ mr-guardian/
     010-add-csharp-rules.md
     011-add-test-change-rule.md
     012-add-ai-code-risk-rule.md
-    013-add-markdown-reporter.md
+    013-add-report-renderer.md
     014-add-ai-summary.md
     015-add-gitlab-provider.md
     016-add-demo-fixtures.md
@@ -571,11 +600,6 @@ mr-guardian/
 
 ```yaml
 version: 1
-
-best_practices:
-  source_url: "https://github.com/GiacomoMariani/UnityBestPractices"
-  local_markdown_path: "best-practices/UnityBestPractices.md"
-  require_rule_id_links: true
 
 history:
   enabled: true
@@ -641,7 +665,7 @@ rules:
   - id: MR-META-001
     enabled: true
     severity: blocking
-    source: UnityBestPractices.md#MR-META-001
+    source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
     require:
       mr_sections:
@@ -651,7 +675,7 @@ rules:
   - id: UNITY-SCENE-001
     enabled: true
     severity: high
-    source: UnityBestPractices.md#UNITY-SCENE-001
+    source: unity-policy.yml#UNITY-SCENE-001
     description: Scene changes require manual validation.
     match:
       changed_files:
@@ -664,7 +688,7 @@ rules:
   - id: UNITY-PREFAB-001
     enabled: true
     severity: warning
-    source: UnityBestPractices.md#UNITY-PREFAB-001
+    source: unity-policy.yml#UNITY-PREFAB-001
     description: Prefab changes require validation evidence.
     match:
       changed_files:
@@ -673,7 +697,7 @@ rules:
   - id: UNITY-PROJECTSETTINGS-001
     enabled: true
     severity: high
-    source: UnityBestPractices.md#UNITY-PROJECTSETTINGS-001
+    source: unity-policy.yml#UNITY-PROJECTSETTINGS-001
     description: ProjectSettings changes require explanation.
     match:
       changed_files:
@@ -686,7 +710,7 @@ rules:
   - id: UNITY-TESTS-001
     enabled: true
     severity: warning
-    source: UnityBestPractices.md#UNITY-TESTS-001
+    source: unity-policy.yml#UNITY-TESTS-001
     description: Gameplay code changes require tests or manual validation.
     match:
       changed_files:
@@ -703,7 +727,7 @@ rules:
   - id: CSHARP-DEBUG-001
     enabled: true
     severity: warning
-    source: UnityBestPractices.md#CSHARP-DEBUG-001
+    source: unity-policy.yml#CSHARP-DEBUG-001
     description: Avoid committed Debug.Log or print statements.
     match:
       changed_files:
@@ -715,7 +739,7 @@ rules:
   - id: AI-CODE-001
     enabled: true
     severity: warning
-    source: UnityBestPractices.md#AI-CODE-001
+    source: unity-policy.yml#AI-CODE-001
     description: AI-assisted code should not add unnecessary scope.
     match:
       changed_files_count_greater_than: 15
@@ -725,7 +749,7 @@ rules:
 
 ## 12. Example Review Report
 
-```markdown
+```text
 ## MR Guardian Review
 
 **Risk:** High
@@ -771,14 +795,13 @@ rules:
 - Python package structure
 - Typer CLI command
 - local Git diff reader
-- Markdown report output
+- review report output
 
 ## Milestone 2 — Policy and Rule IDs
 
 - YAML schema
-- Markdown rule ID extractor
-- rule ID validator
-- tests for valid and invalid links
+- YAML-only rule configuration
+- tests for valid and invalid policies
 
 ## Milestone 3 — Review History
 
@@ -808,7 +831,7 @@ rules:
 ## Milestone 6 — MR Metadata Fixes
 
 - missing section detection
-- suggested Markdown sections
+- suggested suggested sections
 - visual evidence detection
 - manual validation detection
 
@@ -830,6 +853,8 @@ rules:
 ## Milestone 9 — Optional AI Summary
 
 - structured prompt
+- prompt-driven YAML rules
+- advisory LLM findings only
 - JSON output
 - fallback if AI fails
 - no AI-only blocking findings
@@ -859,7 +884,7 @@ Demo flow:
 
 ```text
 1. Run MR Guardian on sample MRs.
-2. Show Markdown report.
+2. Show review report.
 3. Show Streamlit history dashboard.
 4. Show most triggered rules.
 5. Show AI-generated overreach trend.
@@ -876,14 +901,12 @@ The project is successful if it can:
 
 - run locally on a sample Unity repo
 - load YAML policy
-- load Markdown best-practices source
-- validate rule ID links
 - detect scenes, prefabs, ProjectSettings, and package changes
 - detect missing MR test plans
 - suggest copy-pasteable MR sections
 - detect gameplay code changes without tests
 - detect likely AI-coding overreach
-- produce a clean Markdown report
+- produce a clean review report
 - store review history
 - show review history in Streamlit
 - show project manager metrics
@@ -949,19 +972,22 @@ This turns MR Guardian from a one-off reviewer into a workflow improvement tool.
 
 ---
 
-## Why Markdown and YAML?
+## Why Keep Human Guidance and YAML?
 
-Markdown is for humans.
+YAML is the only runtime source of truth.
 
-YAML is for the tool.
+Human guidance is for people.
 
-Rule IDs connect both.
+Rule IDs make findings traceable in YAML, reports, and history.
 
 ```text
-Markdown explains the rule.
-YAML enforces the rule.
-Rule IDs make findings traceable.
+YAML configures and enforces rules.
+Guidance notes can explain rules for humans.
+Runtime code only loads YAML policies.
 ```
+
+YAML rules declare their execution path with `type: deterministic` or `type: llm`.
+Deterministic rules are hard-coded in this project. LLM rules are prompt-configured and advisory.
 
 This keeps the system maintainable, explainable, configurable, and testable.
 
@@ -1010,7 +1036,7 @@ MR Guardian highlights risks, suggests missing sections, stores the result, and 
 
 ## FAQ
 
-## If I already have a Markdown best-practices document, how do I convert it to YAML?
+## If I already have a best-practices document, how do I convert it to YAML?
 
 Do not convert the whole document.
 
@@ -1018,19 +1044,19 @@ Extract only the parts that can become executable rules.
 
 Process:
 
-1. Add stable rule IDs to Markdown headings.
+1. Add stable rule IDs to the relevant guidance sections.
 2. Identify which rules can be checked automatically.
 3. Create one YAML rule per checkable rule.
-4. Keep explanations and examples in Markdown.
+4. Keep explanations and examples in human guidance notes.
 5. Keep patterns, thresholds, severity, and suggested fixes in YAML.
 
-## Should YAML replace Markdown?
+## Should YAML replace human guidance?
 
 No.
 
-Markdown explains. YAML enforces.
+YAML is the source of truth for the tool. Human guidance remains optional.
 
-## Can AI help convert Markdown into YAML?
+## Can AI help convert guidance into YAML?
 
 Yes, but the result should be reviewed manually.
 
@@ -1042,20 +1068,17 @@ Check that:
 - the rule is enforceable
 - suggested fixes are useful
 
-## What if a Markdown rule has no YAML rule?
+## What if a guidance note has no YAML rule?
 
 That is fine.
 
 Some best practices are reviewer guidance only.
 
-## What if a YAML rule has no Markdown source?
+## What if a YAML rule has no guidance note?
 
-MR Guardian should warn or fail when this is enabled:
+That is allowed.
 
-```yaml
-best_practices:
-  require_rule_id_links: true
-```
+YAML remains the source of truth. Guidance notes are not checked by runtime code.
 
 ## Why not only use AI to review the MR?
 
@@ -1104,7 +1127,7 @@ Best portfolio headline:
 
 Best one-liner:
 
-> A Python-based policy-as-code review assistant that uses Markdown for human best practices, YAML for executable rules, Streamlit for review analytics, and optional AI summaries to improve Unity MR quality.
+> A Python-based policy-as-code review assistant that uses YAML for executable rules, optional notes for human best practices, Streamlit for review analytics, and optional AI summaries to improve Unity MR quality.
 
 AI-assisted programming angle:
 

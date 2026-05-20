@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from mr_guardian.policies import PolicyValidationError, PolicyYamlError, load_policy
+from mr_guardian.policies import (
+    PolicyValidationError,
+    PolicyYamlError,
+    load_policies_from_directory,
+    load_policy,
+)
 
 
 def write_policy(tmp_path: Path, content: str) -> Path:
@@ -16,15 +21,12 @@ def valid_policy_yaml(*, enabled: bool = True, severity: str = "blocking") -> st
     return f"""
 version: 1
 
-best_practices:
-  local_markdown_path: "sources/markdown/UnityBestPractices.md"
-  require_rule_id_links: true
-
 rules:
   - id: MR-META-001
+    type: deterministic
     enabled: {enabled_value}
     severity: {severity}
-    source: UnityBestPractices.md#MR-META-001
+    source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
 """
 
@@ -35,14 +37,11 @@ def test_loads_valid_policy(tmp_path: Path) -> None:
     policy = load_policy(policy_path)
 
     assert policy.version == 1
-    assert policy.best_practices.local_markdown_path == Path(
-        "sources/markdown/UnityBestPractices.md"
-    )
-    assert policy.best_practices.require_rule_id_links is True
     assert policy.rules[0].id == "MR-META-001"
+    assert policy.rules[0].type == "deterministic"
     assert policy.rules[0].enabled is True
     assert policy.rules[0].severity == "blocking"
-    assert policy.rules[0].source == "UnityBestPractices.md#MR-META-001"
+    assert policy.rules[0].source == "unity-policy.yml#MR-META-001"
     assert policy.rules[0].description == "MR must include a test plan."
 
 
@@ -53,7 +52,7 @@ def test_fails_on_missing_version(tmp_path: Path) -> None:
         load_policy(policy_path)
 
 
-def test_fails_on_missing_best_practices(tmp_path: Path) -> None:
+def test_loads_policy_without_external_metadata(tmp_path: Path) -> None:
     policy_path = write_policy(
         tmp_path,
         """
@@ -61,14 +60,40 @@ version: 1
 
 rules:
   - id: MR-META-001
+    type: deterministic
     enabled: true
     severity: blocking
-    source: UnityBestPractices.md#MR-META-001
+    source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
 """,
     )
 
-    with pytest.raises(PolicyValidationError, match="best_practices"):
+    policy = load_policy(policy_path)
+
+    assert policy.version == 1
+    assert policy.rules[0].id == "MR-META-001"
+
+
+def test_fails_on_unexpected_top_level_config(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        """
+version: 1
+
+history:
+  enabled: true
+
+rules:
+  - id: MR-META-001
+    type: deterministic
+    enabled: true
+    severity: blocking
+    source: unity-policy.yml#MR-META-001
+    description: MR must include a test plan.
+""",
+    )
+
+    with pytest.raises(PolicyValidationError, match="history"):
         load_policy(policy_path)
 
 
@@ -78,19 +103,86 @@ def test_fails_on_missing_rule_id(tmp_path: Path) -> None:
         """
 version: 1
 
-best_practices:
-  local_markdown_path: "sources/markdown/UnityBestPractices.md"
-  require_rule_id_links: true
-
 rules:
-  - enabled: true
+  - type: deterministic
+    enabled: true
     severity: blocking
-    source: UnityBestPractices.md#MR-META-001
+    source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
 """,
     )
 
     with pytest.raises(PolicyValidationError, match="id"):
+        load_policy(policy_path)
+
+
+def test_fails_on_missing_rule_type(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        """
+version: 1
+
+rules:
+  - id: MR-META-001
+    enabled: true
+    severity: blocking
+    source: unity-policy.yml#MR-META-001
+    description: MR must include a test plan.
+""",
+    )
+
+    with pytest.raises(PolicyValidationError, match="type"):
+        load_policy(policy_path)
+
+
+def test_fails_on_invalid_rule_type(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        valid_policy_yaml().replace("type: deterministic", "type: manual"),
+    )
+
+    with pytest.raises(PolicyValidationError, match="type"):
+        load_policy(policy_path)
+
+
+def test_fails_on_blocking_llm_rule(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        """
+version: 1
+
+rules:
+  - id: PYTHON-DESIGN-LLM-001
+    type: llm
+    enabled: true
+    severity: blocking
+    source: python-policy.yml#PYTHON-DESIGN-LLM-001
+    description: Check design concerns.
+    prompt: Review the diff.
+""",
+    )
+
+    with pytest.raises(PolicyValidationError, match="blocking"):
+        load_policy(policy_path)
+
+
+def test_fails_on_llm_rule_missing_prompt(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        """
+version: 1
+
+rules:
+  - id: PYTHON-DESIGN-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: python-policy.yml#PYTHON-DESIGN-LLM-001
+    description: Check design concerns.
+""",
+    )
+
+    with pytest.raises(PolicyValidationError, match="prompt"):
         load_policy(policy_path)
 
 
@@ -106,11 +198,9 @@ def test_fails_on_invalid_yaml_syntax(tmp_path: Path) -> None:
         tmp_path,
         """
 version: 1
-best_practices:
-  local_markdown_path: "sources/markdown/UnityBestPractices.md"
-  require_rule_id_links: true
 rules:
   - id: MR-META-001
+    type: deterministic
     enabled: true
     severity: blocking
     source: [unterminated
@@ -130,3 +220,17 @@ def test_preserves_disabled_rules(tmp_path: Path) -> None:
     assert policy.rules[0].id == "MR-META-001"
     assert policy.rules[0].enabled is False
     assert policy.rules[0].severity == "info"
+
+
+def test_loads_all_yaml_policies_from_directory(tmp_path: Path) -> None:
+    write_policy(tmp_path, valid_policy_yaml())
+    second_policy_path = tmp_path / "python-policy.yaml"
+    second_policy_path.write_text(
+        valid_policy_yaml().replace("MR-META-001", "PYTHON-PRINT-001"),
+        encoding="utf-8",
+    )
+
+    policies = load_policies_from_directory(tmp_path)
+
+    assert len(policies) == 2
+    assert {policy.rules[0].id for policy in policies} == {"MR-META-001", "PYTHON-PRINT-001"}

@@ -43,3 +43,26 @@ def load_policy(path: str | Path) -> Policy:
     except ValidationError as exc:
         msg = f"Invalid policy structure in '{policy_path}': {exc}"
         raise PolicyValidationError(msg) from exc
+
+
+def load_policies_from_directory(directory: str | Path) -> list[Policy]:
+    """Load every YAML policy file from a directory."""
+    policy_directory = Path(directory)
+    policy_paths = sorted(
+        path
+        for pattern in ("*.yml", "*.yaml")
+        for path in policy_directory.glob(pattern)
+        if path.is_file()
+    )
+    return [load_policy(path) for path in policy_paths]
+
+
+def policy_paths_from_directory(directory: str | Path) -> list[Path]:
+    """Return every YAML policy path from a directory."""
+    policy_directory = Path(directory)
+    return sorted(
+        path
+        for pattern in ("*.yml", "*.yaml")
+        for path in policy_directory.glob(pattern)
+        if path.is_file()
+    )
