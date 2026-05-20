@@ -15,7 +15,7 @@ pip install -e ".[dev]"
 Run the CLI:
 
 ```bash
-mr-guardian review --base main --policy sources/yaml/unity-policy.yml
+python -m mr_guardian.cli.main review --base main --policy sources/yaml/unity-policy.yml
 ```
 
 Run checks:
