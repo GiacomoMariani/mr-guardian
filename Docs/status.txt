@@ -1,0 +1,562 @@
+# Project Status Update
+
+## [Milestone 1: Project Setup & Scope]
+**Status:** Planned  
+**Evidence:** The MR Guardian plan defines the product goal, positioning, Python-first stack, CLI + Streamlit interfaces, YAML/Markdown policy architecture, review history, and optional GitLab/OpenAI integrations.  
+**Notes:** This status file is initialized from the planning document. Implementation evidence should be updated after repository work begins.
+
+- Define the product goal: a Unity Merge Request review assistant that checks best practices before human review.  
+  **Status:** Planned  
+  **Evidence:** Goal and positioning are defined in the plan.
+
+- Confirm MVP scope: local Git diff review, YAML policy, Markdown best-practices source, deterministic checks, Markdown report, suggested fixes, and review history.  
+  **Status:** Planned  
+  **Evidence:** MVP scope is described in the implementation plan.
+
+- Choose the technical stack: Python, Typer, Pydantic, PyYAML or ruamel.yaml, Git CLI, SQLite, Streamlit, pytest, Rich, python-gitlab later, and optional OpenAI API.  
+  **Status:** Planned  
+  **Evidence:** Stack is explicitly selected in the updated plan.
+
+- Define the three interfaces: reusable Python core engine, CLI for developer/CI usage, and Streamlit dashboard for demos/project managers.  
+  **Status:** Planned  
+  **Evidence:** Product scope defines core engine, CLI, and Streamlit app.
+
+- Prepare repository structure with package modules, app, policies, best-practices source, tests, docs, tickets, README, and AGENTS.md.  
+  **Status:** Planned  
+  **Evidence:** Repository structure is defined in the plan.
+
+---
+
+## [Milestone 2: Policy Architecture]
+**Status:** Planned  
+**Evidence:** The plan defines Markdown as the human-readable best-practices source, YAML as the machine-readable policy, and stable rule IDs as the link between them.  
+**Notes:** The policy system is a core differentiator and should be implemented before most rules.
+
+- Use Markdown for the best-practices source.  
+  **Status:** Planned  
+  **Evidence:** Markdown is defined as the source for rule explanations, examples, and reviewer guidance.
+
+- Use YAML for the configurable policy file.  
+  **Status:** Planned  
+  **Evidence:** YAML policy examples are included in the plan.
+
+- Link Markdown and YAML using stable rule IDs.  
+  **Status:** Planned  
+  **Evidence:** Rule ID format is defined as `AREA-TOPIC-NUMBER`.
+
+- Validate that every YAML rule references an existing Markdown rule ID when `require_rule_id_links` is enabled.  
+  **Status:** Planned  
+  **Evidence:** Validation behavior is included in the policy architecture and FAQ.
+
+- Include rule IDs in every finding and stored review record.  
+  **Status:** Planned  
+  **Evidence:** Plan requires rule IDs to appear in Markdown, YAML, findings, and review history.
+
+---
+
+## [Milestone 3: Python Core & CLI]
+**Status:** Planned  
+**Evidence:** The plan specifies a Python package with a Typer CLI, local Git provider, rule engine, policy loader, Markdown loader, reporter, and storage layer.  
+**Notes:** This is the first implementation milestone because it enables local testing before GitLab integration.
+
+- Create the Python package structure under `mr_guardian/`.  
+  **Status:** Planned  
+  **Evidence:** Repository structure includes `core`, `providers`, `policy`, `best_practices`, `rules`, `reporting`, `storage`, and `ai` modules.
+
+- Add a Typer CLI command for local review.  
+  **Status:** Planned  
+  **Evidence:** Planned command: `mr-guardian review --base main --policy policies/unity-policy.yml`.
+
+- Implement local Git diff inspection using the Git CLI.  
+  **Status:** Planned  
+  **Evidence:** Product scope requires changed-file and diff inspection.
+
+- Implement core data models for review runs, changed files, findings, severities, rule metadata, and reports.  
+  **Status:** Planned  
+  **Evidence:** Tool needs structured findings, review history, and Markdown reporting.
+
+- Implement the rule engine.  
+  **Status:** Planned  
+  **Evidence:** Core components list includes a rule engine that runs checks and returns findings.
+
+- Implement Markdown report generation.  
+  **Status:** Planned  
+  **Evidence:** MVP requires a generated Markdown MR review report.
+
+---
+
+## [Milestone 4: Review History Storage]
+**Status:** Planned  
+**Evidence:** The plan requires persistent review history in SQLite and Streamlit views that show review trends.  
+**Notes:** This turns the tool from a one-off reviewer into a workflow analytics tool for project managers.
+
+- Add SQLite storage.  
+  **Status:** Planned  
+  **Evidence:** Review history section recommends SQLite for the first implementation.
+
+- Store every review run.  
+  **Status:** Planned  
+  **Evidence:** Plan requires storing each review run after execution.
+
+- Store review metadata: timestamp, project, branch, MR ID, commit SHA, policy version, best-practices source version, and generated report.  
+  **Status:** Planned  
+  **Evidence:** Review history section lists these fields.
+
+- Store review metrics: risk level, blocking count, high-priority count, warning count, changed files, changed lines, and whether AI summary was used.  
+  **Status:** Planned  
+  **Evidence:** Review history section lists these fields.
+
+- Store triggered rule IDs and finding details.  
+  **Status:** Planned  
+  **Evidence:** Stable rule IDs must appear in stored history.
+
+- Add query functions for recent reviews, trends, most triggered rules, and project manager summaries.  
+  **Status:** Planned  
+  **Evidence:** Streamlit dashboard depends on review history queries.
+
+---
+
+## [Milestone 5: Streamlit Dashboard]
+**Status:** Planned  
+**Evidence:** The plan adds Streamlit as a demo and project manager dashboard, not as a replacement for CLI/CI usage.  
+**Notes:** Streamlit should make the portfolio demo more visual and show historical insights.
+
+- Add `app/streamlit_app.py`.  
+  **Status:** Planned  
+  **Evidence:** Repository structure includes the Streamlit app.
+
+- Build a Review Runner view.  
+  **Status:** Planned  
+  **Evidence:** Dashboard plan includes inputs for base branch, policy file, best-practices Markdown file, MR title/description, and optional pasted diff or changed files.
+
+- Display latest findings grouped by severity.  
+  **Status:** Planned  
+  **Evidence:** Streamlit should show risk level, findings, suggested author actions, and generated MR comment.
+
+- Build a Review History view.  
+  **Status:** Planned  
+  **Evidence:** Dashboard should show recent reviews, risk over time, findings by severity, most triggered rules, and average changed files.
+
+- Build a Rule Explorer view.  
+  **Status:** Planned  
+  **Evidence:** Dashboard should show rule ID, YAML configuration, Markdown source link, trigger count, and recent examples.
+
+- Build a Project Manager Summary view.  
+  **Status:** Planned  
+  **Evidence:** Dashboard should show total reviews, review-ready percentage, common blockers, scene/prefab risk trends, and AI-code overreach trends.
+
+---
+
+## [Milestone 6: MR Readiness & Suggested Fixes]
+**Status:** Planned  
+**Evidence:** The plan defines MR readiness rules and requires copy-pasteable suggested fixes when metadata is missing.  
+**Notes:** This feature makes the tool actionable rather than just critical.
+
+- Check for required MR sections: Summary, Linked Issue, Test Plan, Risk, and Reviewer Notes.  
+  **Status:** Planned  
+  **Evidence:** Minimal policy example includes required metadata sections.
+
+- Detect missing rollback notes when applicable.  
+  **Status:** Planned  
+  **Evidence:** MR readiness rules include rollback notes when applicable.
+
+- Detect missing video or screenshot evidence for visible Unity changes.  
+  **Status:** Planned  
+  **Evidence:** MR readiness and playtest rules require visual evidence for visual changes.
+
+- Generate a suggested Test Plan section.  
+  **Status:** Planned  
+  **Evidence:** Policy example includes a `test_plan` suggested section.
+
+- Generate a suggested Manual Validation section.  
+  **Status:** Planned  
+  **Evidence:** Policy example includes a `manual_validation` suggested section.
+
+- Include suggested fixes in the Markdown report.  
+  **Status:** Planned  
+  **Evidence:** Reporter output should include suggested author actions.
+
+---
+
+## [Milestone 7: Unity Asset Risk Rules]
+**Status:** Planned  
+**Evidence:** The plan defines high-priority and medium-priority Unity asset paths, with scenes and core prefabs receiving special attention.  
+**Notes:** Scene and prefab risk detection is one of the strongest Unity-specific parts of the project.
+
+- Detect changed, added, and deleted `.unity` scene files.  
+  **Status:** Planned  
+  **Evidence:** Unity Asset Risk Rules mark scenes as high importance.
+
+- Require manual validation for scene changes.  
+  **Status:** Planned  
+  **Evidence:** `UNITY-SCENE-001` requires Manual Validation.
+
+- Detect changed prefab files.  
+  **Status:** Planned  
+  **Evidence:** `UNITY-PREFAB-001` matches `Assets/**/*.prefab`.
+
+- Treat core prefab changes as high importance.  
+  **Status:** Planned  
+  **Evidence:** Core prefab examples include `Assets/Prefabs/Core/**`, `Assets/Prefabs/Player/**`, and `Assets/Prefabs/UI/**`.
+
+- Detect ProjectSettings changes.  
+  **Status:** Planned  
+  **Evidence:** `UNITY-PROJECTSETTINGS-001` matches `ProjectSettings/**` and requires Risk and Reviewer Notes.
+
+- Detect package changes.  
+  **Status:** Planned  
+  **Evidence:** Package paths include `Packages/manifest.json` and `Packages/packages-lock.json`.
+
+- Detect plugin and third-party source edits.  
+  **Status:** Planned  
+  **Evidence:** High-priority paths include `Assets/Plugins/**` and `Assets/ThirdParty/**`.
+
+---
+
+## [Milestone 8: Unity Test & Playtest Rules]
+**Status:** Planned  
+**Evidence:** The plan defines production paths, test paths, and validation requirements for gameplay, scene, prefab, visual, and bug-fix changes.  
+**Notes:** These rules help reviewers distinguish code that is ready for review from code that still needs validation evidence.
+
+- Detect gameplay code changes without test files.  
+  **Status:** Planned  
+  **Evidence:** `UNITY-TESTS-001` matches production code paths and requires tests or Manual Validation.
+
+- Detect scene changes without Manual Validation.  
+  **Status:** Planned  
+  **Evidence:** Scene rules require Manual Validation.
+
+- Detect prefab changes without Manual Validation.  
+  **Status:** Planned  
+  **Evidence:** Prefab validation evidence is part of Unity Asset Risk Rules.
+
+- Detect visual changes without video or screenshot evidence.  
+  **Status:** Planned  
+  **Evidence:** MR readiness and playtest rules mention visual evidence requirements.
+
+- Detect bug fixes without root-cause explanation.  
+  **Status:** Planned  
+  **Evidence:** Test and playtest rules include bug-fix root-cause expectations.
+
+---
+
+## [Milestone 9: C# Best-Practice Rules]
+**Status:** Planned  
+**Evidence:** The plan defines initial C# checks for Unity-specific code smells and maintainability issues.  
+**Notes:** Start with simple deterministic text/heuristic checks before deeper parsing.
+
+- Detect `Debug.Log` and `print` in added lines.  
+  **Status:** Planned  
+  **Evidence:** `CSHARP-DEBUG-001` matches added lines containing `Debug.Log` and `print(`.
+
+- Detect `GetComponent` usage outside `Awake`.  
+  **Status:** Planned  
+  **Evidence:** C# rules include `GetComponent` caching guidance.
+
+- Detect public fields in MonoBehaviours.  
+  **Status:** Planned  
+  **Evidence:** C# Best-Practice Rules include public field checks.
+
+- Detect class and method size thresholds.  
+  **Status:** Planned  
+  **Evidence:** C# policy includes max class and method line thresholds.
+
+- Detect methods with too many parameters.  
+  **Status:** Planned  
+  **Evidence:** C# policy includes max method parameters.
+
+- Detect `GetInstanceID`, long method chains, and ScriptableObject runtime mutable state heuristics.  
+  **Status:** Planned  
+  **Evidence:** C# Best-Practice Rules list these checks.
+
+---
+
+## [Milestone 10: Asset Naming Rules]
+**Status:** Planned  
+**Evidence:** The plan includes Unity asset naming conventions for materials, meshes, textures, animations, controllers, VFX, UI, and Cinemachine assets.  
+**Notes:** This rule pack is useful but can be implemented after the higher-impact MR readiness and Unity risk rules.
+
+- Detect new or renamed materials without the expected `M_` prefix.  
+  **Status:** Planned  
+  **Evidence:** Naming examples include `M_` for Material.
+
+- Detect mesh assets without accepted mesh prefixes.  
+  **Status:** Planned  
+  **Evidence:** Naming examples include `SM_` and `SK_`.
+
+- Detect texture and UI assets without expected prefixes.  
+  **Status:** Planned  
+  **Evidence:** Naming examples include `T_` and `UI_`.
+
+- Detect animation controller assets without the `AC_` prefix.  
+  **Status:** Planned  
+  **Evidence:** Naming examples include `AC_` for Animation Controller.
+
+---
+
+## [Milestone 11: MR Size, Focus & AI-Code Risk]
+**Status:** Planned  
+**Evidence:** The plan defines size/focus heuristics and AI-assisted code risk heuristics for detecting broad, under-tested, or off-scope AI-generated changes.  
+**Notes:** This milestone supports the portfolio story about safer AI-assisted programming.
+
+- Detect large MRs by changed files, changed lines, and directory count.  
+  **Status:** Planned  
+  **Evidence:** Size config includes max changed files, changed lines, and directories.
+
+- Detect unrelated areas changed together.  
+  **Status:** Planned  
+  **Evidence:** MR Size and Focus Rules warn about mixed gameplay, art, tooling, and settings changes.
+
+- Detect scene or prefab changes mixed with broad code refactors.  
+  **Status:** Planned  
+  **Evidence:** MR Size and Focus Rules include this case.
+
+- Detect generated helper abstractions with no clear use.  
+  **Status:** Planned  
+  **Evidence:** AI-Assisted Code Risk Rules include generated helpers with no clear use.
+
+- Detect excessive public APIs, duplicated logic, obvious comments, temporary logs, and missing validation.  
+  **Status:** Planned  
+  **Evidence:** AI-Assisted Code Risk Rules list these patterns.
+
+- Generate an AI-Assisted Development Notes checklist.  
+  **Status:** Planned  
+  **Evidence:** Plan includes a suggested checklist for AI-assisted development notes.
+
+---
+
+## [Milestone 12: Reporting]
+**Status:** Planned  
+**Evidence:** The plan includes an example Markdown review report with risk level, blocking issues, warnings, suggested author actions, and reviewer focus.  
+**Notes:** Reporting should stay concise and actionable.
+
+- Group findings by severity.  
+  **Status:** Planned  
+  **Evidence:** Example report groups Blocking Issues, High Priority Warnings, and Warnings.
+
+- Include risk level.  
+  **Status:** Planned  
+  **Evidence:** Example report starts with `Risk: High`.
+
+- Include rule IDs and source links.  
+  **Status:** Planned  
+  **Evidence:** Policy architecture requires every finding to reference a rule ID and source.
+
+- Include suggested author actions.  
+  **Status:** Planned  
+  **Evidence:** Example report includes actions such as adding Test Plan and Manual Validation notes.
+
+- Include suggested reviewer focus.  
+  **Status:** Planned  
+  **Evidence:** Example report includes reviewer focus areas.
+
+- Store the generated Markdown report in review history.  
+  **Status:** Planned  
+  **Evidence:** Review History requires storing generated Markdown report.
+
+---
+
+## [Milestone 13: Optional AI Summary]
+**Status:** Planned, optional  
+**Evidence:** The plan states that AI should only summarize deterministic findings and must not create AI-only blocking findings.  
+**Notes:** This should be implemented after deterministic checks and reporting work.
+
+- Build a structured prompt from MR title, MR description, changed files, findings, relevant policy rules, and compact diff summary.  
+  **Status:** Planned  
+  **Evidence:** Optional AI Summary section defines the input packet.
+
+- Generate risk summary, reviewer focus areas, suggested author actions, and questions.  
+  **Status:** Planned  
+  **Evidence:** Optional AI Summary section defines the output.
+
+- Validate AI output with a schema.  
+  **Status:** Planned  
+  **Evidence:** Repository plan includes `ai` module and the prior architecture includes structured AI output.
+
+- Fall back gracefully when the AI call fails or no API key is configured.  
+  **Status:** Planned  
+  **Evidence:** OpenAI API is optional.
+
+- Prevent AI-only blocking findings.  
+  **Status:** Planned  
+  **Evidence:** Principle: rules find issues, AI explains and prioritizes them.
+
+---
+
+## [Milestone 14: GitLab Integration]
+**Status:** Planned, optional after local MVP  
+**Evidence:** The plan includes a future GitLab command and integration tasks for fetching MR data and posting comments.  
+**Notes:** This should come after local review, storage, and Streamlit are stable.
+
+- Add GitLab provider using `python-gitlab`.  
+  **Status:** Planned  
+  **Evidence:** Tech stack includes `python-gitlab later`.
+
+- Fetch MR title and description.  
+  **Status:** Planned  
+  **Evidence:** GitLab command requires MR metadata.
+
+- Fetch changed files and diffs.  
+  **Status:** Planned  
+  **Evidence:** GitLab integration milestone includes changed files and diff fetch.
+
+- Post one summary comment to the MR.  
+  **Status:** Planned  
+  **Evidence:** Product scope includes optional GitLab comment posting.
+
+- Add dry-run mode.  
+  **Status:** Planned  
+  **Evidence:** GitLab integration milestone includes dry-run mode.
+
+---
+
+## [Milestone 15: Testing & Demo Fixtures]
+**Status:** Planned  
+**Evidence:** The plan defines fixture-based tests and five demo MR scenarios.  
+**Notes:** Tests should be written alongside each rule to make the Codex workflow credible.
+
+- Add pytest test structure.  
+  **Status:** Planned  
+  **Evidence:** Tech stack includes pytest.
+
+- Create good Unity MR fixture.  
+  **Status:** Planned  
+  **Evidence:** Portfolio demo requires a good Unity MR.
+
+- Create risky scene MR fixture.  
+  **Status:** Planned  
+  **Evidence:** Portfolio demo requires a risky scene MR.
+
+- Create risky prefab MR fixture.  
+  **Status:** Planned  
+  **Evidence:** Portfolio demo requires a risky prefab MR.
+
+- Create ProjectSettings MR fixture.  
+  **Status:** Planned  
+  **Evidence:** Portfolio demo requires a ProjectSettings MR.
+
+- Create AI-generated overreach MR fixture.  
+  **Status:** Planned  
+  **Evidence:** Portfolio demo requires an AI-generated overreach MR.
+
+- Add snapshot tests for Markdown reports.  
+  **Status:** Planned  
+  **Evidence:** Reporting output needs stable verification.
+
+---
+
+## [Milestone 16: Portfolio Demo & Deliverables]
+**Status:** Planned  
+**Evidence:** The plan defines a demo flow, README, documentation, tickets, and success criteria.  
+**Notes:** The Streamlit dashboard and review history should be central to the final demo.
+
+- Write README with problem, solution, architecture, demo, and limitations.  
+  **Status:** Planned  
+  **Evidence:** Repository structure includes README.
+
+- Add AGENTS.md for Codex workflow guidance.  
+  **Status:** Planned  
+  **Evidence:** Repository structure includes AGENTS.md.
+
+- Add architecture, rule ID, FAQ, limitations, and agentic workflow docs.  
+  **Status:** Planned  
+  **Evidence:** Repository structure includes these docs.
+
+- Add ticket files for Codex implementation.  
+  **Status:** Planned  
+  **Evidence:** Plan includes tickets from CLI setup through demo fixtures.
+
+- Record a demo showing before/after MR improvement.  
+  **Status:** Planned  
+  **Evidence:** Demo flow requires running MR Guardian, fixing the MR, and showing improved results.
+
+- Show Streamlit history and project manager metrics.  
+  **Status:** Planned  
+  **Evidence:** Demo flow includes Streamlit history dashboard and trend views.
+
+---
+
+## [Milestone 17: Definition of Done]
+**Status:** Planned  
+**Evidence:** The plan defines concrete success criteria for local review, policy loading, rule checks, review history, Streamlit dashboard, and optional AI.  
+**Notes:** This should become the checklist for the final portfolio submission.
+
+- Tool runs locally on a sample Unity repo.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include local sample Unity repo execution.
+
+- Tool loads YAML policy and Markdown best-practices source.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include both YAML and Markdown loading.
+
+- Tool validates rule ID links.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include stable rule ID validation.
+
+- Tool detects scene, prefab, ProjectSettings, and package changes.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include these Unity change types.
+
+- Tool detects missing MR test plans and suggests copy-pasteable sections.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include missing test plan detection and suggested MR sections.
+
+- Tool detects gameplay code changes without tests.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include this rule.
+
+- Tool detects likely AI-coding overreach.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include AI-coding overreach detection.
+
+- Tool produces a clean Markdown report.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include Markdown reporting.
+
+- Tool stores review history and shows it in Streamlit.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include review history and Streamlit views.
+
+- Tool shows project manager metrics.  
+  **Status:** Planned  
+  **Evidence:** Success criteria include project manager metrics.
+
+- Tool optionally summarizes findings with AI.  
+  **Status:** Planned, optional  
+  **Evidence:** Success criteria include optional AI summary.
+
+---
+
+# Overall Summary
+
+## Overall project status
+
+**Planning complete / implementation not started.**
+
+MR Guardian is now defined as a Python-based Unity Merge Request review assistant with a CLI, Streamlit dashboard, YAML executable policy, Markdown best-practices source, stable rule IDs, deterministic Unity-specific checks, persistent SQLite review history, and optional AI summaries.
+
+The project is positioned as a realistic portfolio piece because it demonstrates agentic coding, policy-as-code, Unity engineering judgment, safe AI-assisted development practices, and workflow analytics for project managers.
+
+## Main implementation priorities
+
+1. Build the Python core and local CLI.
+2. Implement YAML policy loading and Markdown rule ID validation.
+3. Add SQLite review history.
+4. Add Streamlit dashboard views.
+5. Implement Unity scene, prefab, ProjectSettings, metadata, C#, test, and AI-code risk rules.
+6. Add Markdown reporting and suggested fixes.
+7. Add optional AI summary.
+8. Add GitLab integration after the local MVP works.
+
+## Current gaps
+
+- Repository has not been created yet.
+- No Python package implementation exists yet.
+- No YAML policy loader exists yet.
+- No Markdown rule ID validator exists yet.
+- No rule engine exists yet.
+- No SQLite review history exists yet.
+- No Streamlit dashboard exists yet.
+- No demo fixtures exist yet.
+- No GitLab integration exists yet.
+- No optional AI summary exists yet.

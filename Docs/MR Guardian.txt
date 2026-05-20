@@ -1,0 +1,1115 @@
+# MR Guardian — Unity MR Review Assistant
+
+## Goal
+
+Build a portfolio-ready tool that reviews Unity Merge Requests against team-specific engineering best practices.
+
+**Positioning:**
+
+> MR Guardian is an AI-assisted workflow tool that helps Unity teams catch risky, incomplete, or poorly documented Merge Requests before human review.
+
+The tool does **not** replace human review.
+
+It acts as a workflow assistant that checks whether an MR is ready for review, highlights risky Unity-specific changes, stores review history, and points developers back to the team's best-practices documentation.
+
+---
+
+# Part 1 — What We Need to Implement
+
+This is the implementation plan for the portfolio piece.
+
+MR Guardian should be a working Python tool with:
+
+- a CLI for real usage
+- a Streamlit dashboard for demos and project managers
+- deterministic Unity MR checks
+- a YAML policy file
+- a Markdown best-practices source
+- stable rule IDs
+- persistent review history
+- optional AI summarization
+
+---
+
+## 1. Product Scope
+
+MR Guardian has three interfaces:
+
+```text
+Core engine     -> reusable Python package
+CLI             -> developer / CI usage
+Streamlit app   -> demo, analysis, and project manager dashboard
+```
+
+Initial local command:
+
+```bash
+mr-guardian review --base main --policy policies/unity-policy.yml
+```
+
+Later GitLab command:
+
+```bash
+mr-guardian review-gitlab --project-id 123 --mr-id 45
+```
+
+Streamlit command:
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+The tool should:
+
+- inspect changed files
+- inspect MR title and description
+- run Unity-specific best-practice checks
+- generate a Markdown review report
+- suggest copy-pasteable fixes when MR information is missing
+- store every review run in a local database
+- show historical review trends in Streamlit
+- optionally post the report as a GitLab MR comment
+- optionally use AI to summarize deterministic findings
+
+---
+
+## 2. Technology Stack
+
+Recommended stack:
+
+```text
+Python
+Typer
+Pydantic
+PyYAML or ruamel.yaml
+Git CLI
+SQLite
+Streamlit
+pytest
+Rich
+python-gitlab later
+OpenAI API optional
+```
+
+---
+
+## 3. Policy Architecture
+
+MR Guardian uses both Markdown and YAML.
+
+```text
+Markdown = human-readable best-practices source
+YAML     = machine-readable policy
+Rule IDs = stable link between both
+```
+
+Markdown explains the rule:
+
+```markdown
+## UNITY-SCENE-001 — Scene changes require manual validation
+
+Unity scene files can introduce runtime behavior changes that are hard to review from code alone.
+
+Every MR that changes or adds a `.unity` scene must include manual validation notes.
+```
+
+YAML makes the rule executable:
+
+```yaml
+- id: UNITY-SCENE-001
+  enabled: true
+  severity: high
+  source: UnityBestPractices.md#UNITY-SCENE-001
+  description: Scene changes require manual validation.
+  match:
+    changed_files:
+      - "Assets/**/*.unity"
+  require:
+    mr_sections:
+      - Manual Validation
+  suggested_fix_ref: manual_validation
+```
+
+Every finding should reference the rule ID:
+
+```text
+⚠️ [UNITY-SCENE-001] Scene changed without manual validation.
+Source: UnityBestPractices.md#UNITY-SCENE-001
+```
+
+---
+
+## 4. Stable Rule IDs
+
+Use this format:
+
+```text
+AREA-TOPIC-NUMBER
+```
+
+Examples:
+
+```text
+MR-META-001
+MR-SIZE-001
+UNITY-SCENE-001
+UNITY-PREFAB-001
+UNITY-PROJECTSETTINGS-001
+UNITY-PACKAGES-001
+UNITY-TESTS-001
+CSHARP-DEBUG-001
+CSHARP-GETCOMPONENT-001
+ASSET-NAMING-001
+AI-CODE-001
+```
+
+The same ID must appear in:
+
+- the Markdown best-practices document
+- the YAML policy
+- the MR Guardian finding
+- the stored review history
+
+---
+
+## 5. Core Components
+
+| Component | Purpose |
+|---|---|
+| Core engine | Runs rules and produces findings |
+| Local Git provider | Reads changed files and diffs from a local branch |
+| YAML policy loader | Loads executable rules and thresholds |
+| Markdown source loader | Loads best-practices documentation |
+| Rule ID validator | Ensures YAML rules link to Markdown rule IDs |
+| Rule engine | Runs checks and returns findings |
+| Markdown reporter | Generates the MR review report |
+| Suggested fix generator | Produces copy-pasteable MR sections |
+| History store | Stores review runs and findings |
+| Streamlit dashboard | Shows current and historical review insights |
+| Fixture tests | Tests rules against sample MRs |
+
+Optional:
+
+| Component | Purpose |
+|---|---|
+| AI summary | Summarizes deterministic findings |
+| GitLab provider | Fetches MR title, description, files, and diffs |
+| GitLab reporter | Posts one MR comment |
+
+---
+
+## 6. Review History
+
+MR Guardian should store every review run.
+
+Recommended first implementation:
+
+```text
+SQLite database
+```
+
+Store:
+
+- review ID
+- timestamp
+- project name
+- branch name
+- MR ID if available
+- commit SHA if available
+- policy version
+- best-practices source version
+- risk level
+- number of blocking issues
+- number of high-priority warnings
+- number of warnings
+- triggered rule IDs
+- changed file count
+- changed line count
+- whether AI summary was used
+- generated Markdown report
+
+This makes the tool useful for project managers.
+
+They can see:
+
+- whether MR quality is improving
+- which rules trigger most often
+- which teams or areas create repeated risk
+- whether AI-assisted coding creates larger or riskier MRs
+- whether missing test plans or validation notes are common
+- how review readiness changes over time
+
+---
+
+## 7. Streamlit Dashboard
+
+The Streamlit app should have these views:
+
+### Review Runner
+
+Input:
+
+- base branch
+- policy file
+- best-practices Markdown file
+- optional MR title and description
+- optional pasted diff or changed files
+
+Output:
+
+- risk level
+- findings grouped by severity
+- suggested author actions
+- generated Markdown MR comment
+
+### Review History
+
+Show:
+
+- recent reviews
+- risk over time
+- findings by severity
+- most triggered rules
+- average changed files per review
+- frequency of AI-code risk findings
+
+### Rule Explorer
+
+Show:
+
+- rule ID
+- YAML configuration
+- Markdown source link
+- number of times triggered
+- recent examples
+
+### Project Manager Summary
+
+Show:
+
+- total reviews
+- percentage of review-ready MRs
+- most common blockers
+- trends in missing test plans
+- trends in scene/prefab risk
+- trends in AI-generated overreach
+
+---
+
+## 8. Rule Packs to Implement
+
+## 8.1 MR Readiness Rules
+
+Check that the MR includes:
+
+- title
+- summary
+- linked issue, card, or bug
+- test plan
+- risk notes
+- reviewer notes
+- rollback notes when applicable
+- video or screenshot evidence for visible Unity changes
+
+When required metadata is missing, suggest a fix.
+
+Example suggested section:
+
+```markdown
+### Test Plan
+
+- [ ] Confirm the project compiles.
+- [ ] Run the affected Unity scene.
+- [ ] Test the main success path.
+- [ ] Test at least one edge case.
+- [ ] Check the Unity Console for errors.
+- [ ] Attach a video or screenshot if the change is visual.
+```
+
+---
+
+## 8.2 Unity Asset Risk Rules
+
+High-priority paths:
+
+```text
+Assets/**/*.unity
+ProjectSettings/**
+Packages/manifest.json
+Packages/packages-lock.json
+Assets/Plugins/**
+Assets/ThirdParty/**
+```
+
+Medium-priority paths:
+
+```text
+Assets/**/*.prefab
+Assets/**/*.asset
+Assets/**/*.asmdef
+Assets/Resources/**
+Assets/Addressables/**
+```
+
+Rules:
+
+- scene changes are high importance
+- added or deleted scenes are high importance
+- prefab changes are warnings unless they touch core prefabs
+- core prefab changes are high importance, the core prefabs will be shown in yaml
+- ProjectSettings changes require explicit explanation
+- package changes require risk notes
+- third-party edits should be flagged
+
+
+---
+
+## 8.3 Unity Test and Playtest Rules
+
+Production paths:
+
+```text
+Assets/Scripts/**
+Assets/**/Scripts/**
+```
+
+Test paths:
+
+```text
+Assets/Tests/**
+Assets/**/Tests/**
+Tests/**
+```
+
+Rules:
+
+- gameplay code changed but no test files changed
+- scene changed without manual validation
+- prefab changed without manual validation
+- visual change missing video or screenshot
+- bug fix missing root-cause explanation
+
+Example suggested section:
+
+```markdown
+### Manual Validation
+
+- [ ] Opened the affected scene.
+- [ ] Entered Play Mode.
+- [ ] Verified the changed behavior.
+- [ ] Checked the Unity Console for errors.
+- [ ] Attached a video or screenshot if visual behavior changed.
+```
+
+---
+
+## 8.4 C# Best-Practice Rules
+
+Initial checks:
+
+- class too long
+- method too long
+- method has too many parameters
+- public fields in MonoBehaviours
+- `Debug.Log` added
+- `print` added
+- `GetComponent` used outside `Awake`
+- `GetInstanceID` used
+- direct edits inside third-party folders
+- long method chains
+- ScriptableObject appears to hold runtime mutable state
+
+Example finding:
+
+```text
+⚠️ [CSHARP-GETCOMPONENT-001] PlayerHealthView.cs uses GetComponent outside Awake.
+```
+
+---
+
+## 8.6 MR Size and Focus Rules
+
+Warn when an MR is too large or unfocused.
+
+Checks:
+
+- too many changed files
+- too many changed lines
+- too many unrelated directories
+- scene or prefab changes mixed with broad code refactors
+- generated files mixed with hand-written logic
+- gameplay, art, tooling, and settings mixed without explanation
+
+---
+
+## 8.7 AI-Assisted Code Risk Rules
+
+Detect patterns that often happen when AI-generated code goes off track.
+
+Checks:
+
+- MR is much larger than the ticket scope
+- unrelated files changed
+- generated helper abstractions with no clear use
+- duplicated logic
+- inconsistent naming
+- excessive public APIs
+- obvious comments explaining simple code
+- temporary debug logs
+- code added without tests or manual validation
+
+Suggested section:
+
+```markdown
+### AI-Assisted Development Notes
+
+- [ ] Confirmed all changed files are required.
+- [ ] Removed unused generated code.
+- [ ] Removed temporary debug logs.
+- [ ] Checked the implementation against team best practices.
+- [ ] Added tests or manual validation notes.
+```
+
+---
+
+## 9. Optional AI Summary
+
+AI should only summarize deterministic findings.
+
+The AI receives:
+
+- MR title
+- MR description
+- changed files
+- rule findings
+- relevant policy rules
+- compact diff summary
+
+The AI produces:
+
+- risk level
+- summary
+- reviewer focus areas
+- suggested author actions
+- questions for the author or reviewer
+
+Rule:
+
+```text
+Rules find issues.
+AI explains and prioritizes them.
+Humans make the final decision.
+```
+
+---
+
+## 10. Repository Structure
+
+```text
+mr-guardian/
+  best-practices/
+    UnityBestPractices.md
+
+  policies/
+    unity-policy.yml
+
+  mr_guardian/
+    core/
+    providers/
+    policy/
+    best_practices/
+    rules/
+    reporting/
+    storage/
+    ai/
+
+  app/
+    streamlit_app.py
+
+  fixtures/
+    sample_mrs/
+      good_unity_mr/
+      risky_scene_mr/
+      risky_prefab_mr/
+      project_settings_mr/
+      ai_generated_overreach_mr/
+
+  docs/
+    architecture.md
+    rule-id-conventions.md
+    faq.md
+    limitations.md
+    agentic-workflow.md
+
+  tickets/
+    001-create-cli-skeleton.md
+    002-add-policy-loader.md
+    003-add-rule-id-validation.md
+    004-add-history-store.md
+    005-add-streamlit-dashboard.md
+    006-add-unity-scene-risk-rule.md
+    007-add-unity-prefab-risk-rule.md
+    008-add-project-settings-rule.md
+    009-add-metadata-fix-suggestions.md
+    010-add-csharp-rules.md
+    011-add-test-change-rule.md
+    012-add-ai-code-risk-rule.md
+    013-add-markdown-reporter.md
+    014-add-ai-summary.md
+    015-add-gitlab-provider.md
+    016-add-demo-fixtures.md
+
+  tests/
+  pyproject.toml
+  README.md
+  AGENTS.md
+```
+
+---
+
+## 11. Minimal Policy Example
+
+```yaml
+version: 1
+
+best_practices:
+  source_url: "https://github.com/GiacomoMariani/UnityBestPractices"
+  local_markdown_path: "best-practices/UnityBestPractices.md"
+  require_rule_id_links: true
+
+history:
+  enabled: true
+  database_path: ".mr-guardian/history.sqlite"
+
+mr_metadata:
+  required_sections:
+    - Summary
+    - Linked Issue
+    - Test Plan
+    - Risk
+    - Reviewer Notes
+
+  suggested_sections:
+    test_plan: |
+      ### Test Plan
+
+      - [ ] Confirm the project compiles.
+      - [ ] Run the affected Unity scene.
+      - [ ] Test the main success path.
+      - [ ] Check the Unity Console for errors.
+
+    manual_validation: |
+      ### Manual Validation
+
+      - [ ] Opened the affected scene.
+      - [ ] Entered Play Mode.
+      - [ ] Verified the changed behavior.
+      - [ ] Checked the Unity Console for errors.
+
+size:
+  max_changed_files_warning: 15
+  max_changed_lines_warning: 500
+  max_directories_warning: 5
+
+unity:
+  scene_paths:
+    - "Assets/**/*.unity"
+  prefab_paths:
+    - "Assets/**/*.prefab"
+  project_settings_paths:
+    - "ProjectSettings/**"
+  package_paths:
+    - "Packages/manifest.json"
+    - "Packages/packages-lock.json"
+  production_code_paths:
+    - "Assets/Scripts/**"
+    - "Assets/**/Scripts/**"
+  test_paths:
+    - "Assets/Tests/**"
+    - "Assets/**/Tests/**"
+    - "Tests/**"
+
+csharp:
+  max_class_lines: 300
+  max_method_lines: 50
+  max_method_parameters: 5
+  flag_public_fields: true
+  flag_debug_log: true
+  flag_get_component_outside_awake: true
+
+rules:
+  - id: MR-META-001
+    enabled: true
+    severity: blocking
+    source: UnityBestPractices.md#MR-META-001
+    description: MR must include a test plan.
+    require:
+      mr_sections:
+        - Test Plan
+    suggested_fix_ref: test_plan
+
+  - id: UNITY-SCENE-001
+    enabled: true
+    severity: high
+    source: UnityBestPractices.md#UNITY-SCENE-001
+    description: Scene changes require manual validation.
+    match:
+      changed_files:
+        - "Assets/**/*.unity"
+    require:
+      mr_sections:
+        - Manual Validation
+    suggested_fix_ref: manual_validation
+
+  - id: UNITY-PREFAB-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#UNITY-PREFAB-001
+    description: Prefab changes require validation evidence.
+    match:
+      changed_files:
+        - "Assets/**/*.prefab"
+
+  - id: UNITY-PROJECTSETTINGS-001
+    enabled: true
+    severity: high
+    source: UnityBestPractices.md#UNITY-PROJECTSETTINGS-001
+    description: ProjectSettings changes require explanation.
+    match:
+      changed_files:
+        - "ProjectSettings/**"
+    require:
+      mr_sections:
+        - Risk
+        - Reviewer Notes
+
+  - id: UNITY-TESTS-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#UNITY-TESTS-001
+    description: Gameplay code changes require tests or manual validation.
+    match:
+      changed_files:
+        - "Assets/Scripts/**"
+        - "Assets/**/Scripts/**"
+    require_any:
+      changed_files:
+        - "Assets/Tests/**"
+        - "Assets/**/Tests/**"
+        - "Tests/**"
+      mr_sections:
+        - Manual Validation
+
+  - id: CSHARP-DEBUG-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#CSHARP-DEBUG-001
+    description: Avoid committed Debug.Log or print statements.
+    match:
+      changed_files:
+        - "Assets/**/*.cs"
+      added_lines_contain:
+        - "Debug.Log"
+        - "print("
+
+  - id: AI-CODE-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#AI-CODE-001
+    description: AI-assisted code should not add unnecessary scope.
+    match:
+      changed_files_count_greater_than: 15
+```
+
+---
+
+## 12. Example Review Report
+
+```markdown
+## MR Guardian Review
+
+**Risk:** High
+
+### Blocking Issues
+
+- [MR-META-001] Missing `Test Plan` section.
+- [UNITY-SCENE-001] Missing manual validation for scene changes.
+
+### High Priority Warnings
+
+- [UNITY-SCENE-001] Scene changed: `Assets/Scenes/BattleArena.unity`
+- [UNITY-PROJECTSETTINGS-001] ProjectSettings changed.
+
+### Warnings
+
+- [UNITY-PREFAB-001] Prefab changed: `Assets/Prefabs/Player/Player.prefab`
+- [UNITY-TESTS-001] Gameplay code changed, but no test files changed.
+- [CSHARP-DEBUG-001] Debug.Log added.
+- [AI-CODE-001] MR appears broader than the described change.
+
+### Suggested Author Actions
+
+- Add a Test Plan.
+- Add Manual Validation notes.
+- Explain ProjectSettings changes.
+- Remove unnecessary AI-generated scope.
+
+### Suggested Reviewer Focus
+
+- Open and run the changed scene.
+- Validate prefab references.
+- Confirm ProjectSettings changes are intentional.
+- Check whether gameplay behavior needs tests.
+```
+
+---
+
+## 13. Milestones
+
+## Milestone 1 — Python Core and CLI
+
+- Python package structure
+- Typer CLI command
+- local Git diff reader
+- Markdown report output
+
+## Milestone 2 — Policy and Rule IDs
+
+- YAML schema
+- Markdown rule ID extractor
+- rule ID validator
+- tests for valid and invalid links
+
+## Milestone 3 — Review History
+
+- SQLite storage
+- review run table
+- finding table
+- save review results after each run
+- query review history
+
+## Milestone 4 — Streamlit Dashboard
+
+- run review from UI
+- show latest report
+- show history table
+- show risk trends
+- show most triggered rules
+- show project manager summary
+
+## Milestone 5 — Unity Risk Rules
+
+- scene rule
+- prefab rule
+- core prefab rule
+- ProjectSettings rule
+- package rule
+
+## Milestone 6 — MR Metadata Fixes
+
+- missing section detection
+- suggested Markdown sections
+- visual evidence detection
+- manual validation detection
+
+## Milestone 7 — C# and Test Rules
+
+- Debug.Log rule
+- GetComponent rule
+- public field rule
+- method/class size rule
+- production/test path matching
+
+## Milestone 8 — AI-Code Risk Rule
+
+- large MR heuristic
+- unrelated directories heuristic
+- mixed scene/prefab/code heuristic
+- AI-assisted development checklist
+
+## Milestone 9 — Optional AI Summary
+
+- structured prompt
+- JSON output
+- fallback if AI fails
+- no AI-only blocking findings
+
+## Milestone 10 — GitLab Integration
+
+- fetch MR title
+- fetch MR description
+- fetch changed files
+- fetch diff
+- post comment
+- dry-run mode
+
+---
+
+## 14. Portfolio Demo
+
+Create 5 demo MRs:
+
+- good Unity MR
+- risky scene MR
+- risky prefab MR
+- ProjectSettings MR
+- AI-generated overreach MR
+
+Demo flow:
+
+```text
+1. Run MR Guardian on sample MRs.
+2. Show Markdown report.
+3. Show Streamlit history dashboard.
+4. Show most triggered rules.
+5. Show AI-generated overreach trend.
+6. Fix one MR description.
+7. Run MR Guardian again.
+8. Show improved report and updated history.
+```
+
+---
+
+## 15. Success Criteria
+
+The project is successful if it can:
+
+- run locally on a sample Unity repo
+- load YAML policy
+- load Markdown best-practices source
+- validate rule ID links
+- detect scenes, prefabs, ProjectSettings, and package changes
+- detect missing MR test plans
+- suggest copy-pasteable MR sections
+- detect gameplay code changes without tests
+- detect likely AI-coding overreach
+- produce a clean Markdown report
+- store review history
+- show review history in Streamlit
+- show project manager metrics
+- optionally summarize findings with AI
+
+---
+
+# Part 2 — Why This Is the Right Portfolio Piece
+
+This section explains the reasoning.
+
+---
+
+## Why This Matters
+
+Unity code review is difficult because important changes are not always obvious from code alone.
+
+A Unity MR can touch scenes, prefabs, serialized assets, ProjectSettings, packages, inspector references, generated metadata, gameplay scripts, and editor scripts.
+
+MR Guardian helps reviewers focus on risky areas before deep code review.
+
+---
+
+## Why This Matters for AI-Assisted Programming
+
+AI coding tools can generate useful code quickly, but they can also create changes that are too broad, under-tested, inconsistent, or difficult to review.
+
+This is especially risky in Unity projects because AI-generated changes may touch scenes, prefabs, serialized assets, ProjectSettings, or inspector references.
+
+Junior programmers may miss these issues because generated code can look plausible while still violating project standards.
+
+MR Guardian helps by:
+
+- highlighting unfocused MRs
+- detecting risky Unity files
+- flagging missing tests or validation evidence
+- warning about shortcuts like public fields, `Debug.Log`, or uncached `GetComponent`
+- showing junior developers why a change is not review-ready
+- giving reviewers a focused summary of where AI-generated work may have gone off track
+
+The goal is not to block AI-assisted programming.
+
+The goal is to make it safer, more reviewable, and more aligned with team standards.
+
+---
+
+## Why Store Review History?
+
+Single MR reports are useful.
+
+Review history is more valuable.
+
+By storing review history, MR Guardian can answer questions like:
+
+- Are MRs getting cleaner over time?
+- Which rules trigger most often?
+- Are missing test plans common?
+- Are scene or prefab changes frequently under-documented?
+- Are AI-generated MRs larger or riskier?
+- Which areas need team training?
+
+This turns MR Guardian from a one-off reviewer into a workflow improvement tool.
+
+---
+
+## Why Markdown and YAML?
+
+Markdown is for humans.
+
+YAML is for the tool.
+
+Rule IDs connect both.
+
+```text
+Markdown explains the rule.
+YAML enforces the rule.
+Rule IDs make findings traceable.
+```
+
+This keeps the system maintainable, explainable, configurable, and testable.
+
+---
+
+## Why Deterministic Checks First?
+
+AI-only review can be inconsistent.
+
+MR Guardian should use deterministic rules for findings and AI only for summarization.
+
+```text
+Rules find issues.
+AI explains and prioritizes them.
+Humans make the final decision.
+```
+
+---
+
+## Why This Is Good for a Portfolio
+
+This project demonstrates:
+
+- Python tooling
+- agentic coding workflow
+- policy-as-code
+- Unity-specific engineering judgment
+- deterministic automation
+- safe AI summarization
+- Streamlit dashboarding
+- persistent review analytics
+- realistic scope
+- clear demo value
+
+The demo shows a concrete before/after workflow:
+
+```text
+Before:
+MR is risky, broad, under-documented, and hard to review.
+
+After:
+MR Guardian highlights risks, suggests missing sections, stores the result, and shows improvement over time.
+```
+
+---
+
+## FAQ
+
+## If I already have a Markdown best-practices document, how do I convert it to YAML?
+
+Do not convert the whole document.
+
+Extract only the parts that can become executable rules.
+
+Process:
+
+1. Add stable rule IDs to Markdown headings.
+2. Identify which rules can be checked automatically.
+3. Create one YAML rule per checkable rule.
+4. Keep explanations and examples in Markdown.
+5. Keep patterns, thresholds, severity, and suggested fixes in YAML.
+
+## Should YAML replace Markdown?
+
+No.
+
+Markdown explains. YAML enforces.
+
+## Can AI help convert Markdown into YAML?
+
+Yes, but the result should be reviewed manually.
+
+Check that:
+
+- rule IDs are stable
+- severity is correct
+- file patterns are correct
+- the rule is enforceable
+- suggested fixes are useful
+
+## What if a Markdown rule has no YAML rule?
+
+That is fine.
+
+Some best practices are reviewer guidance only.
+
+## What if a YAML rule has no Markdown source?
+
+MR Guardian should warn or fail when this is enabled:
+
+```yaml
+best_practices:
+  require_rule_id_links: true
+```
+
+## Why not only use AI to review the MR?
+
+Because AI-only review can be inconsistent.
+
+MR Guardian uses rules for reliability and AI for explanation.
+
+## How does this help junior developers?
+
+It teaches them:
+
+- what rule was triggered
+- why it matters
+- where it is documented
+- what to fix before review
+
+## How does this help project managers?
+
+It shows trends over time:
+
+- repeated blockers
+- risky areas
+- missing validation patterns
+- review readiness
+- AI-generated code risk
+
+## How does this help with AI-generated code?
+
+It catches common AI-code problems:
+
+- excessive scope
+- missing tests
+- risky Unity asset changes
+- temporary logs
+- inconsistent naming
+- missing validation evidence
+- changes that do not match the MR description
+
+---
+
+# Final Positioning
+
+Best portfolio headline:
+
+> **MR Guardian: an AI-assisted Unity Merge Request reviewer that enforces team-specific best practices before human review.**
+
+Best one-liner:
+
+> A Python-based policy-as-code review assistant that uses Markdown for human best practices, YAML for executable rules, Streamlit for review analytics, and optional AI summaries to improve Unity MR quality.
+
+AI-assisted programming angle:
+
+> MR Guardian helps identify when generated code is too broad, under-tested, or not aligned with project standards.
+
+Project manager angle:
+
+> MR Guardian stores review history and shows trends so teams can understand recurring quality problems and improve their development workflow over time.

@@ -1,0 +1,164 @@
+version: 1
+
+best_practices:
+  source_url: "https://github.com/GiacomoMariani/UnityBestPractices"
+  local_markdown_path: "best-practices/UnityBestPractices.md"
+  require_rule_id_links: true
+
+history:
+  enabled: true
+  database_path: ".mr-guardian/history.sqlite"
+
+mr_metadata:
+  required_sections:
+    - Summary
+    - Linked Issue
+    - Test Plan
+    - Risk
+    - Reviewer Notes
+
+  suggested_sections:
+    test_plan: |
+      ### Test Plan
+
+      - [ ] Confirm the project compiles.
+      - [ ] Run the affected Unity scene.
+      - [ ] Test the main success path.
+      - [ ] Check the Unity Console for errors.
+
+    manual_validation: |
+      ### Manual Validation
+
+      - [ ] Opened the affected scene.
+      - [ ] Entered Play Mode.
+      - [ ] Verified the changed behavior.
+      - [ ] Checked the Unity Console for errors.
+
+size:
+  max_changed_files_warning: 15
+  max_changed_lines_warning: 500
+  max_directories_warning: 5
+
+unity:
+  scene_paths:
+    - "Assets/**/*.unity"
+  prefab_paths:
+    - "Assets/**/*.prefab"
+  core_prefab_paths:
+    - "Assets/Prefabs/Core/**"
+    - "Assets/Prefabs/Player/**"
+    - "Assets/Prefabs/UI/**"
+  project_settings_paths:
+    - "ProjectSettings/**"
+  package_paths:
+    - "Packages/manifest.json"
+    - "Packages/packages-lock.json"
+  production_code_paths:
+    - "Assets/Scripts/**"
+    - "Assets/**/Scripts/**"
+  test_paths:
+    - "Assets/Tests/**"
+    - "Assets/**/Tests/**"
+    - "Tests/**"
+
+csharp:
+  max_class_lines: 300
+  max_method_lines: 50
+  max_method_parameters: 5
+  flag_public_fields: true
+  flag_debug_log: true
+  flag_get_component_outside_awake: true
+
+rules:
+  - id: MR-META-001
+    enabled: true
+    severity: blocking
+    source: UnityBestPractices.md#MR-META-001
+    description: MR must include a test plan.
+    require:
+      mr_sections:
+        - Test Plan
+    suggested_fix_ref: test_plan
+
+  - id: UNITY-SCENE-001
+    enabled: true
+    severity: high
+    source: UnityBestPractices.md#UNITY-SCENE-001
+    description: Scene changes require manual validation.
+    match:
+      changed_files:
+        - "Assets/**/*.unity"
+    require:
+      mr_sections:
+        - Manual Validation
+    suggested_fix_ref: manual_validation
+
+  - id: UNITY-PREFAB-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#UNITY-PREFAB-001
+    description: Prefab changes require validation evidence.
+    match:
+      changed_files:
+        - "Assets/**/*.prefab"
+
+  - id: UNITY-PROJECTSETTINGS-001
+    enabled: true
+    severity: high
+    source: UnityBestPractices.md#UNITY-PROJECTSETTINGS-001
+    description: ProjectSettings changes require explanation.
+    match:
+      changed_files:
+        - "ProjectSettings/**"
+    require:
+      mr_sections:
+        - Risk
+        - Reviewer Notes
+
+  - id: UNITY-TESTS-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#UNITY-TESTS-001
+    description: Gameplay code changes require tests or manual validation.
+    match:
+      changed_files:
+        - "Assets/Scripts/**"
+        - "Assets/**/Scripts/**"
+    require_any:
+      changed_files:
+        - "Assets/Tests/**"
+        - "Assets/**/Tests/**"
+        - "Tests/**"
+      mr_sections:
+        - Manual Validation
+
+  - id: CSHARP-DEBUG-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#CSHARP-DEBUG-001
+    description: Avoid committed Debug.Log or print statements.
+    match:
+      changed_files:
+        - "Assets/**/*.cs"
+      added_lines_contain:
+        - "Debug.Log"
+        - "print("
+
+  - id: CSHARP-GETCOMPONENT-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#CSHARP-GETCOMPONENT-001
+    description: Cache GetComponent calls in Awake when possible.
+    match:
+      changed_files:
+        - "Assets/**/*.cs"
+      added_lines_contain:
+        - "GetComponent<"
+
+  - id: AI-CODE-001
+    enabled: true
+    severity: warning
+    source: UnityBestPractices.md#AI-CODE-001
+    description: AI-assisted code should not add unnecessary scope.
+    match:
+      changed_files_count_greater_than: 15
