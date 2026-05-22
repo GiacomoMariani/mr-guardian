@@ -5,13 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from mr_guardian.models.policy import Severity
+from mr_guardian.models.policy import RuleType, Severity
 
 RiskLevel = Literal["none", "info", "warning", "high", "blocking"]
 
 
 class Finding(BaseModel):
-    """A deterministic review finding."""
+    """A review finding."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -19,6 +19,7 @@ class Finding(BaseModel):
     severity: Severity
     message: str
     source: str
+    rule_type: RuleType | None = None
     file_path: Path | None = None
     line_number: int | None = None
 
@@ -42,4 +43,3 @@ class EngineReviewResult(BaseModel):
     risk: RiskLevel
     findings: list[Finding]
     counts: FindingCounts
-

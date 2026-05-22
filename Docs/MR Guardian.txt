@@ -113,22 +113,31 @@ Unity scene files can introduce runtime behavior changes that are hard to review
 Every MR that changes or adds a `.unity` scene must include manual validation notes.
 ```
 
-YAML makes the rule executable and is what MR Guardian loads at runtime:
+YAML policy files are a set of executable rules. The only valid top-level keys are
+`version` and `rules`. Everything under `rules` must be a rule, and all runtime
+rules come from YAML.
+
+YAML makes each rule executable and is what MR Guardian loads at runtime:
 
 ```yaml
-- id: UNITY-SCENE-001
-  type: deterministic
-  enabled: true
-  severity: high
-  source: unity-policy.yml#UNITY-SCENE-001
-  description: Scene changes require manual validation.
-  match:
-    changed_files:
-      - "Assets/**/*.unity"
-  require:
-    mr_sections:
-      - Manual Validation
-  suggested_fix_ref: manual_validation
+version: 1
+
+rules:
+  - id: UNITY-SCENE-001
+    type: deterministic
+    implementation: changed_files_require_mr_section
+    enabled: true
+    severity: high
+    source: unity-policy.yml#UNITY-SCENE-001
+    description: Scene changes require manual validation.
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.unity"
+      require:
+        mr_sections:
+          - Manual Validation
+      suggested_fix_ref: manual_validation
 ```
 
 MR Guardian supports two YAML rule types:
@@ -138,9 +147,12 @@ deterministic = implemented in Python and registered in the rule registry
 llm           = prompt-driven advisory check evaluated by an LLM runner
 ```
 
-Deterministic rules are for reliable checks such as file paths, changed lines, thresholds, and required metadata.
+Deterministic rules are for reliable checks such as file paths, changed lines, thresholds, and required metadata. They must declare an `implementation` that maps to a hard-coded Python rule.
 
-LLM rules are for judgment-based checks. They receive a prompt and review context such as changed files and diff hunks. LLM rules must be advisory and must not create blocking findings.
+LLM rules are for judgment-based checks. They receive a prompt and review context such as changed files and diff hunks. LLM rules must be advisory, must declare `prompt`, and must not create blocking findings.
+
+Any rule can have one or more rule-specific settings under `parameters`. Unknown
+rule-level keys are invalid, so the flexible part of the schema is explicit.
 
 Example LLM rule:
 
@@ -154,12 +166,13 @@ Example LLM rule:
   prompt: |
     Review the diff for unnecessary abstraction, over-engineering, or unrelated scope.
     Only report issues grounded in the provided diff.
-  inputs:
-    include_diff: true
-    include_changed_files: true
-  output_contract:
-    max_findings: 3
-    allow_blocking: false
+  parameters:
+    inputs:
+      include_diff: true
+      include_changed_files: true
+    output_contract:
+      max_findings: 3
+      allow_blocking: false
 ```
 
 Every finding should reference the rule ID:
@@ -601,148 +614,121 @@ mr-guardian/
 ```yaml
 version: 1
 
-history:
-  enabled: true
-  database_path: ".mr-guardian/history.sqlite"
-
-mr_metadata:
-  required_sections:
-    - Summary
-    - Linked Issue
-    - Test Plan
-    - Risk
-    - Reviewer Notes
-
-  suggested_sections:
-    test_plan: |
-      ### Test Plan
-
-      - [ ] Confirm the project compiles.
-      - [ ] Run the affected Unity scene.
-      - [ ] Test the main success path.
-      - [ ] Check the Unity Console for errors.
-
-    manual_validation: |
-      ### Manual Validation
-
-      - [ ] Opened the affected scene.
-      - [ ] Entered Play Mode.
-      - [ ] Verified the changed behavior.
-      - [ ] Checked the Unity Console for errors.
-
-size:
-  max_changed_files_warning: 15
-  max_changed_lines_warning: 500
-  max_directories_warning: 5
-
-unity:
-  scene_paths:
-    - "Assets/**/*.unity"
-  prefab_paths:
-    - "Assets/**/*.prefab"
-  project_settings_paths:
-    - "ProjectSettings/**"
-  package_paths:
-    - "Packages/manifest.json"
-    - "Packages/packages-lock.json"
-  production_code_paths:
-    - "Assets/Scripts/**"
-    - "Assets/**/Scripts/**"
-  test_paths:
-    - "Assets/Tests/**"
-    - "Assets/**/Tests/**"
-    - "Tests/**"
-
-csharp:
-  max_class_lines: 300
-  max_method_lines: 50
-  max_method_parameters: 5
-  flag_public_fields: true
-  flag_debug_log: true
-  flag_get_component_outside_awake: true
-
 rules:
   - id: MR-META-001
+    type: deterministic
+    implementation: mr_required_section
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
-    require:
-      mr_sections:
-        - Test Plan
-    suggested_fix_ref: test_plan
+    parameters:
+      require:
+        mr_sections:
+          - Test Plan
+      suggested_fix: |
+        ### Test Plan
+
+        - [ ] Confirm the project compiles.
+        - [ ] Run the affected Unity scene.
+        - [ ] Test the main success path.
+        - [ ] Check the Unity Console for errors.
 
   - id: UNITY-SCENE-001
+    type: deterministic
+    implementation: changed_files_require_mr_section
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-SCENE-001
     description: Scene changes require manual validation.
-    match:
-      changed_files:
-        - "Assets/**/*.unity"
-    require:
-      mr_sections:
-        - Manual Validation
-    suggested_fix_ref: manual_validation
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.unity"
+      require:
+        mr_sections:
+          - Manual Validation
+      suggested_fix: |
+        ### Manual Validation
+
+        - [ ] Opened the affected scene.
+        - [ ] Entered Play Mode.
+        - [ ] Verified the changed behavior.
+        - [ ] Checked the Unity Console for errors.
 
   - id: UNITY-PREFAB-001
+    type: deterministic
+    implementation: changed_files_require_validation
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-PREFAB-001
     description: Prefab changes require validation evidence.
-    match:
-      changed_files:
-        - "Assets/**/*.prefab"
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.prefab"
 
   - id: UNITY-PROJECTSETTINGS-001
+    type: deterministic
+    implementation: changed_files_require_mr_section
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-PROJECTSETTINGS-001
     description: ProjectSettings changes require explanation.
-    match:
-      changed_files:
-        - "ProjectSettings/**"
-    require:
-      mr_sections:
-        - Risk
-        - Reviewer Notes
+    parameters:
+      match:
+        changed_files:
+          - "ProjectSettings/**"
+      require:
+        mr_sections:
+          - Risk
+          - Reviewer Notes
 
   - id: UNITY-TESTS-001
+    type: deterministic
+    implementation: production_code_requires_tests_or_validation
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-TESTS-001
     description: Gameplay code changes require tests or manual validation.
-    match:
-      changed_files:
-        - "Assets/Scripts/**"
-        - "Assets/**/Scripts/**"
-    require_any:
-      changed_files:
-        - "Assets/Tests/**"
-        - "Assets/**/Tests/**"
-        - "Tests/**"
-      mr_sections:
-        - Manual Validation
+    parameters:
+      match:
+        changed_files:
+          - "Assets/Scripts/**"
+          - "Assets/**/Scripts/**"
+      require_any:
+        changed_files:
+          - "Assets/Tests/**"
+          - "Assets/**/Tests/**"
+          - "Tests/**"
+        mr_sections:
+          - Manual Validation
 
   - id: CSHARP-DEBUG-001
+    type: deterministic
+    implementation: csharp_debug_log
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-DEBUG-001
     description: Avoid committed Debug.Log or print statements.
-    match:
-      changed_files:
-        - "Assets/**/*.cs"
-      added_lines_contain:
-        - "Debug.Log"
-        - "print("
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        added_lines_contain:
+          - "Debug.Log"
+          - "print("
 
   - id: AI-CODE-001
+    type: deterministic
+    implementation: ai_code_large_change
     enabled: true
     severity: warning
     source: unity-policy.yml#AI-CODE-001
     description: AI-assisted code should not add unnecessary scope.
-    match:
-      changed_files_count_greater_than: 15
+    parameters:
+      match:
+        changed_files_count_greater_than: 15
 ```
 
 ---

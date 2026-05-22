@@ -1,7 +1,5 @@
 """Rule detecting newly added debug logging in Unity C# files."""
 
-from typing import Any
-
 from mr_guardian.models.policy import PolicyRule
 from mr_guardian.models.review import Finding
 from mr_guardian.models.review_input import ChangedFile, DiffLine
@@ -65,7 +63,7 @@ def _added_lines(changed_file: ChangedFile) -> list[DiffLine]:
 
 
 def _debug_tokens_from_policy(rule: PolicyRule) -> tuple[str, ...]:
-    match_config = _extra_value(rule, "match")
+    match_config = rule.parameters.get("match")
     if not isinstance(match_config, dict):
         return DEFAULT_DEBUG_TOKENS
 
@@ -75,7 +73,3 @@ def _debug_tokens_from_policy(rule: PolicyRule) -> tuple[str, ...]:
 
     parsed_tokens = tuple(token for token in tokens if isinstance(token, str))
     return parsed_tokens or DEFAULT_DEBUG_TOKENS
-
-
-def _extra_value(rule: PolicyRule, key: str) -> Any:
-    return rule.model_extra.get(key) if rule.model_extra is not None else None

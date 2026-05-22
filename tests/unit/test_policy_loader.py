@@ -24,10 +24,15 @@ version: 1
 rules:
   - id: MR-META-001
     type: deterministic
+    implementation: mr_required_section
     enabled: {enabled_value}
     severity: {severity}
     source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
+    parameters:
+      require:
+        mr_sections:
+          - Test Plan
 """
 
 
@@ -39,10 +44,12 @@ def test_loads_valid_policy(tmp_path: Path) -> None:
     assert policy.version == 1
     assert policy.rules[0].id == "MR-META-001"
     assert policy.rules[0].type == "deterministic"
+    assert policy.rules[0].implementation == "mr_required_section"
     assert policy.rules[0].enabled is True
     assert policy.rules[0].severity == "blocking"
     assert policy.rules[0].source == "unity-policy.yml#MR-META-001"
     assert policy.rules[0].description == "MR must include a test plan."
+    assert policy.rules[0].parameters == {"require": {"mr_sections": ["Test Plan"]}}
 
 
 def test_fails_on_missing_version(tmp_path: Path) -> None:
@@ -61,6 +68,7 @@ version: 1
 rules:
   - id: MR-META-001
     type: deterministic
+    implementation: mr_required_section
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -86,6 +94,7 @@ history:
 rules:
   - id: MR-META-001
     type: deterministic
+    implementation: mr_required_section
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -105,6 +114,7 @@ version: 1
 
 rules:
   - type: deterministic
+    implementation: mr_required_section
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -142,6 +152,16 @@ def test_fails_on_invalid_rule_type(tmp_path: Path) -> None:
     )
 
     with pytest.raises(PolicyValidationError, match="type"):
+        load_policy(policy_path)
+
+
+def test_fails_on_missing_deterministic_implementation(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        valid_policy_yaml().replace("    implementation: mr_required_section\n", ""),
+    )
+
+    with pytest.raises(PolicyValidationError, match="implementation"):
         load_policy(policy_path)
 
 
@@ -186,6 +206,30 @@ rules:
         load_policy(policy_path)
 
 
+def test_fails_on_unexpected_rule_level_parameters(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        """
+version: 1
+
+rules:
+  - id: PYTHON-PRINT-001
+    type: deterministic
+    implementation: python_print
+    enabled: true
+    severity: warning
+    source: python-policy.yml#PYTHON-PRINT-001
+    description: Python code should use logging instead of print calls.
+    match:
+      added_lines_contain:
+        - "print("
+""",
+    )
+
+    with pytest.raises(PolicyValidationError, match="match"):
+        load_policy(policy_path)
+
+
 def test_fails_on_invalid_severity(tmp_path: Path) -> None:
     policy_path = write_policy(tmp_path, valid_policy_yaml(severity="critical"))
 
@@ -201,6 +245,7 @@ version: 1
 rules:
   - id: MR-META-001
     type: deterministic
+    implementation: mr_required_section
     enabled: true
     severity: blocking
     source: [unterminated

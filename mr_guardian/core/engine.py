@@ -34,6 +34,7 @@ def run_review(
                     "rule_id": policy_rule.id,
                     "severity": policy_rule.severity,
                     "source": policy_rule.source,
+                    "rule_type": policy_rule.type,
                 }
             )
             for finding in rule_findings

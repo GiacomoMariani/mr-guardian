@@ -25,6 +25,7 @@ def make_policy(*, enabled: bool = True) -> Policy:
             PolicyRule(
                 id="CSHARP-DEBUG-001",
                 type="deterministic",
+                implementation="csharp_debug_log",
                 enabled=enabled,
                 severity="warning",
                 source="unity-policy.yml#CSHARP-DEBUG-001",
@@ -32,9 +33,11 @@ def make_policy(*, enabled: bool = True) -> Policy:
                     "Debug.Log statements should not be introduced in production code "
                     "unless explicitly allowed."
                 ),
-                match={
-                    "changed_files": ["Assets/**/*.cs"],
-                    "added_lines_contain": ["Debug.Log", "print("],
+                parameters={
+                    "match": {
+                        "changed_files": ["Assets/**/*.cs"],
+                        "added_lines_contain": ["Debug.Log", "print("],
+                    },
                 },
             )
         ],

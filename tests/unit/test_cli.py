@@ -5,11 +5,29 @@ from typer.testing import CliRunner
 
 from mr_guardian.cli.main import app
 from mr_guardian.core.inspection import InspectionResult, InspectionSuiteResult
+from mr_guardian.core.review import ReviewRequest, ReviewResult
 from mr_guardian.models.review import EngineReviewResult, FindingCounts
 from mr_guardian.models.review_input import ReviewInput
 
 
-def test_review_command_exits_successfully() -> None:
+def make_empty_review_result(base: str, policy_path: Path) -> ReviewResult:
+    return ReviewResult(
+        base_ref=base,
+        policy_path=policy_path,
+        review_input=ReviewInput(base_ref=base, changed_files=[]),
+        engine_result=EngineReviewResult(
+            risk="none",
+            findings=[],
+            counts=FindingCounts(),
+        ),
+    )
+
+
+def test_review_command_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_review_merge_request(request: ReviewRequest) -> ReviewResult:
+        return make_empty_review_result(request.base, request.policy_path)
+
+    monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -20,7 +38,11 @@ def test_review_command_exits_successfully() -> None:
     assert result.exit_code == 0
 
 
-def test_review_command_outputs_placeholder_report() -> None:
+def test_review_command_outputs_real_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_review_merge_request(request: ReviewRequest) -> ReviewResult:
+        return make_empty_review_result(request.base, request.policy_path)
+
+    monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -29,11 +51,19 @@ def test_review_command_outputs_placeholder_report() -> None:
     )
 
     assert "MR Guardian Review" in result.output
-    assert "**Risk:** Unknown" in result.output
-    assert "No rules have been implemented yet." in result.output
+    assert "**Risk:** None" in result.output
+    assert "No findings were triggered." in result.output
 
 
-def test_review_command_accepts_base_and_policy_options() -> None:
+def test_review_command_accepts_base_and_policy_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_request: ReviewRequest | None = None
+
+    def fake_review_merge_request(request: ReviewRequest) -> ReviewResult:
+        nonlocal captured_request
+        captured_request = request
+        return make_empty_review_result(request.base, request.policy_path)
+
+    monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -42,6 +72,7 @@ def test_review_command_accepts_base_and_policy_options() -> None:
     )
 
     assert result.exit_code == 0
+    assert captured_request == ReviewRequest(base="develop", policy_path=Path("custom-policy.yml"))
 
 
 def test_inspect_command_outputs_pipeline_summary(monkeypatch: pytest.MonkeyPatch) -> None:

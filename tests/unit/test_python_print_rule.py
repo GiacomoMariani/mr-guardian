@@ -25,10 +25,12 @@ def make_policy(*, enabled: bool = True) -> Policy:
             PolicyRule(
                 id="PYTHON-PRINT-001",
                 type="deterministic",
+                implementation="python_print",
                 enabled=enabled,
                 severity="warning",
                 source="python-policy.yml#PYTHON-PRINT-001",
                 description="Python code should use logging instead of print calls.",
+                parameters={"match": {"added_lines_contain": ["print("]}},
             )
         ],
     )

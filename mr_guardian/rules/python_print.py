@@ -6,6 +6,7 @@ from mr_guardian.models.review_input import ChangedFile, DiffLine
 from mr_guardian.rules.base import RuleEvaluationContext
 
 RULE_ID = "PYTHON-PRINT-001"
+DEFAULT_PRINT_TOKENS = ("print(",)
 
 
 class PythonPrintRule:
@@ -17,6 +18,7 @@ class PythonPrintRule:
 
     def evaluate(self, context: RuleEvaluationContext, rule: PolicyRule) -> list[Finding]:
         """Return findings for added print calls."""
+        print_tokens = _print_tokens_from_policy(rule)
         findings: list[Finding] = []
 
         for changed_file in context.review_input.changed_files:
@@ -24,7 +26,7 @@ class PythonPrintRule:
                 continue
 
             for diff_line in _added_lines(changed_file):
-                if "print(" in diff_line.content:
+                if any(token in diff_line.content for token in print_tokens):
                     findings.append(
                         Finding(
                             rule_id=rule.id,
@@ -56,3 +58,16 @@ def _added_lines(changed_file: ChangedFile) -> list[DiffLine]:
         for diff_line in hunk.lines
         if diff_line.kind == "addition"
     ]
+
+
+def _print_tokens_from_policy(rule: PolicyRule) -> tuple[str, ...]:
+    match_config = rule.parameters.get("match")
+    if not isinstance(match_config, dict):
+        return DEFAULT_PRINT_TOKENS
+
+    tokens = match_config.get("added_lines_contain")
+    if not isinstance(tokens, list):
+        return DEFAULT_PRINT_TOKENS
+
+    parsed_tokens = tuple(token for token in tokens if isinstance(token, str))
+    return parsed_tokens or DEFAULT_PRINT_TOKENS

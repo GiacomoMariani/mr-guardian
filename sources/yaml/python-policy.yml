@@ -8,11 +8,12 @@ rules:
     severity: warning
     source: python-policy.yml#PYTHON-PRINT-001
     description: Python code should use logging instead of newly introduced print calls.
-    match:
-      changed_files:
-        - "**/*.py"
-      added_lines_contain:
-        - "print("
+    parameters:
+      match:
+        changed_files:
+          - "**/*.py"
+        added_lines_contain:
+          - "print("
 
   - id: PYTHON-DESIGN-LLM-001
     type: llm
@@ -23,9 +24,10 @@ rules:
     prompt: |
       Review the provided Python diff for unnecessary abstraction, over-engineering, or unrelated scope.
       Only report issues grounded in the diff.
-    inputs:
-      include_diff: true
-      include_changed_files: true
-    output_contract:
-      max_findings: 3
-      allow_blocking: false
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false

@@ -8,8 +8,9 @@ rules:
     severity: warning
     source: unity-policy.yml#SIZE-FILES-001
     description: Large file-count changes should be split or explained.
-    threshold:
-      max_changed_files: 15
+    parameters:
+      threshold:
+        max_changed_files: 15
 
   - id: SIZE-LINES-001
     type: deterministic
@@ -18,8 +19,9 @@ rules:
     severity: warning
     source: unity-policy.yml#SIZE-LINES-001
     description: Large line-count changes should be split or explained.
-    threshold:
-      max_changed_lines: 500
+    parameters:
+      threshold:
+        max_changed_lines: 500
 
   - id: SIZE-DIRECTORIES-001
     type: deterministic
@@ -28,8 +30,9 @@ rules:
     severity: warning
     source: unity-policy.yml#SIZE-DIRECTORIES-001
     description: Broad directory changes should be split or explained.
-    threshold:
-      max_changed_directories: 5
+    parameters:
+      threshold:
+        max_changed_directories: 5
 
   - id: MR-META-001
     type: deterministic
@@ -38,16 +41,17 @@ rules:
     severity: blocking
     source: unity-policy.yml#MR-META-001
     description: MR must include a test plan.
-    require:
-      mr_sections:
-        - Test Plan
-    suggested_fix: |
-      ### Test Plan
+    parameters:
+      require:
+        mr_sections:
+          - Test Plan
+      suggested_fix: |
+        ### Test Plan
 
-      - [ ] Confirm the project compiles.
-      - [ ] Run the affected Unity scene.
-      - [ ] Test the main success path.
-      - [ ] Check the Unity Console for errors.
+        - [ ] Confirm the project compiles.
+        - [ ] Run the affected Unity scene.
+        - [ ] Test the main success path.
+        - [ ] Check the Unity Console for errors.
 
   - id: MR-META-002
     type: deterministic
@@ -56,9 +60,10 @@ rules:
     severity: warning
     source: unity-policy.yml#MR-META-002
     description: MR must include a summary.
-    require:
-      mr_sections:
-        - Summary
+    parameters:
+      require:
+        mr_sections:
+          - Summary
 
   - id: MR-META-003
     type: deterministic
@@ -67,9 +72,10 @@ rules:
     severity: warning
     source: unity-policy.yml#MR-META-003
     description: MR must include linked issue context.
-    require:
-      mr_sections:
-        - Linked Issue
+    parameters:
+      require:
+        mr_sections:
+          - Linked Issue
 
   - id: MR-META-004
     type: deterministic
@@ -78,9 +84,10 @@ rules:
     severity: warning
     source: unity-policy.yml#MR-META-004
     description: MR must include risk notes.
-    require:
-      mr_sections:
-        - Risk
+    parameters:
+      require:
+        mr_sections:
+          - Risk
 
   - id: MR-META-005
     type: deterministic
@@ -89,9 +96,10 @@ rules:
     severity: warning
     source: unity-policy.yml#MR-META-005
     description: MR must include reviewer notes.
-    require:
-      mr_sections:
-        - Reviewer Notes
+    parameters:
+      require:
+        mr_sections:
+          - Reviewer Notes
 
   - id: UNITY-SCENE-001
     type: deterministic
@@ -100,19 +108,20 @@ rules:
     severity: high
     source: unity-policy.yml#UNITY-SCENE-001
     description: Scene changes require manual validation.
-    match:
-      changed_files:
-        - "Assets/**/*.unity"
-    require:
-      mr_sections:
-        - Manual Validation
-    suggested_fix: |
-      ### Manual Validation
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.unity"
+      require:
+        mr_sections:
+          - Manual Validation
+      suggested_fix: |
+        ### Manual Validation
 
-      - [ ] Opened the affected scene.
-      - [ ] Entered Play Mode.
-      - [ ] Verified the changed behavior.
-      - [ ] Checked the Unity Console for errors.
+        - [ ] Opened the affected scene.
+        - [ ] Entered Play Mode.
+        - [ ] Verified the changed behavior.
+        - [ ] Checked the Unity Console for errors.
 
   - id: UNITY-PREFAB-001
     type: deterministic
@@ -121,9 +130,10 @@ rules:
     severity: warning
     source: unity-policy.yml#UNITY-PREFAB-001
     description: Prefab changes require validation evidence.
-    match:
-      changed_files:
-        - "Assets/**/*.prefab"
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.prefab"
 
   - id: UNITY-PROJECTSETTINGS-001
     type: deterministic
@@ -132,13 +142,14 @@ rules:
     severity: high
     source: unity-policy.yml#UNITY-PROJECTSETTINGS-001
     description: ProjectSettings changes require explanation.
-    match:
-      changed_files:
-        - "ProjectSettings/**"
-    require:
-      mr_sections:
-        - Risk
-        - Reviewer Notes
+    parameters:
+      match:
+        changed_files:
+          - "ProjectSettings/**"
+      require:
+        mr_sections:
+          - Risk
+          - Reviewer Notes
 
   - id: UNITY-TESTS-001
     type: deterministic
@@ -147,17 +158,18 @@ rules:
     severity: warning
     source: unity-policy.yml#UNITY-TESTS-001
     description: Gameplay code changes require tests or manual validation.
-    match:
-      changed_files:
-        - "Assets/Scripts/**"
-        - "Assets/**/Scripts/**"
-    require_any:
-      changed_files:
-        - "Assets/Tests/**"
-        - "Assets/**/Tests/**"
-        - "Tests/**"
-      mr_sections:
-        - Manual Validation
+    parameters:
+      match:
+        changed_files:
+          - "Assets/Scripts/**"
+          - "Assets/**/Scripts/**"
+      require_any:
+        changed_files:
+          - "Assets/Tests/**"
+          - "Assets/**/Tests/**"
+          - "Tests/**"
+        mr_sections:
+          - Manual Validation
 
   - id: CSHARP-DEBUG-001
     type: deterministic
@@ -166,12 +178,13 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-DEBUG-001
     description: Debug.Log statements should not be introduced in production code unless explicitly allowed.
-    match:
-      changed_files:
-        - "Assets/**/*.cs"
-      added_lines_contain:
-        - "Debug.Log"
-        - "print("
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        added_lines_contain:
+          - "Debug.Log"
+          - "print("
 
   - id: CSHARP-GETCOMPONENT-001
     type: deterministic
@@ -180,11 +193,12 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-GETCOMPONENT-001
     description: Cache GetComponent calls in Awake when possible.
-    match:
-      changed_files:
-        - "Assets/**/*.cs"
-      added_lines_contain:
-        - "GetComponent<"
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        added_lines_contain:
+          - "GetComponent<"
 
   - id: CSHARP-SIZE-001
     type: deterministic
@@ -193,8 +207,9 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-SIZE-001
     description: C# classes should stay reviewable in size.
-    threshold:
-      max_class_lines: 300
+    parameters:
+      threshold:
+        max_class_lines: 300
 
   - id: CSHARP-SIZE-002
     type: deterministic
@@ -203,8 +218,9 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-SIZE-002
     description: C# methods should stay focused and reviewable.
-    threshold:
-      max_method_lines: 50
+    parameters:
+      threshold:
+        max_method_lines: 50
 
   - id: CSHARP-PARAMETERS-001
     type: deterministic
@@ -213,8 +229,9 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-PARAMETERS-001
     description: C# methods should avoid excessive parameters.
-    threshold:
-      max_method_parameters: 5
+    parameters:
+      threshold:
+        max_method_parameters: 5
 
   - id: CSHARP-PUBLIC-FIELDS-001
     type: deterministic
@@ -223,9 +240,10 @@ rules:
     severity: warning
     source: unity-policy.yml#CSHARP-PUBLIC-FIELDS-001
     description: Avoid public fields in C# production code unless explicitly intended.
-    match:
-      changed_files:
-        - "Assets/**/*.cs"
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
 
   - id: AI-CODE-001
     type: deterministic
@@ -234,8 +252,9 @@ rules:
     severity: warning
     source: unity-policy.yml#AI-CODE-001
     description: AI-assisted code should not add unnecessary scope.
-    match:
-      changed_files_count_greater_than: 15
+    parameters:
+      match:
+        changed_files_count_greater_than: 15
 
   - id: AI-CODE-LLM-001
     type: llm
@@ -246,9 +265,10 @@ rules:
     prompt: |
       Review the provided diff for unrelated scope, unnecessary abstractions, or generated code that is not clearly connected to the change.
       Only report issues grounded in the diff.
-    inputs:
-      include_diff: true
-      include_changed_files: true
-    output_contract:
-      max_findings: 3
-      allow_blocking: false
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false

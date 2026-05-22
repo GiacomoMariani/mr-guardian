@@ -35,6 +35,7 @@ def make_rule(rule_id: str, *, enabled: bool = True, severity: str = "warning") 
     return PolicyRule(
         id=rule_id,
         type="deterministic",
+        implementation="fake_rule",
         enabled=enabled,
         severity=severity,
         source=f"unity-policy.yml#{rule_id}",
@@ -118,6 +119,7 @@ def test_skips_llm_rules_until_llm_runner_exists() -> None:
         source="python-policy.yml#ARCH-DESIGN-001",
         description="Check architecture concerns.",
         prompt="Review the diff.",
+        parameters={"inputs": {"include_diff": True}},
     )
     fake_rule = FakeRule("ARCH-DESIGN-001", [make_finding("ARCH-DESIGN-001")])
 
