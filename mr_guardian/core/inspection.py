@@ -40,12 +40,19 @@ def inspect_review(
     base_ref: str,
     policy_path: str | Path,
     repo_path: str | Path = ".",
+    title: str = "",
+    description: str = "",
     rule_registry: RuleRegistry | None = None,
 ) -> InspectionResult:
     """Run the currently implemented review pipeline and return a compact summary."""
     resolved_policy_path = Path(policy_path)
     policy = load_policy(resolved_policy_path)
-    review_input = LocalGitProvider(repo_path).collect(base_ref)
+    review_input = LocalGitProvider(repo_path).collect(base_ref).model_copy(
+        update={
+            "title": title,
+            "description": description,
+        }
+    )
     engine_result = run_review(
         policy=policy,
         review_input=review_input,
@@ -71,11 +78,18 @@ def inspect_all_reviews(
     base_ref: str,
     policy_directory: str | Path = "sources/yaml",
     repo_path: str | Path = ".",
+    title: str = "",
+    description: str = "",
     rule_registry: RuleRegistry | None = None,
 ) -> InspectionSuiteResult:
     """Run the currently implemented review pipeline for every YAML policy."""
     resolved_policy_directory = Path(policy_directory)
-    review_input = LocalGitProvider(repo_path).collect(base_ref)
+    review_input = LocalGitProvider(repo_path).collect(base_ref).model_copy(
+        update={
+            "title": title,
+            "description": description,
+        }
+    )
     registry = rule_registry or default_rule_registry()
 
     policy_results = [

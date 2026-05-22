@@ -53,10 +53,56 @@ Install dependencies:
 pip install -e ".[dev]"
 ```
 
+Configure local paths:
+
+```bash
+cp .env.example .env
+```
+
+MR Guardian reads `.env` automatically. Use it to set the default repository,
+YAML policy directory, default YAML policy file, human guidance directory,
+SQLite history database, and reports directory. Shell environment variables
+override values from `.env`.
+
 Run the CLI:
 
 ```bash
-python -m mr_guardian.cli.main review --base main --policy sources/yaml/unity-policy.yml
+python -m mr_guardian.cli.main review --base main
+```
+
+Run the CLI with local MR metadata:
+
+```bash
+python -m mr_guardian.cli.main review --base main --title "Add player movement" --description-file mr-description.md
+```
+
+The MR metadata options are useful for local reviews because local Git does not
+provide a merge request title or description. Use `--description` for short text
+or `--description-file` for a Markdown file. The same options work with
+`inspect` and `inspect-all`.
+
+Show stored review logs in a readable table:
+
+```bash
+python -m mr_guardian.cli.main logs
+```
+
+Limit how many recent review logs are shown:
+
+```bash
+python -m mr_guardian.cli.main logs --limit 10
+```
+
+Show the generated report for a stored review ID:
+
+```bash
+python -m mr_guardian.cli.main log-report 1
+```
+
+Remove all stored review logs:
+
+```bash
+python -m mr_guardian.cli.main clear-logs --yes
 ```
 
 Run checks:

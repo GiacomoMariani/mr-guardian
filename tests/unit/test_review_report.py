@@ -58,6 +58,7 @@ def make_review_result(*findings: Finding) -> ReviewResult:
     return ReviewResult(
         base_ref="main",
         policy_path=Path("sources/yaml/python-policy.yml"),
+        policy_version=1,
         review_input=make_review_input(),
         engine_result=EngineReviewResult(
             risk=risk,

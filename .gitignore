@@ -29,6 +29,7 @@ ENV/
 .env
 .env.*
 !.env.example
+.mr-guardian/
 
 # IDE and editor metadata
 .idea/

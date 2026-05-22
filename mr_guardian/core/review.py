@@ -19,6 +19,8 @@ class ReviewRequest(BaseModel):
 
     base: str
     policy_path: Path
+    title: str = ""
+    description: str = ""
 
 
 class ReviewResult(BaseModel):
@@ -28,6 +30,7 @@ class ReviewResult(BaseModel):
 
     base_ref: str
     policy_path: Path
+    policy_version: int
     review_input: ReviewInput
     engine_result: EngineReviewResult
 
@@ -45,7 +48,12 @@ def review_merge_request(
 ) -> ReviewResult:
     """Run the local review pipeline for a merge request."""
     policy = load_policy(request.policy_path)
-    review_input = LocalGitProvider(repo_path).collect(request.base)
+    review_input = LocalGitProvider(repo_path).collect(request.base).model_copy(
+        update={
+            "title": request.title,
+            "description": request.description,
+        }
+    )
     engine_result = run_review(
         policy=policy,
         review_input=review_input,
@@ -55,6 +63,7 @@ def review_merge_request(
     return ReviewResult(
         base_ref=request.base,
         policy_path=request.policy_path,
+        policy_version=policy.version,
         review_input=review_input,
         engine_result=engine_result,
     )

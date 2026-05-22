@@ -50,4 +50,5 @@ class ReviewInput(BaseModel):
 
     base_ref: str
     changed_files: list[ChangedFile]
-
+    title: str = ""
+    description: str = ""
