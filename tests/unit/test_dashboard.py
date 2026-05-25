@@ -15,7 +15,7 @@ def make_review_run(
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
-        project_name="MR Guardian",
+        review_scope="local-all-policies",
         branch_name="main",
         policy_version=1,
         risk=risk,

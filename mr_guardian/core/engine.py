@@ -1,10 +1,11 @@
 """Shared deterministic review engine."""
 
-from mr_guardian.models.policy import Policy
+from mr_guardian.models.policy import Policy, PolicyRule
 from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts, RiskLevel
 from mr_guardian.models.review_input import ReviewInput
 from mr_guardian.rules.base import RuleEvaluationContext
 from mr_guardian.rules.registry import RuleRegistry
+from mr_guardian.summarizer_ai import DisabledLlmRuleRunner, LlmRuleRunner
 
 
 def run_review(
@@ -12,15 +13,21 @@ def run_review(
     policy: Policy,
     review_input: ReviewInput,
     rule_registry: RuleRegistry,
+    llm_rule_runner: LlmRuleRunner | None = None,
 ) -> EngineReviewResult:
-    """Run enabled deterministic policy rules against review input."""
+    """Run enabled policy rules against review input."""
     context = RuleEvaluationContext(policy=policy, review_input=review_input)
     findings: list[Finding] = []
+    llm_runner = llm_rule_runner or DisabledLlmRuleRunner()
 
     for policy_rule in policy.rules:
         if not policy_rule.enabled:
             continue
-        if policy_rule.type != "deterministic":
+        if policy_rule.type == "llm":
+            try:
+                findings.extend(llm_runner.evaluate(rule=policy_rule, review_input=review_input))
+            except Exception as exc:
+                findings.append(_llm_failure_finding(policy_rule, exc))
             continue
 
         rule = rule_registry.get(policy_rule.id)
@@ -45,6 +52,16 @@ def run_review(
         risk=calculate_risk(counts),
         findings=findings,
         counts=counts,
+    )
+
+
+def _llm_failure_finding(rule: PolicyRule, exc: Exception) -> Finding:
+    return Finding(
+        rule_id=rule.id,
+        severity="info",
+        message=f"LLM rule skipped: {exc}",
+        source=rule.source,
+        rule_type=rule.type,
     )
 
 

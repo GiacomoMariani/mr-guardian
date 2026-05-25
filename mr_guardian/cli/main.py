@@ -6,17 +6,13 @@ from typing import Annotated
 import typer
 
 from mr_guardian.config import get_settings
-from mr_guardian.core.inspection import inspect_all_reviews, inspect_review
 from mr_guardian.core.metadata import resolve_description
-from mr_guardian.core.review import ReviewRequest, ReviewResult, review_merge_request
-from mr_guardian.models.history import ReviewRunCreate
+from mr_guardian.core.review import ReviewRequest, review_merge_request
+from mr_guardian.core.review_history import store_review_result
 from mr_guardian.reporting.history import render_clear_history_result, render_review_history
-from mr_guardian.reporting.inspection import (
-    render_inspection_result,
-    render_inspection_suite_result,
-)
 from mr_guardian.reporting.report import render_review_report
 from mr_guardian.storage import ReviewHistoryStore
+from mr_guardian.summarizer_ai import create_llm_rule_runner
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -29,10 +25,14 @@ def main() -> None:
 @app.command()
 def review(
     base: Annotated[str, typer.Option("--base", help="Base branch to review against.")],
-    policy: Annotated[
+    policy_dir: Annotated[
         Path | None,
-        typer.Option("--policy", help="Path to the YAML policy file."),
+        typer.Option("--policy-dir", help="Directory containing YAML policy files."),
     ] = None,
+    no_store: Annotated[
+        bool,
+        typer.Option("--no-store", help="Print the report without storing review history."),
+    ] = False,
     title: Annotated[str, typer.Option("--title", help="Merge request title.")] = "",
     description: Annotated[
         str | None,
@@ -55,92 +55,30 @@ def review(
 
     request = ReviewRequest(
         base=base,
-        policy_path=policy or settings.policy_path,
-        title=title,
-        description=resolved_description,
-    )
-    result = review_merge_request(request, repo_path=settings.repo_path)
-    report = render_review_report(result)
-    _store_review_result(
-        result,
-        report=report,
-        database_path=settings.history_db_path,
-    )
-    typer.echo(report)
-
-
-@app.command()
-def inspect(
-    base: Annotated[str, typer.Option("--base", help="Base branch to inspect against.")],
-    policy: Annotated[
-        Path | None,
-        typer.Option("--policy", help="Path to the YAML policy file."),
-    ] = None,
-    title: Annotated[str, typer.Option("--title", help="Merge request title.")] = "",
-    description: Annotated[
-        str | None,
-        typer.Option("--description", help="Merge request description text."),
-    ] = None,
-    description_file: Annotated[
-        Path | None,
-        typer.Option("--description-file", help="Path to a merge request description file."),
-    ] = None,
-) -> None:
-    """Inspect the currently wired local review pipeline."""
-    settings = get_settings()
-    try:
-        resolved_description = resolve_description(
-            description=description,
-            description_file=description_file,
-        )
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-
-    result = inspect_review(
-        base_ref=base,
-        policy_path=policy or settings.policy_path,
-        repo_path=settings.repo_path,
-        title=title,
-        description=resolved_description,
-    )
-    typer.echo(render_inspection_result(result))
-
-
-@app.command("inspect-all")
-def inspect_all(
-    base: Annotated[str, typer.Option("--base", help="Base branch to inspect against.")],
-    policy_dir: Annotated[
-        Path | None,
-        typer.Option("--policy-dir", help="Directory containing YAML policy files."),
-    ] = None,
-    title: Annotated[str, typer.Option("--title", help="Merge request title.")] = "",
-    description: Annotated[
-        str | None,
-        typer.Option("--description", help="Merge request description text."),
-    ] = None,
-    description_file: Annotated[
-        Path | None,
-        typer.Option("--description-file", help="Path to a merge request description file."),
-    ] = None,
-) -> None:
-    """Inspect every YAML policy."""
-    settings = get_settings()
-    try:
-        resolved_description = resolve_description(
-            description=description,
-            description_file=description_file,
-        )
-    except ValueError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-
-    result = inspect_all_reviews(
-        base_ref=base,
         policy_directory=policy_dir or settings.policy_dir,
-        repo_path=settings.repo_path,
         title=title,
         description=resolved_description,
     )
-    typer.echo(render_inspection_suite_result(result))
+    result = review_merge_request(
+        request,
+        repo_path=settings.repo_path,
+        llm_rule_runner=create_llm_rule_runner(
+            provider=settings.llm_provider,
+            openai_api_key=settings.openai_api_key,
+            openai_model=settings.openai_model,
+            openai_timeout_seconds=settings.openai_timeout_seconds,
+            openai_max_retries=settings.openai_max_retries,
+        ),
+    )
+    report = render_review_report(result)
+    if not no_store:
+        store_review_result(
+            result,
+            report=report,
+            database_path=settings.history_db_path,
+            review_scope="local-all-policies",
+        )
+    typer.echo(report)
 
 
 @app.command()
@@ -205,47 +143,6 @@ def clear_logs(
         typer.echo(render_clear_history_result(store.clear_history()))
     finally:
         store.close()
-
-
-def _store_review_result(
-    result: ReviewResult,
-    *,
-    report: str,
-    database_path: Path,
-) -> None:
-    store = ReviewHistoryStore(database_path)
-    try:
-        store.store_review_run(
-            ReviewRunCreate(
-                project_name=result.policy_path.stem,
-                branch_name=result.base_ref,
-                policy_version=result.policy_version,
-                risk=result.engine_result.risk,
-                blocking_count=result.engine_result.counts.blocking,
-                high_count=result.engine_result.counts.high,
-                warning_count=result.engine_result.counts.warning,
-                info_count=result.engine_result.counts.info,
-                changed_file_count=len(result.review_input.changed_files),
-                changed_line_count=_changed_line_count(result),
-                triggered_rule_ids=[
-                    finding.rule_id
-                    for finding in result.engine_result.findings
-                ],
-                generated_review_report=report,
-            )
-        )
-    finally:
-        store.close()
-
-
-def _changed_line_count(result: ReviewResult) -> int:
-    return sum(
-        1
-        for changed_file in result.review_input.changed_files
-        for hunk in changed_file.hunks
-        for diff_line in hunk.lines
-        if diff_line.kind in {"addition", "deletion"}
-    )
 
 
 if __name__ == "__main__":

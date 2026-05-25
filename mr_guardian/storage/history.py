@@ -11,8 +11,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS review_runs (
     review_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
-    project_name TEXT NOT NULL,
+    review_scope TEXT NOT NULL,
     branch_name TEXT NOT NULL,
+    developer_id TEXT NOT NULL DEFAULT 'unknown',
     mr_id TEXT,
     commit_sha TEXT,
     policy_version INTEGER NOT NULL,
@@ -50,48 +51,59 @@ class ReviewHistoryStore:
     def initialize_schema(self) -> None:
         """Create storage tables when they do not already exist."""
         self._connection.executescript(SCHEMA)
+        self._ensure_schema_columns()
         self._connection.commit()
 
     def store_review_run(self, run: ReviewRunCreate) -> ReviewRunRecord:
         """Persist one review run and its triggered rule IDs."""
         self.initialize_schema()
         timestamp = run.timestamp or datetime.now(timezone.utc)
+        columns = self._review_run_columns()
+        insert_columns = [
+            "timestamp",
+            "review_scope",
+            "branch_name",
+            "developer_id",
+            "mr_id",
+            "commit_sha",
+            "policy_version",
+            "risk",
+            "blocking_count",
+            "high_count",
+            "warning_count",
+            "info_count",
+            "changed_file_count",
+            "changed_line_count",
+            "generated_review_report",
+        ]
+        values = [
+            timestamp.isoformat(),
+            run.review_scope,
+            run.branch_name,
+            run.developer_id,
+            run.mr_id,
+            run.commit_sha,
+            run.policy_version,
+            run.risk,
+            run.blocking_count,
+            run.high_count,
+            run.warning_count,
+            run.info_count,
+            run.changed_file_count,
+            run.changed_line_count,
+            run.generated_review_report,
+        ]
+        if "project_name" in columns:
+            insert_columns.insert(2, "project_name")
+            values.insert(2, run.review_scope)
+
+        placeholders = ", ".join("?" for _ in insert_columns)
         cursor = self._connection.execute(
-            """
-            INSERT INTO review_runs (
-                timestamp,
-                project_name,
-                branch_name,
-                mr_id,
-                commit_sha,
-                policy_version,
-                risk,
-                blocking_count,
-                high_count,
-                warning_count,
-                info_count,
-                changed_file_count,
-                changed_line_count,
-                generated_review_report
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            f"""
+            INSERT INTO review_runs ({", ".join(insert_columns)})
+            VALUES ({placeholders})
             """,
-            (
-                timestamp.isoformat(),
-                run.project_name,
-                run.branch_name,
-                run.mr_id,
-                run.commit_sha,
-                run.policy_version,
-                run.risk,
-                run.blocking_count,
-                run.high_count,
-                run.warning_count,
-                run.info_count,
-                run.changed_file_count,
-                run.changed_line_count,
-                run.generated_review_report,
-            ),
+            values,
         )
         if cursor.lastrowid is None:
             msg = "SQLite did not return a review ID for the inserted run."
@@ -203,8 +215,9 @@ class ReviewHistoryStore:
         return ReviewRunRecord(
             review_id=review_id,
             timestamp=datetime.fromisoformat(str(row["timestamp"])),
-            project_name=str(row["project_name"]),
+            review_scope=str(row["review_scope"]),
             branch_name=str(row["branch_name"]),
+            developer_id=str(row["developer_id"]),
             mr_id=_optional_str(row["mr_id"]),
             commit_sha=_optional_str(row["commit_sha"]),
             policy_version=int(row["policy_version"]),
@@ -230,6 +243,30 @@ class ReviewHistoryStore:
             (review_id,),
         ).fetchall()
         return [str(row["rule_id"]) for row in rows]
+
+    def _ensure_schema_columns(self) -> None:
+        columns = self._review_run_columns()
+        if "developer_id" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs "
+                "ADD COLUMN developer_id TEXT NOT NULL DEFAULT 'unknown'"
+            )
+        if "review_scope" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs "
+                "ADD COLUMN review_scope TEXT NOT NULL DEFAULT 'local-all-policies'"
+            )
+            if "project_name" in columns:
+                self._connection.execute(
+                    "UPDATE review_runs SET review_scope = project_name "
+                    "WHERE review_scope = 'local-all-policies'"
+                )
+
+    def _review_run_columns(self) -> set[str]:
+        return {
+            str(row["name"])
+            for row in self._connection.execute("PRAGMA table_info(review_runs)").fetchall()
+        }
 
 
 def _optional_str(value: object) -> str | None:

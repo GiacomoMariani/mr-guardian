@@ -4,19 +4,30 @@ import pytest
 from typer.testing import CliRunner
 
 from mr_guardian.cli.main import app
-from mr_guardian.core.inspection import InspectionResult, InspectionSuiteResult
-from mr_guardian.core.review import ReviewRequest, ReviewResult
+from mr_guardian.core.review import PolicyReviewResult, ReviewRequest, ReviewResult
 from mr_guardian.models.history import ReviewRunCreate
 from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts
 from mr_guardian.models.review_input import ChangedFile, DiffHunk, DiffLine, ReviewInput
 from mr_guardian.storage import ReviewHistoryStore
 
 
-def make_empty_review_result(base: str, policy_path: Path) -> ReviewResult:
+def make_empty_review_result(base: str, policy_directory: Path) -> ReviewResult:
     return ReviewResult(
         base_ref=base,
-        policy_path=policy_path,
-        policy_version=1,
+        policy_directory=policy_directory,
+        policy_results=[
+            PolicyReviewResult(
+                policy_path=policy_directory / "python-policy.yml",
+                policy_version=1,
+                enabled_rule_count=1,
+                disabled_rule_count=0,
+                engine_result=EngineReviewResult(
+                    risk="none",
+                    findings=[],
+                    counts=FindingCounts(),
+                ),
+            )
+        ],
         review_input=ReviewInput(base_ref=base, changed_files=[]),
         engine_result=EngineReviewResult(
             risk="none",
@@ -28,15 +39,15 @@ def make_empty_review_result(base: str, policy_path: Path) -> ReviewResult:
 
 def test_review_command_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
-        return make_empty_review_result(request.base, request.policy_path)
+        return make_empty_review_result(request.base, request.policy_directory)
 
     monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
-    monkeypatch.setattr("mr_guardian.cli.main._store_review_result", lambda *_, **__: None)
+    monkeypatch.setattr("mr_guardian.cli.main.store_review_result", lambda *_, **__: None)
     runner = CliRunner()
 
     result = runner.invoke(
         app,
-        ["review", "--base", "main", "--policy", "sources/yaml/unity-policy.yml"],
+        ["review", "--base", "main"],
     )
 
     assert result.exit_code == 0
@@ -44,15 +55,15 @@ def test_review_command_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_review_command_outputs_real_report(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
-        return make_empty_review_result(request.base, request.policy_path)
+        return make_empty_review_result(request.base, request.policy_directory)
 
     monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
-    monkeypatch.setattr("mr_guardian.cli.main._store_review_result", lambda *_, **__: None)
+    monkeypatch.setattr("mr_guardian.cli.main.store_review_result", lambda *_, **__: None)
     runner = CliRunner()
 
     result = runner.invoke(
         app,
-        ["review", "--base", "main", "--policy", "sources/yaml/unity-policy.yml"],
+        ["review", "--base", "main"],
     )
 
     assert "MR Guardian Review" in result.output
@@ -60,25 +71,30 @@ def test_review_command_outputs_real_report(monkeypatch: pytest.MonkeyPatch) -> 
     assert "No findings were triggered." in result.output
 
 
-def test_review_command_accepts_base_and_policy_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_command_accepts_base_and_policy_dir_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured_request: ReviewRequest | None = None
 
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
         nonlocal captured_request
         captured_request = request
-        return make_empty_review_result(request.base, request.policy_path)
+        return make_empty_review_result(request.base, request.policy_directory)
 
     monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
-    monkeypatch.setattr("mr_guardian.cli.main._store_review_result", lambda *_, **__: None)
+    monkeypatch.setattr("mr_guardian.cli.main.store_review_result", lambda *_, **__: None)
     runner = CliRunner()
 
     result = runner.invoke(
         app,
-        ["review", "--base", "develop", "--policy", "custom-policy.yml"],
+        ["review", "--base", "develop", "--policy-dir", "custom-policies"],
     )
 
     assert result.exit_code == 0
-    assert captured_request == ReviewRequest(base="develop", policy_path=Path("custom-policy.yml"))
+    assert captured_request == ReviewRequest(
+        base="develop",
+        policy_directory=Path("custom-policies"),
+    )
 
 
 def test_review_command_accepts_mr_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -87,10 +103,10 @@ def test_review_command_accepts_mr_metadata(monkeypatch: pytest.MonkeyPatch) -> 
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
         nonlocal captured_request
         captured_request = request
-        return make_empty_review_result(request.base, request.policy_path)
+        return make_empty_review_result(request.base, request.policy_directory)
 
     monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
-    monkeypatch.setattr("mr_guardian.cli.main._store_review_result", lambda *_, **__: None)
+    monkeypatch.setattr("mr_guardian.cli.main.store_review_result", lambda *_, **__: None)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -99,8 +115,6 @@ def test_review_command_accepts_mr_metadata(monkeypatch: pytest.MonkeyPatch) -> 
             "review",
             "--base",
             "main",
-            "--policy",
-            "sources/yaml/unity-policy.yml",
             "--title",
             "Add player movement",
             "--description",
@@ -125,10 +139,10 @@ def test_review_command_accepts_description_file(
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
         nonlocal captured_request
         captured_request = request
-        return make_empty_review_result(request.base, request.policy_path)
+        return make_empty_review_result(request.base, request.policy_directory)
 
     monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
-    monkeypatch.setattr("mr_guardian.cli.main._store_review_result", lambda *_, **__: None)
+    monkeypatch.setattr("mr_guardian.cli.main.store_review_result", lambda *_, **__: None)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -137,8 +151,6 @@ def test_review_command_accepts_description_file(
             "review",
             "--base",
             "main",
-            "--policy",
-            "sources/yaml/unity-policy.yml",
             "--description-file",
             str(description_path),
         ],
@@ -162,8 +174,6 @@ def test_review_command_rejects_description_and_description_file(
             "review",
             "--base",
             "main",
-            "--policy",
-            "sources/yaml/unity-policy.yml",
             "--description",
             "inline",
             "--description-file",
@@ -184,8 +194,31 @@ def test_review_command_stores_review_history(
     def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
         return ReviewResult(
             base_ref=request.base,
-            policy_path=request.policy_path,
-            policy_version=3,
+            policy_directory=request.policy_directory,
+            policy_results=[
+                PolicyReviewResult(
+                    policy_path=request.policy_directory / "python-policy.yml",
+                    policy_version=3,
+                    enabled_rule_count=1,
+                    disabled_rule_count=0,
+                    engine_result=EngineReviewResult(
+                        risk="warning",
+                        findings=[
+                            Finding(
+                                rule_id="PYTHON-PRINT-001",
+                                severity="warning",
+                                message="print calls should not be introduced.",
+                                source="python-policy.yml#PYTHON-PRINT-001",
+                                rule_type="deterministic",
+                                file_path=Path("mr_guardian/example.py"),
+                                line_number=1,
+                            )
+                        ],
+                        counts=FindingCounts(warning=1),
+                    ),
+                )
+            ],
+            developer_id="Test User",
             review_input=ReviewInput(
                 base_ref=request.base,
                 changed_files=[
@@ -234,7 +267,7 @@ def test_review_command_stores_review_history(
 
     result = runner.invoke(
         app,
-        ["review", "--base", "main", "--policy", "sources/yaml/python-policy.yml"],
+        ["review", "--base", "main"],
     )
 
     store = ReviewHistoryStore(database_path)
@@ -243,8 +276,9 @@ def test_review_command_stores_review_history(
 
     assert result.exit_code == 0
     assert len(recent_runs) == 1
-    assert recent_runs[0].project_name == "python-policy"
+    assert recent_runs[0].review_scope == "local-all-policies"
     assert recent_runs[0].branch_name == "main"
+    assert recent_runs[0].developer_id == "Test User"
     assert recent_runs[0].policy_version == 3
     assert recent_runs[0].changed_file_count == 1
     assert recent_runs[0].changed_line_count == 1
@@ -252,79 +286,35 @@ def test_review_command_stores_review_history(
     assert "MR Guardian Review" in recent_runs[0].generated_review_report
 
 
-def test_inspect_command_outputs_pipeline_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_inspect_review(
-        *,
-        base_ref: str,
-        policy_path: Path,
-        **_: object,
-    ) -> InspectionResult:
-        return InspectionResult(
-            policy_path=policy_path,
-            policy_version=1,
-            enabled_rule_count=8,
-            disabled_rule_count=0,
-            base_ref=base_ref,
-            review_input=ReviewInput(base_ref=base_ref, changed_files=[]),
-            engine_result=EngineReviewResult(
-                risk="none",
-                findings=[],
-                counts=FindingCounts(),
-            ),
-        )
+def test_review_command_no_store_skips_review_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
 
-    monkeypatch.setattr("mr_guardian.cli.main.inspect_review", fake_inspect_review)
+    def fake_review_merge_request(request: ReviewRequest, **_: object) -> ReviewResult:
+        return make_empty_review_result(request.base, request.policy_directory)
+
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.setattr("mr_guardian.cli.main.review_merge_request", fake_review_merge_request)
     runner = CliRunner()
 
-    result = runner.invoke(
-        app,
-        ["inspect", "--base", "main", "--policy", "sources/yaml/unity-policy.yml"],
-    )
+    result = runner.invoke(app, ["review", "--base", "main", "--no-store"])
 
     assert result.exit_code == 0
-    assert "MR Guardian Inspect" in result.output
-    assert "Rules: 8 enabled, 0 disabled" in result.output
-    assert "Risk: none" in result.output
+    assert not database_path.exists()
 
 
-def test_inspect_all_command_outputs_all_policy_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_inspect_all_reviews(
-        *,
-        base_ref: str,
-        policy_directory: Path,
-        **_: object,
-    ) -> InspectionSuiteResult:
-        return InspectionSuiteResult(
-            policy_directory=policy_directory,
-            policy_results=[
-                InspectionResult(
-                    policy_path=policy_directory / "python-policy.yml",
-                    policy_version=1,
-                    enabled_rule_count=1,
-                    disabled_rule_count=0,
-                    base_ref=base_ref,
-                    review_input=ReviewInput(base_ref=base_ref, changed_files=[]),
-                    engine_result=EngineReviewResult(
-                        risk="none",
-                        findings=[],
-                        counts=FindingCounts(),
-                    ),
-                )
-            ],
-        )
-
-    monkeypatch.setattr("mr_guardian.cli.main.inspect_all_reviews", fake_inspect_all_reviews)
+def test_inspect_commands_are_removed() -> None:
     runner = CliRunner()
 
-    result = runner.invoke(
-        app,
-        ["inspect-all", "--base", "main"],
-    )
+    inspect_result = runner.invoke(app, ["inspect", "--base", "main"])
+    inspect_all_result = runner.invoke(app, ["inspect-all", "--base", "main"])
 
-    assert result.exit_code == 0
-    assert "MR Guardian Inspect All" in result.output
-    assert "Policy files: 1" in result.output
-    assert "python-policy.yml" in result.output
+    assert inspect_result.exit_code != 0
+    assert inspect_all_result.exit_code != 0
+    assert "No such command" in inspect_result.output
+    assert "No such command" in inspect_all_result.output
 
 
 def test_logs_command_outputs_review_history(tmp_path: Path) -> None:
@@ -332,7 +322,7 @@ def test_logs_command_outputs_review_history(tmp_path: Path) -> None:
     store = ReviewHistoryStore(database_path)
     store.store_review_run(
         ReviewRunCreate(
-            project_name="MR Guardian",
+            review_scope="local-all-policies",
             branch_name="feature/history",
             policy_version=1,
             risk="warning",
@@ -362,7 +352,7 @@ def test_log_report_command_outputs_stored_report(tmp_path: Path) -> None:
     store = ReviewHistoryStore(database_path)
     record = store.store_review_run(
         ReviewRunCreate(
-            project_name="MR Guardian",
+            review_scope="local-all-policies",
             branch_name="feature/history",
             policy_version=1,
             risk="warning",
@@ -411,7 +401,7 @@ def test_clear_logs_command_removes_review_history(tmp_path: Path) -> None:
     store = ReviewHistoryStore(database_path)
     store.store_review_run(
         ReviewRunCreate(
-            project_name="MR Guardian",
+            review_scope="local-all-policies",
             branch_name="feature/history",
             policy_version=1,
             risk="warning",

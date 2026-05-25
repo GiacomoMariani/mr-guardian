@@ -44,13 +44,13 @@ Streamlit app   -> demo, analysis, and project manager dashboard
 Initial local command:
 
 ```bash
-mr-guardian review --base main --policy policies/unity-policy.yml
+mr-guardian review --base main
 ```
 
-Later GitLab command:
+Later GitLab automation:
 
-```bash
-mr-guardian review-gitlab --project-id 123 --mr-id 45
+```text
+POST /webhooks/gitlab
 ```
 
 Streamlit command:
@@ -61,8 +61,8 @@ streamlit run app/streamlit_app.py
 
 The tool should:
 
-- inspect changed files
-- inspect MR title and description
+- review changed files
+- review MR title and description
 - run Unity-specific best-practice checks
 - generate a review report
 - suggest copy-pasteable fixes when MR information is missing

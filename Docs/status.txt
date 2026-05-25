@@ -69,7 +69,7 @@
 
 - Add a Typer CLI command for local review.  
   **Status:** Planned  
-  **Evidence:** Planned command: `mr-guardian review --base main --policy policies/unity-policy.yml`.
+  **Evidence:** Planned command: `mr-guardian review --base main` loads all YAML policies from the configured policy directory.
 
 - Implement local Git diff inspection using the Git CLI.  
   **Status:** Planned  
@@ -102,7 +102,7 @@
   **Status:** Planned  
   **Evidence:** Plan requires storing each review run after execution.
 
-- Store review metadata: timestamp, project, branch, MR ID, commit SHA, policy version, best-practices source version, and generated report.  
+- Store review metadata: timestamp, review scope, branch, MR ID, commit SHA, policy version, and generated report.  
   **Status:** Planned  
   **Evidence:** Review history section lists these fields.
 

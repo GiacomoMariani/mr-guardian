@@ -17,7 +17,7 @@ def test_renders_review_history_table() -> None:
             ReviewRunRecord(
                 review_id=1,
                 timestamp=datetime(2026, 5, 22, 10, 30, tzinfo=timezone.utc),
-                project_name="MR Guardian",
+                review_scope="local-all-policies",
                 branch_name="feature/history",
                 mr_id="42",
                 commit_sha="abc123",
@@ -39,7 +39,7 @@ def test_renders_review_history_table() -> None:
     )
 
     assert "ID  Timestamp" in report
-    assert "MR Guardian" in report
+    assert "local-all-policies" in report
     assert "feature/history" in report
     assert "PYTHON-PRINT-001" in report
     assert "Most Triggered Rules" in report

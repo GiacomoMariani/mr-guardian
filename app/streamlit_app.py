@@ -118,8 +118,9 @@ def _render_recent_reviews(st, data: DashboardData) -> None:
             {
                 "ID": run.review_id,
                 "Timestamp": run.timestamp.isoformat(timespec="seconds"),
-                "Project": run.project_name,
+                "Scope": run.review_scope,
                 "Branch": run.branch_name,
+                "Developer": run.developer_id,
                 "Risk": run.risk,
                 "Blocking": run.blocking_count,
                 "High": run.high_count,

@@ -12,8 +12,9 @@ class ReviewRunCreate(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    project_name: str
+    review_scope: str
     branch_name: str
+    developer_id: str = "unknown"
     policy_version: int
     risk: RiskLevel
     blocking_count: int
@@ -36,8 +37,9 @@ class ReviewRunRecord(BaseModel):
 
     review_id: int
     timestamp: datetime
-    project_name: str
+    review_scope: str
     branch_name: str
+    developer_id: str = "unknown"
     policy_version: int
     risk: RiskLevel
     blocking_count: int

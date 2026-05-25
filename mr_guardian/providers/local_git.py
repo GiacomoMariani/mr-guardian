@@ -62,6 +62,18 @@ class LocalGitProvider:
             ],
         )
 
+    def developer_id(self) -> str:
+        """Return the developer identity configured for the local repository."""
+        self._ensure_repository()
+        for config_key in ("user.name", "user.email"):
+            try:
+                value = self._run_git("config", "--local", "--get", config_key).strip()
+            except GitRepositoryError:
+                continue
+            if value:
+                return value
+        return "unknown"
+
     def _ensure_repository(self) -> None:
         self._run_git("rev-parse", "--show-toplevel")
 

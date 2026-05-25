@@ -1,0 +1,228 @@
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from mr_guardian.models.policy import PolicyRule
+from mr_guardian.models.review_input import ReviewInput
+from mr_guardian.summarizer_ai import DisabledLlmRuleRunner, create_llm_rule_runner
+from mr_guardian.summarizer_ai.llm_rules import (
+    LlmRuleExecutionError,
+    LlmRuleOutput,
+    LlmRuleOutputFinding,
+    LlmRuleRateLimitError,
+    OpenAiLlmRuleRunner,
+    findings_from_llm_output,
+    parse_llm_output,
+)
+
+
+def make_llm_rule(*, severity: str = "info", max_findings: int = 3) -> PolicyRule:
+    return PolicyRule(
+        id="PYTHON-DESIGN-LLM-001",
+        type="llm",
+        enabled=True,
+        severity=severity,
+        source="python-policy.yml#PYTHON-DESIGN-LLM-001",
+        description="Check design concerns.",
+        prompt="Review the diff.",
+        parameters={"output_contract": {"max_findings": max_findings}},
+    )
+
+
+def make_review_input() -> ReviewInput:
+    return ReviewInput(base_ref="main", changed_files=[])
+
+
+def test_converts_valid_llm_output_into_advisory_findings() -> None:
+    rule = make_llm_rule(severity="warning")
+    output = LlmRuleOutput(
+        findings=[
+            LlmRuleOutputFinding(
+                message="This abstraction is not justified by the diff.",
+                severity="info",
+                file_path=Path("mr_guardian/example.py"),
+                line_number=12,
+            )
+        ]
+    )
+
+    findings = findings_from_llm_output(rule=rule, output=output)
+
+    assert len(findings) == 1
+    assert findings[0].rule_id == "PYTHON-DESIGN-LLM-001"
+    assert findings[0].severity == "info"
+    assert findings[0].rule_type == "llm"
+    assert findings[0].file_path == Path("mr_guardian/example.py")
+    assert findings[0].line_number == 12
+
+
+def test_llm_output_cannot_create_blocking_findings() -> None:
+    rule = make_llm_rule(severity="warning")
+    output = LlmRuleOutput(
+        findings=[
+            LlmRuleOutputFinding(
+                message="Reported as blocking by model.",
+                severity="blocking",
+            )
+        ]
+    )
+
+    findings = findings_from_llm_output(rule=rule, output=output)
+
+    assert findings[0].severity == "high"
+
+
+def test_limits_llm_findings_from_output_contract() -> None:
+    rule = make_llm_rule(max_findings=1)
+    output = LlmRuleOutput(
+        findings=[
+            LlmRuleOutputFinding(message="first"),
+            LlmRuleOutputFinding(message="second"),
+        ]
+    )
+
+    findings = findings_from_llm_output(rule=rule, output=output)
+
+    assert [finding.message for finding in findings] == ["first"]
+
+
+def test_parses_valid_llm_json_output() -> None:
+    output = parse_llm_output(
+        """
+        {
+          "findings": [
+            {
+              "message": "Use a simpler function.",
+              "severity": "warning",
+              "file_path": "mr_guardian/example.py",
+              "line_number": 4
+            }
+          ]
+        }
+        """
+    )
+
+    assert output.findings[0].message == "Use a simpler function."
+    assert output.findings[0].severity == "warning"
+
+
+def test_rejects_invalid_llm_json_output() -> None:
+    with pytest.raises(ValueError, match="Invalid LLM output JSON"):
+        parse_llm_output("{")
+
+
+def test_rejects_malformed_llm_json_structure() -> None:
+    with pytest.raises(ValueError, match="Invalid LLM output structure"):
+        parse_llm_output('{"findings": [{"message": 123}]}')
+
+
+def test_handles_missing_api_configuration_cleanly() -> None:
+    runner = create_llm_rule_runner(
+        provider="openai",
+        openai_api_key="",
+        openai_model="gpt-4.1-mini",
+        openai_timeout_seconds=30.0,
+        openai_max_retries=2,
+    )
+
+    assert isinstance(runner, DisabledLlmRuleRunner)
+
+
+def test_configures_openai_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            captured["request"] = kwargs
+            return SimpleNamespace(output_text='{"findings": []}')
+
+    class FakeOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
+            captured["api_key"] = api_key
+            captured["timeout"] = timeout
+            captured["max_retries"] = max_retries
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    runner = OpenAiLlmRuleRunner(
+        api_key="test-key",
+        model="gpt-test",
+        timeout_seconds=12.5,
+        max_retries=4,
+    )
+
+    findings = runner.evaluate(rule=make_llm_rule(), review_input=make_review_input())
+
+    assert findings == []
+    assert captured["api_key"] == "test-key"
+    assert captured["timeout"] == 12.5
+    assert captured["max_retries"] == 4
+    assert isinstance(captured["request"], dict)
+    assert captured["request"]["model"] == "gpt-test"
+    assert "input" in captured["request"]
+    assert "text" in captured["request"]
+
+
+def test_openai_runner_reports_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeRateLimitError(Exception):
+        status_code = 429
+
+    class FakeResponses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            raise FakeRateLimitError("too many requests")
+
+    class FakeOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    runner = OpenAiLlmRuleRunner(
+        api_key="test-key",
+        model="gpt-test",
+        timeout_seconds=1.0,
+        max_retries=0,
+    )
+
+    with pytest.raises(LlmRuleRateLimitError, match="rate limit"):
+        runner.evaluate(rule=make_llm_rule(), review_input=make_review_input())
+
+
+def test_openai_runner_reports_malformed_responses(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(output_text="{")
+
+    class FakeOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    runner = OpenAiLlmRuleRunner(
+        api_key="test-key",
+        model="gpt-test",
+        timeout_seconds=1.0,
+        max_retries=0,
+    )
+
+    with pytest.raises(LlmRuleExecutionError, match="Invalid LLM output JSON"):
+        runner.evaluate(rule=make_llm_rule(), review_input=make_review_input())

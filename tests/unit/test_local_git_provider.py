@@ -46,6 +46,21 @@ def test_handles_repository_with_no_changes(tmp_path: Path) -> None:
     assert review_input.changed_files == []
 
 
+def test_reads_developer_id_from_repository_user_name(tmp_path: Path) -> None:
+    repo_path = create_repo(tmp_path)
+    provider = LocalGitProvider(repo_path)
+
+    assert provider.developer_id() == "Test User"
+
+
+def test_falls_back_to_repository_user_email_for_developer_id(tmp_path: Path) -> None:
+    repo_path = create_repo(tmp_path)
+    run_git(repo_path, "config", "--unset", "user.name")
+    provider = LocalGitProvider(repo_path)
+
+    assert provider.developer_id() == "test@example.com"
+
+
 def test_handles_repository_with_one_modified_file(tmp_path: Path) -> None:
     repo_path = create_repo(tmp_path)
     changed_path = repo_path / "Assets" / "Scripts" / "Player.cs"

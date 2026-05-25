@@ -15,13 +15,26 @@ def render_review_history(
         lines.append("No review runs have been stored yet.")
         return "\n".join(lines)
 
-    headers = ["ID", "Timestamp", "Project", "Branch", "Risk", "B", "H", "W", "I", "Rules"]
+    headers = [
+        "ID",
+        "Timestamp",
+        "Scope",
+        "Branch",
+        "Developer",
+        "Risk",
+        "B",
+        "H",
+        "W",
+        "I",
+        "Rules",
+    ]
     rows = [
         [
             str(run.review_id),
             run.timestamp.isoformat(timespec="seconds"),
-            run.project_name,
+            run.review_scope,
             run.branch_name,
+            run.developer_id,
             run.risk,
             str(run.blocking_count),
             str(run.high_count),

@@ -8,15 +8,17 @@ from mr_guardian.storage import ReviewHistoryStore
 
 def make_review_run(
     *,
-    project_name: str = "MR Guardian",
+    review_scope: str = "local-all-policies",
     branch_name: str = "feature/reporting",
+    developer_id: str = "Test User",
     triggered_rule_ids: list[str] | None = None,
     timestamp: datetime | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
-        project_name=project_name,
+        review_scope=review_scope,
         branch_name=branch_name,
+        developer_id=developer_id,
         mr_id="42",
         commit_sha="abc123",
         policy_version=1,
@@ -72,8 +74,9 @@ def test_stores_review_run(tmp_path: Path) -> None:
     store.close()
 
     assert record.review_id == 1
-    assert record.project_name == "MR Guardian"
+    assert record.review_scope == "local-all-policies"
     assert record.branch_name == "feature/reporting"
+    assert record.developer_id == "Test User"
     assert record.mr_id == "42"
     assert record.commit_sha == "abc123"
     assert record.risk == "warning"
@@ -81,6 +84,45 @@ def test_stores_review_run(tmp_path: Path) -> None:
     assert record.changed_file_count == 3
     assert record.changed_line_count == 12
     assert record.generated_review_report == "## MR Guardian Review\n"
+
+
+def test_migrates_existing_history_database(tmp_path: Path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE review_runs (
+                review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                project_name TEXT NOT NULL,
+                branch_name TEXT NOT NULL,
+                mr_id TEXT,
+                commit_sha TEXT,
+                policy_version INTEGER NOT NULL,
+                risk TEXT NOT NULL,
+                blocking_count INTEGER NOT NULL,
+                high_count INTEGER NOT NULL,
+                warning_count INTEGER NOT NULL,
+                info_count INTEGER NOT NULL,
+                changed_file_count INTEGER NOT NULL,
+                changed_line_count INTEGER NOT NULL,
+                generated_review_report TEXT NOT NULL
+            );
+
+            CREATE TABLE triggered_rules (
+                review_id INTEGER NOT NULL,
+                rule_id TEXT NOT NULL,
+                FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
+            );
+            """
+        )
+
+    store = ReviewHistoryStore(database_path)
+    record = store.store_review_run(make_review_run())
+    store.close()
+
+    assert record.developer_id == "Test User"
+    assert record.review_scope == "local-all-policies"
 
 
 def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
