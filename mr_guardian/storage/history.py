@@ -2,7 +2,7 @@
 
 import sqlite3
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mr_guardian.models.history import ReviewRunCreate, ReviewRunRecord, TriggeredRuleStat
@@ -55,7 +55,7 @@ class ReviewHistoryStore:
     def store_review_run(self, run: ReviewRunCreate) -> ReviewRunRecord:
         """Persist one review run and its triggered rule IDs."""
         self.initialize_schema()
-        timestamp = run.timestamp or datetime.now(UTC)
+        timestamp = run.timestamp or datetime.now(timezone.utc)
         cursor = self._connection.execute(
             """
             INSERT INTO review_runs (

@@ -47,10 +47,12 @@ Rule-specific settings belong under `parameters`. Deterministic rules require an
 
 ## Development
 
+Use Python 3.10 or newer.
+
 Install dependencies:
 
 ```bash
-pip install -e ".[dev]"
+python -m pip install -e ".[dev,dashboard]"
 ```
 
 Configure local paths:
@@ -97,6 +99,12 @@ Show the generated report for a stored review ID:
 
 ```bash
 python -m mr_guardian.cli.main log-report 1
+```
+
+Run the Streamlit review-history dashboard:
+
+```bash
+python -m streamlit run app/streamlit_app.py
 ```
 
 Remove all stored review logs:

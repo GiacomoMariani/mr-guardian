@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from mr_guardian.models.history import ReviewRunCreate
@@ -96,7 +96,7 @@ def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
 
 def test_reads_recent_review_runs(tmp_path: Path) -> None:
     store = ReviewHistoryStore(tmp_path / "history.sqlite")
-    old_timestamp = datetime(2026, 5, 21, tzinfo=UTC)
+    old_timestamp = datetime(2026, 5, 21, tzinfo=timezone.utc)
     new_timestamp = old_timestamp + timedelta(days=1)
 
     store.store_review_run(make_review_run(branch_name="old", timestamp=old_timestamp))

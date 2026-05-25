@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from mr_guardian.models.history import ReviewRunRecord, TriggeredRuleStat
 from mr_guardian.reporting.history import render_clear_history_result, render_review_history
@@ -16,7 +16,7 @@ def test_renders_review_history_table() -> None:
         [
             ReviewRunRecord(
                 review_id=1,
-                timestamp=datetime(2026, 5, 22, 10, 30, tzinfo=UTC),
+                timestamp=datetime(2026, 5, 22, 10, 30, tzinfo=timezone.utc),
                 project_name="MR Guardian",
                 branch_name="feature/history",
                 mr_id="42",
