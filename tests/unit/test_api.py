@@ -24,6 +24,13 @@ def merge_request_payload(*, action: str = "open") -> dict[str, Any]:
     }
 
 
+def test_api_health_check() -> None:
+    response = client().get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_api_accepts_valid_open_merge_request_webhook(monkeypatch) -> None:
     monkeypatch.delenv("GITLAB_WEBHOOK_SECRET", raising=False)
     monkeypatch.setattr("app.api.review_gitlab_merge_request", fake_triggered_review)

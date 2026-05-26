@@ -163,8 +163,20 @@ python -m uvicorn app.api:app --host 0.0.0.0 --port 8000
 ```
 
 Docker and Render deployment notes are tracked in
-[docs/docker-deployment.md](docs/docker-deployment.md). Docker packaging is not
-implemented yet.
+[Docs/docker-deployment.md](Docs/docker-deployment.md).
+
+Build and run the FastAPI service with Docker:
+
+```bash
+docker build -t mr-guardian .
+docker run --rm -p 8000:8000 mr-guardian
+```
+
+Check the service:
+
+```bash
+curl http://localhost:8000/healthz
+```
 
 Configure GitLab to send Merge Request webhooks to:
 

@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="MR Guardian")
 
 
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    """Return a lightweight health check response."""
+    return {"status": "ok"}
+
+
 @app.post("/webhooks/gitlab", status_code=202)
 async def gitlab_webhook(
     request: Request,
