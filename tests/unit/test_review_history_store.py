@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from mr_guardian.models.history import ReviewRunCreate
+from mr_guardian.models.review import LlmRuleMetric
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -12,6 +13,7 @@ def make_review_run(
     branch_name: str = "feature/reporting",
     developer_id: str = "Test User",
     triggered_rule_ids: list[str] | None = None,
+    llm_metrics: list[LlmRuleMetric] | None = None,
     timestamp: datetime | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
@@ -30,6 +32,7 @@ def make_review_run(
         changed_file_count=3,
         changed_line_count=12,
         triggered_rule_ids=rule_ids,
+        llm_metrics=llm_metrics or [],
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
     )
@@ -64,7 +67,9 @@ def test_initializes_schema(tmp_path: Path) -> None:
     store.initialize_schema()
     store.close()
 
-    assert {"review_runs", "triggered_rules"}.issubset(table_names(database_path))
+    assert {"review_runs", "triggered_rules", "review_llm_rule_metrics"}.issubset(
+        table_names(database_path)
+    )
 
 
 def test_stores_review_run(tmp_path: Path) -> None:
@@ -134,6 +139,45 @@ def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
     store.close()
 
     assert record.triggered_rule_ids == ["PYTHON-PRINT-001", "CSHARP-DEBUG-001"]
+
+
+def test_stores_llm_rule_metrics(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="PYTHON-DESIGN-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=1420,
+                    input_tokens=1200,
+                    output_tokens=80,
+                    total_tokens=1280,
+                ),
+                LlmRuleMetric(
+                    rule_id="AI-CODE-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="rate_limited",
+                    duration_ms=380,
+                    error_message="LLM provider rate limit reached.",
+                ),
+            ]
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert found_run.llm_metrics[0].rule_id == "PYTHON-DESIGN-LLM-001"
+    assert found_run.llm_metrics[0].input_tokens == 1200
+    assert found_run.llm_metrics[0].total_tokens == 1280
+    assert found_run.llm_metrics[1].status == "rate_limited"
+    assert found_run.llm_metrics[1].input_tokens is None
+    assert found_run.llm_metrics[1].error_message == "LLM provider rate limit reached."
 
 
 def test_reads_recent_review_runs(tmp_path: Path) -> None:

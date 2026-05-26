@@ -46,7 +46,7 @@ ai = [
 ]
 
 all = [
-  "mr-guardian[dashboard,gitlab,ai]",
+  "mr-guardian[dashboard,server,gitlab,ai]",
 ]
 
 [project.scripts]

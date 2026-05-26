@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from mr_guardian.core.review import PolicyReviewResult, ReviewResult
-from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts
+from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts, LlmRuleMetric
 from mr_guardian.models.review_input import ChangedFile, DiffHunk, DiffLine, ReviewInput
 from mr_guardian.reporting.report import render_review_report
 
@@ -46,7 +46,10 @@ def make_review_input() -> ReviewInput:
     )
 
 
-def make_review_result(*findings: Finding) -> ReviewResult:
+def make_review_result(
+    *findings: Finding,
+    llm_metrics: list[LlmRuleMetric] | None = None,
+) -> ReviewResult:
     counts = FindingCounts(
         blocking=sum(1 for finding in findings if finding.severity == "blocking"),
         high=sum(1 for finding in findings if finding.severity == "high"),
@@ -68,6 +71,7 @@ def make_review_result(*findings: Finding) -> ReviewResult:
                     risk=risk,
                     findings=list(findings),
                     counts=counts,
+                    llm_metrics=llm_metrics or [],
                 ),
             )
         ],
@@ -77,6 +81,7 @@ def make_review_result(*findings: Finding) -> ReviewResult:
             risk=risk,
             findings=list(findings),
             counts=counts,
+            llm_metrics=llm_metrics or [],
         ),
     )
 
@@ -92,6 +97,8 @@ def test_generates_report_with_no_findings() -> None:
     assert "- Changed lines: 2" in report
     assert "### Reviewer Focus" in report
     assert "No immediate reviewer action required." in report
+    assert "### LLM Usage" in report
+    assert "No LLM rules were executed." in report
     assert "### Finding Overview" in report
     assert "No triggered rules." in report
     assert "### Policies" in report
@@ -184,3 +191,40 @@ def test_reviewer_focus_is_capped() -> None:
     report = render_review_report(make_review_result(*findings))
 
     assert "2 lower-priority finding(s) omitted from focus." in report
+
+
+def test_renders_llm_usage_metrics() -> None:
+    report = render_review_report(
+        make_review_result(
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="PYTHON-DESIGN-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=1420,
+                    input_tokens=1200,
+                    output_tokens=80,
+                    total_tokens=1280,
+                ),
+                LlmRuleMetric(
+                    rule_id="AI-CODE-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="rate_limited",
+                    duration_ms=380,
+                    error_message="LLM provider rate limit reached.",
+                ),
+            ]
+        )
+    )
+
+    assert "### LLM Usage" in report
+    assert "`PYTHON-DESIGN-LLM-001`" in report
+    assert "Status: succeeded" in report
+    assert "Duration: 1.42s" in report
+    assert "Input tokens: 1200" in report
+    assert "Output tokens: 80" in report
+    assert "Total tokens: 1280" in report
+    assert "Status: rate_limited" in report
+    assert "Error: LLM provider rate limit reached." in report

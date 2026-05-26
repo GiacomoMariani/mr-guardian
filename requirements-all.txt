@@ -1,0 +1,4 @@
+-r requirements-dev.txt
+-r requirements-dashboard.txt
+-r requirements-server.txt
+-r requirements-ai.txt

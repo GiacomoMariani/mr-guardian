@@ -1,11 +1,20 @@
 # Docker and Render Deployment
 
-MR Guardian has initial Docker support for the FastAPI webhook service.
+MR Guardian has initial Docker support for the FastAPI webhook service. The
+Docker image installs the server and AI dependencies, so OpenAI-backed LLM rules
+can run when `MR_GUARDIAN_LLM_PROVIDER=openai` and
+`MR_GUARDIAN_OPENAI_API_KEY` are configured.
 
 ## Build
 
 ```bash
 docker build -t mr-guardian .
+```
+
+The Dockerfile installs the package with:
+
+```bash
+python -m pip install -e ".[server,ai]"
 ```
 
 ## Run Locally

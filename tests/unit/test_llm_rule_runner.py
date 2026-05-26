@@ -42,7 +42,7 @@ def test_converts_valid_llm_output_into_advisory_findings() -> None:
             LlmRuleOutputFinding(
                 message="This abstraction is not justified by the diff.",
                 severity="info",
-                file_path=Path("mr_guardian/example.py"),
+                file_path="mr_guardian/example.py",
                 line_number=12,
             )
         ]
@@ -65,6 +65,8 @@ def test_llm_output_cannot_create_blocking_findings() -> None:
             LlmRuleOutputFinding(
                 message="Reported as blocking by model.",
                 severity="blocking",
+                file_path=None,
+                line_number=None,
             )
         ]
     )
@@ -78,8 +80,8 @@ def test_limits_llm_findings_from_output_contract() -> None:
     rule = make_llm_rule(max_findings=1)
     output = LlmRuleOutput(
         findings=[
-            LlmRuleOutputFinding(message="first"),
-            LlmRuleOutputFinding(message="second"),
+            LlmRuleOutputFinding(message="first", severity=None, file_path=None, line_number=None),
+            LlmRuleOutputFinding(message="second", severity=None, file_path=None, line_number=None),
         ]
     )
 
@@ -169,6 +171,90 @@ def test_configures_openai_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) 
     assert captured["request"]["model"] == "gpt-test"
     assert "input" in captured["request"]
     assert "text" in captured["request"]
+
+
+def test_openai_runner_captures_token_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                output_text='{"findings": []}',
+                usage=SimpleNamespace(
+                    input_tokens=100,
+                    output_tokens=20,
+                    total_tokens=120,
+                ),
+            )
+
+    class FakeOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    runner = OpenAiLlmRuleRunner(
+        api_key="test-key",
+        model="gpt-test",
+        timeout_seconds=1.0,
+        max_retries=0,
+    )
+
+    runner.evaluate(rule=make_llm_rule(), review_input=make_review_input())
+
+    assert runner.last_token_usage is not None
+    assert runner.last_token_usage.input_tokens == 100
+    assert runner.last_token_usage.output_tokens == 20
+    assert runner.last_token_usage.total_tokens == 120
+
+
+def test_openai_schema_uses_plain_string_file_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            captured["request"] = kwargs
+            return SimpleNamespace(output_text='{"findings": []}')
+
+    class FakeOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            timeout: float,
+            max_retries: int,
+        ) -> None:
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    runner = OpenAiLlmRuleRunner(
+        api_key="test-key",
+        model="gpt-test",
+        timeout_seconds=1.0,
+        max_retries=0,
+    )
+
+    runner.evaluate(rule=make_llm_rule(), review_input=make_review_input())
+
+    assert isinstance(captured["request"], dict)
+    text_config = captured["request"]["text"]
+    assert isinstance(text_config, dict)
+    schema = text_config["format"]["schema"]  # type: ignore[index]
+    finding_schema = schema["$defs"]["LlmRuleOutputFinding"]  # type: ignore[index]
+    file_path_schema = finding_schema["properties"]["file_path"]  # type: ignore[index]
+    assert file_path_schema["anyOf"][0] == {"type": "string"}  # type: ignore[index]
+    assert set(finding_schema["required"]) == {  # type: ignore[index]
+        "message",
+        "severity",
+        "file_path",
+        "line_number",
+    }
+    assert schema["required"] == ["findings"]  # type: ignore[index]
 
 
 def test_openai_runner_reports_rate_limits(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -49,21 +49,46 @@ Rule-specific settings belong under `parameters`. Deterministic rules require an
 
 Use Python 3.10 or newer.
 
-Install dependencies:
+Full installation details are in
+[Docs/installation.md](Docs/installation.md).
+
+Recommended local development install:
 
 ```bash
-python -m pip install -e ".[dev,dashboard]"
+python -m pip install -e ".[dev,dashboard,server,ai]"
 ```
 
-Equivalent requirements files are available when editable extras are not
-convenient:
+Minimal CLI install:
 
 ```bash
+python -m pip install -e .
+```
+
+Feature-specific installs:
+
+```bash
+python -m pip install -e ".[dashboard]"
+python -m pip install -e ".[server]"
+python -m pip install -e ".[ai]"
+python -m pip install -e ".[all]"
+```
+
+Equivalent requirements files are available for environments that use
+`pip install -r`:
+
+```bash
+python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 python -m pip install -r requirements-dashboard.txt
 python -m pip install -r requirements-server.txt
 python -m pip install -r requirements-ai.txt
+python -m pip install -r requirements-all.txt
 ```
+
+On Windows, pip may warn that `mr-guardian.exe` was installed into a Scripts
+directory that is not on `PATH`. Add the printed Scripts directory to your user
+`PATH`, then reopen PowerShell, or run the CLI with
+`python -m mr_guardian.cli.main`.
 
 Configure local paths:
 
@@ -106,7 +131,7 @@ OpenAI-backed advisory LLM rules, install the AI extra and set the provider and
 API key:
 
 ```bash
-python -m pip install -e ".[dev,dashboard,ai]"
+python -m pip install -e ".[ai]"
 ```
 
 ```env
@@ -120,6 +145,10 @@ MR_GUARDIAN_OPENAI_MAX_RETRIES=2
 LLM rules are isolated from deterministic review execution. Timeouts, malformed
 responses, rate limits, and provider failures are reported as advisory `info`
 findings for the affected LLM rule; deterministic findings still complete.
+
+LLM rule prompting is configured in YAML. See
+[Docs/llm-rule-authoring.md](Docs/llm-rule-authoring.md) for rule examples,
+prompting guidance, and output-contract conventions.
 
 Run the CLI with local MR metadata:
 

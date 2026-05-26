@@ -139,6 +139,11 @@ def _combine_engine_results(results: list[EngineReviewResult]) -> EngineReviewRe
         risk=calculate_risk(counts),
         findings=findings,
         counts=counts,
+        llm_metrics=[
+            metric
+            for result in results
+            for metric in result.llm_metrics
+        ],
     )
 
 

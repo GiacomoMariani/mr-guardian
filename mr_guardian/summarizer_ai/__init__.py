@@ -7,6 +7,7 @@ from mr_guardian.summarizer_ai.llm_rules import (
     LlmRuleExecutionError,
     LlmRuleRateLimitError,
     LlmRuleRunner,
+    LlmTokenUsage,
     OpenAiLlmRuleRunner,
     create_llm_rule_runner,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "LlmRuleExecutionError",
     "LlmRuleRateLimitError",
     "LlmRuleRunner",
+    "LlmTokenUsage",
     "OpenAiLlmRuleRunner",
     "create_llm_rule_runner",
 ]

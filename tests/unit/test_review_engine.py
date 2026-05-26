@@ -5,7 +5,7 @@ from mr_guardian.models.policy import Policy, PolicyRule
 from mr_guardian.models.review import Finding
 from mr_guardian.models.review_input import ChangedFile, ReviewInput
 from mr_guardian.rules import RuleEvaluationContext, RuleRegistry
-from mr_guardian.summarizer_ai import LlmRuleExecutionError
+from mr_guardian.summarizer_ai import LlmRuleExecutionError, LlmRuleRateLimitError, LlmTokenUsage
 
 
 class FakeRule:
@@ -26,8 +26,14 @@ class FakeRule:
 
 
 class FakeLlmRuleRunner:
-    def __init__(self, findings: list[Finding]) -> None:
+    def __init__(
+        self,
+        findings: list[Finding],
+        *,
+        usage: LlmTokenUsage | None = None,
+    ) -> None:
         self._findings = findings
+        self._usage = usage
         self.calls = 0
 
     def evaluate(self, *, rule: PolicyRule, review_input: ReviewInput) -> list[Finding]:
@@ -35,6 +41,18 @@ class FakeLlmRuleRunner:
         assert review_input.base_ref == "main"
         assert rule.type == "llm"
         return self._findings
+
+    @property
+    def provider_name(self) -> str:
+        return "openai"
+
+    @property
+    def model_name(self) -> str:
+        return "gpt-test"
+
+    @property
+    def last_token_usage(self) -> LlmTokenUsage | None:
+        return self._usage
 
 
 class FailingLlmRuleRunner:
@@ -45,6 +63,18 @@ class FailingLlmRuleRunner:
     def evaluate(self, *, rule: PolicyRule, review_input: ReviewInput) -> list[Finding]:
         self.calls += 1
         raise self._exc
+
+    @property
+    def provider_name(self) -> str:
+        return "openai"
+
+    @property
+    def model_name(self) -> str:
+        return "gpt-test"
+
+    @property
+    def last_token_usage(self) -> LlmTokenUsage | None:
+        return None
 
 
 def make_policy(*rules: PolicyRule) -> Policy:
@@ -175,7 +205,8 @@ def test_runs_enabled_llm_rules_with_configured_runner() -> None:
                 source="python-policy.yml#ARCH-DESIGN-001",
                 rule_type="llm",
             )
-        ]
+        ],
+        usage=LlmTokenUsage(input_tokens=10, output_tokens=5, total_tokens=15),
     )
 
     result = run_review(
@@ -188,6 +219,14 @@ def test_runs_enabled_llm_rules_with_configured_runner() -> None:
     assert llm_runner.calls == 1
     assert result.findings[0].rule_type == "llm"
     assert result.findings[0].severity == "info"
+    assert result.llm_metrics[0].rule_id == "ARCH-DESIGN-001"
+    assert result.llm_metrics[0].status == "succeeded"
+    assert result.llm_metrics[0].provider == "openai"
+    assert result.llm_metrics[0].model == "gpt-test"
+    assert result.llm_metrics[0].duration_ms >= 0
+    assert result.llm_metrics[0].input_tokens == 10
+    assert result.llm_metrics[0].output_tokens == 5
+    assert result.llm_metrics[0].total_tokens == 15
 
 
 def test_does_not_run_disabled_llm_rules() -> None:
@@ -241,9 +280,34 @@ def test_llm_rule_failure_is_reported_without_stopping_review() -> None:
     assert result.findings[1].severity == "info"
     assert result.findings[1].rule_type == "llm"
     assert result.findings[1].message == "LLM rule skipped: LLM provider request timed out."
+    assert result.llm_metrics[0].status == "failed"
+    assert result.llm_metrics[0].error_message == "LLM provider request timed out."
     assert result.counts.warning == 1
     assert result.counts.info == 1
     assert result.risk == "warning"
+
+
+def test_rate_limited_llm_rule_records_rate_limited_metric() -> None:
+    llm_rule = PolicyRule(
+        id="ARCH-DESIGN-001",
+        type="llm",
+        enabled=True,
+        severity="info",
+        source="python-policy.yml#ARCH-DESIGN-001",
+        description="Check architecture concerns.",
+        prompt="Review the diff.",
+    )
+    llm_runner = FailingLlmRuleRunner(LlmRuleRateLimitError("LLM provider rate limit reached."))
+
+    result = run_review(
+        policy=make_policy(llm_rule),
+        review_input=make_review_input(),
+        rule_registry=RuleRegistry(),
+        llm_rule_runner=llm_runner,
+    )
+
+    assert result.llm_metrics[0].status == "rate_limited"
+    assert result.llm_metrics[0].input_tokens is None
 
 
 def test_collects_findings_from_rule() -> None:

@@ -6,7 +6,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from mr_guardian.models.policy import PolicyRule, Severity
 from mr_guardian.models.review import Finding
@@ -37,9 +37,9 @@ class LlmRuleOutputFinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     message: str
-    severity: Severity | None = None
-    file_path: Path | None = None
-    line_number: int | None = None
+    severity: Severity | None
+    file_path: str | None
+    line_number: int | None
 
 
 class LlmRuleOutput(BaseModel):
@@ -47,7 +47,17 @@ class LlmRuleOutput(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    findings: list[LlmRuleOutputFinding] = Field(default_factory=list)
+    findings: list[LlmRuleOutputFinding]
+
+
+class LlmTokenUsage(BaseModel):
+    """Token usage reported by an LLM provider."""
+
+    model_config = ConfigDict(frozen=True)
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class LlmRuleRunner(Protocol):
@@ -56,6 +66,18 @@ class LlmRuleRunner(Protocol):
     def evaluate(self, *, rule: PolicyRule, review_input: ReviewInput) -> list[Finding]:
         """Evaluate one LLM rule against review input."""
 
+    @property
+    def provider_name(self) -> str:
+        """Return the configured provider name."""
+
+    @property
+    def model_name(self) -> str:
+        """Return the configured model name."""
+
+    @property
+    def last_token_usage(self) -> LlmTokenUsage | None:
+        """Return token usage from the latest completed call, when available."""
+
 
 class DisabledLlmRuleRunner:
     """No-op runner used when LLM configuration is not available."""
@@ -63,6 +85,21 @@ class DisabledLlmRuleRunner:
     def evaluate(self, *, rule: PolicyRule, review_input: ReviewInput) -> list[Finding]:
         """Skip LLM rules without failing the review."""
         return []
+
+    @property
+    def provider_name(self) -> str:
+        """Return the configured provider name."""
+        return "disabled"
+
+    @property
+    def model_name(self) -> str:
+        """Return the configured model name."""
+        return "none"
+
+    @property
+    def last_token_usage(self) -> LlmTokenUsage | None:
+        """Return token usage from the latest completed call, when available."""
+        return None
 
 
 class OpenAiLlmRuleRunner:
@@ -80,9 +117,26 @@ class OpenAiLlmRuleRunner:
         self._model = model
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
+        self._last_token_usage: LlmTokenUsage | None = None
+
+    @property
+    def provider_name(self) -> str:
+        """Return the configured provider name."""
+        return "openai"
+
+    @property
+    def model_name(self) -> str:
+        """Return the configured model name."""
+        return self._model
+
+    @property
+    def last_token_usage(self) -> LlmTokenUsage | None:
+        """Return token usage from the latest completed call, when available."""
+        return self._last_token_usage
 
     def evaluate(self, *, rule: PolicyRule, review_input: ReviewInput) -> list[Finding]:
         """Run one LLM rule and convert structured output into findings."""
+        self._last_token_usage = None
         output = self._call_model(
             prompt=_build_llm_prompt(rule=rule, review_input=review_input),
         )
@@ -114,6 +168,7 @@ class OpenAiLlmRuleRunner:
                     }
                 },
             )
+            self._last_token_usage = _token_usage(response)
             return parse_llm_output(response.output_text)
         except ValueError as exc:
             raise LlmRuleExecutionError(str(exc)) from exc
@@ -162,7 +217,7 @@ def findings_from_llm_output(*, rule: PolicyRule, output: LlmRuleOutput) -> list
                 message=output_finding.message,
                 source=rule.source,
                 rule_type=rule.type,
-                file_path=output_finding.file_path,
+                file_path=_finding_path(output_finding.file_path),
                 line_number=output_finding.line_number,
             )
         )
@@ -182,6 +237,31 @@ def parse_llm_output(raw_output: str) -> LlmRuleOutput:
     except ValidationError as exc:
         msg = f"Invalid LLM output structure: {exc}"
         raise ValueError(msg) from exc
+
+
+def _finding_path(file_path: str | None) -> Path | None:
+    if file_path is None or file_path == "":
+        return None
+    return Path(file_path)
+
+
+def _token_usage(response: object) -> LlmTokenUsage | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    return LlmTokenUsage(
+        input_tokens=_optional_int(getattr(usage, "input_tokens", None)),
+        output_tokens=_optional_int(getattr(usage, "output_tokens", None)),
+        total_tokens=_optional_int(getattr(usage, "total_tokens", None)),
+    )
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    return None
 
 
 def _build_llm_prompt(*, rule: PolicyRule, review_input: ReviewInput) -> str:

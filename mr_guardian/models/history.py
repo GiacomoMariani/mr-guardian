@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from mr_guardian.models.review import RiskLevel
+from mr_guardian.models.review import LlmRuleMetric, RiskLevel
 
 
 class ReviewRunCreate(BaseModel):
@@ -24,6 +24,7 @@ class ReviewRunCreate(BaseModel):
     changed_file_count: int
     changed_line_count: int
     triggered_rule_ids: list[str]
+    llm_metrics: list[LlmRuleMetric] = []
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None
@@ -49,6 +50,7 @@ class ReviewRunRecord(BaseModel):
     changed_file_count: int
     changed_line_count: int
     triggered_rule_ids: list[str]
+    llm_metrics: list[LlmRuleMetric] = []
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None

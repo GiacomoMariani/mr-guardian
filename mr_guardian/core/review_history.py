@@ -38,6 +38,7 @@ def store_review_result(
                     finding.rule_id
                     for finding in result.engine_result.findings
                 ],
+                llm_metrics=result.engine_result.llm_metrics,
                 generated_review_report=report,
             )
         )

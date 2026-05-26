@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from mr_guardian.models.policy import RuleType, Severity
 
 RiskLevel = Literal["none", "info", "warning", "high", "blocking"]
+LlmRuleStatus = Literal["succeeded", "skipped", "failed", "rate_limited"]
 
 
 class Finding(BaseModel):
@@ -35,6 +36,22 @@ class FindingCounts(BaseModel):
     info: int = 0
 
 
+class LlmRuleMetric(BaseModel):
+    """Runtime and token metrics for one LLM rule execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    rule_id: str
+    provider: str
+    model: str
+    status: LlmRuleStatus
+    duration_ms: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    error_message: str | None = None
+
+
 class EngineReviewResult(BaseModel):
     """Result returned by the shared review engine."""
 
@@ -43,3 +60,4 @@ class EngineReviewResult(BaseModel):
     risk: RiskLevel
     findings: list[Finding]
     counts: FindingCounts
+    llm_metrics: list[LlmRuleMetric] = []

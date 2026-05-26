@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mr_guardian.models.history import ReviewRunCreate, ReviewRunRecord, TriggeredRuleStat
+from mr_guardian.models.review import LlmRuleMetric
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS review_runs (
@@ -33,11 +34,29 @@ CREATE TABLE IF NOT EXISTS triggered_rules (
     FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS review_llm_rule_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id INTEGER NOT NULL,
+    rule_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    status TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    total_tokens INTEGER,
+    error_message TEXT,
+    FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_review_runs_timestamp
 ON review_runs(timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS idx_triggered_rules_rule_id
 ON triggered_rules(rule_id);
+
+CREATE INDEX IF NOT EXISTS idx_review_llm_rule_metrics_review_id
+ON review_llm_rule_metrics(review_id);
 """
 
 
@@ -110,6 +129,7 @@ class ReviewHistoryStore:
             raise RuntimeError(msg)
         review_id = cursor.lastrowid
         self._insert_triggered_rules(review_id, run.triggered_rule_ids)
+        self._insert_llm_metrics(review_id, run.llm_metrics)
         self._connection.commit()
         return self._record_for_review_id(review_id)
 
@@ -169,6 +189,7 @@ class ReviewHistoryStore:
         row = self._connection.execute("SELECT COUNT(*) AS run_count FROM review_runs").fetchone()
         run_count = int(row["run_count"]) if row is not None else 0
         self._connection.execute("DELETE FROM triggered_rules")
+        self._connection.execute("DELETE FROM review_llm_rule_metrics")
         self._connection.execute("DELETE FROM review_runs")
         self._connection.commit()
         return run_count
@@ -194,6 +215,40 @@ class ReviewHistoryStore:
             VALUES (?, ?)
             """,
             [(review_id, rule_id) for rule_id in rule_ids],
+        )
+
+    def _insert_llm_metrics(self, review_id: int, metrics: Sequence[LlmRuleMetric]) -> None:
+        self._connection.executemany(
+            """
+            INSERT INTO review_llm_rule_metrics (
+                review_id,
+                rule_id,
+                provider,
+                model,
+                status,
+                duration_ms,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                error_message
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    review_id,
+                    metric.rule_id,
+                    metric.provider,
+                    metric.model,
+                    metric.status,
+                    metric.duration_ms,
+                    metric.input_tokens,
+                    metric.output_tokens,
+                    metric.total_tokens,
+                    metric.error_message,
+                )
+                for metric in metrics
+            ],
         )
 
     def _record_for_review_id(self, review_id: int) -> ReviewRunRecord:
@@ -229,6 +284,7 @@ class ReviewHistoryStore:
             changed_file_count=int(row["changed_file_count"]),
             changed_line_count=int(row["changed_line_count"]),
             triggered_rule_ids=self._triggered_rule_ids(review_id),
+            llm_metrics=self._llm_metrics(review_id),
             generated_review_report=str(row["generated_review_report"]),
         )
 
@@ -243,6 +299,31 @@ class ReviewHistoryStore:
             (review_id,),
         ).fetchall()
         return [str(row["rule_id"]) for row in rows]
+
+    def _llm_metrics(self, review_id: int) -> list[LlmRuleMetric]:
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM review_llm_rule_metrics
+            WHERE review_id = ?
+            ORDER BY id ASC
+            """,
+            (review_id,),
+        ).fetchall()
+        return [
+            LlmRuleMetric(
+                rule_id=str(row["rule_id"]),
+                provider=str(row["provider"]),
+                model=str(row["model"]),
+                status=row["status"],
+                duration_ms=int(row["duration_ms"]),
+                input_tokens=_optional_int(row["input_tokens"]),
+                output_tokens=_optional_int(row["output_tokens"]),
+                total_tokens=_optional_int(row["total_tokens"]),
+                error_message=_optional_str(row["error_message"]),
+            )
+            for row in rows
+        ]
 
     def _ensure_schema_columns(self) -> None:
         columns = self._review_run_columns()
@@ -273,3 +354,14 @@ def _optional_str(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    msg = f"Expected integer-compatible SQLite value, got {type(value).__name__}."
+    raise TypeError(msg)

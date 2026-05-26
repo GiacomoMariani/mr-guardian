@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from mr_guardian.core.review import ReviewResult
 from mr_guardian.models.policy import Severity
-from mr_guardian.models.review import Finding, RiskLevel
+from mr_guardian.models.review import Finding, LlmRuleMetric, RiskLevel
 from mr_guardian.models.review_input import DiffLine, ReviewInput
 
 SEVERITY_ORDER: tuple[Severity, ...] = ("blocking", "high", "warning", "info")
@@ -46,6 +46,8 @@ def render_review_report(result: ReviewResult) -> str:
     ]
 
     lines.extend(_render_reviewer_focus(result.engine_result.findings))
+    lines.extend(["", "### LLM Usage", ""])
+    lines.extend(_render_llm_usage(result.engine_result.llm_metrics))
     lines.extend(["", "### Finding Overview", ""])
     lines.extend(_render_finding_overview(result.engine_result.findings))
     lines.extend(["", "### Policies", ""])
@@ -121,6 +123,28 @@ def _render_reviewer_focus(findings: list[Finding]) -> list[str]:
     omitted_count = len(ordered_findings) - len(displayed_findings)
     if omitted_count:
         lines.append(f"- {omitted_count} lower-priority finding(s) omitted from focus.")
+    return lines
+
+
+def _render_llm_usage(metrics: list[LlmRuleMetric]) -> list[str]:
+    if not metrics:
+        return ["No LLM rules were executed."]
+
+    lines: list[str] = []
+    for metric in metrics:
+        lines.append(f"- `{metric.rule_id}`")
+        lines.append(f"  - Status: {metric.status}")
+        lines.append(f"  - Provider: {metric.provider}")
+        lines.append(f"  - Model: {metric.model}")
+        lines.append(f"  - Duration: {metric.duration_ms / 1000:.2f}s")
+        if metric.input_tokens is not None:
+            lines.append(f"  - Input tokens: {metric.input_tokens}")
+        if metric.output_tokens is not None:
+            lines.append(f"  - Output tokens: {metric.output_tokens}")
+        if metric.total_tokens is not None:
+            lines.append(f"  - Total tokens: {metric.total_tokens}")
+        if metric.error_message is not None:
+            lines.append(f"  - Error: {metric.error_message}")
     return lines
 
 

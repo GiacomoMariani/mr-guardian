@@ -24,7 +24,7 @@ COPY app ./app
 COPY sources ./sources
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -e ".[server]"
+    && python -m pip install -e ".[server,ai]"
 
 USER appuser
 
