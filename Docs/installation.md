@@ -35,6 +35,12 @@ The console script is also installed:
 mr-guardian review --base main
 ```
 
+Installed packages include default YAML policies. When `sources/yaml` exists in
+the current project, MR Guardian uses those repo-local policies. When that
+directory is missing or empty, it falls back to packaged default policies.
+Set `MR_GUARDIAN_POLICY_DIR` or pass `--policy-dir` to use team-specific
+policies.
+
 On Windows, if `mr-guardian` is not found after installation, add the Python
 Scripts directory shown by pip to your user `PATH`. For example:
 
@@ -141,6 +147,13 @@ Dashboard:
 python -m streamlit run app/streamlit_app.py
 ```
 
+When running from an installed wheel outside the source checkout:
+
+```powershell
+$dashboard = python -c "from pathlib import Path; import app.streamlit_app; print(Path(app.streamlit_app.__file__))"
+python -m streamlit run $dashboard
+```
+
 FastAPI webhook service:
 
 ```bash
@@ -153,6 +166,14 @@ Docker:
 docker build -t mr-guardian .
 docker run --rm -p 8000:8000 mr-guardian
 ```
+
+Wheel packaging:
+
+```bash
+python -m pip wheel . --no-deps -w dist
+```
+
+See [packaging.md](packaging.md) for package contents and smoke checks.
 
 ## Verification
 

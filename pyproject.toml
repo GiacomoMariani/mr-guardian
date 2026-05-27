@@ -8,8 +8,18 @@ version = "0.1.0"
 description = "Unity Merge Request review assistant using YAML policies, review history, and optional AI summaries."
 readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["unity", "merge-request", "code-review", "gitlab", "yaml"]
 authors = [
   { name = "MR Guardian" }
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
 ]
 dependencies = [
   "typer>=0.12.0",
@@ -53,7 +63,10 @@ all = [
 mr-guardian = "mr_guardian.cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["mr_guardian*"]
+include = ["mr_guardian*", "app*"]
+
+[tool.setuptools.package-data]
+mr_guardian = ["py.typed", "defaults/yaml/*.yml", "defaults/yaml/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

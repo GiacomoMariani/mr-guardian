@@ -1,0 +1,8 @@
+include README.md
+include .env.example
+include requirements*.txt
+recursive-include Docs *.md
+recursive-include sources/yaml *.yml *.yaml
+recursive-include examples *.md *.txt *.yml *.yaml
+recursive-include mr_guardian/defaults/yaml *.yml *.yaml
+include mr_guardian/py.typed

@@ -1,5 +1,6 @@
 """YAML policy loading and validation."""
 
+from mr_guardian.policies.defaults import resolve_policy_directory
 from mr_guardian.policies.loader import (
     PolicyLoadError,
     PolicyValidationError,
@@ -16,4 +17,5 @@ __all__ = [
     "load_policy",
     "load_policies_from_directory",
     "policy_paths_from_directory",
+    "resolve_policy_directory",
 ]

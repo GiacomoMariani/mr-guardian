@@ -106,3 +106,40 @@ def test_review_merge_request_combines_multiple_policy_results(
     assert result.engine_result.counts.warning == 1
     assert result.engine_result.counts.high == 1
     assert result.engine_result.risk == "high"
+
+
+def test_review_merge_request_uses_packaged_default_policies_when_repo_defaults_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    class FakeGitProvider:
+        def __init__(self, repo_path: str | Path = ".") -> None:
+            self.repo_path = repo_path
+
+        def collect(self, base_ref: str) -> ReviewInput:
+            return ReviewInput(base_ref=base_ref, changed_files=[])
+
+        def developer_id(self) -> str:
+            return "Test User"
+
+    def fake_run_review(
+        *,
+        policy: Policy,
+        review_input: ReviewInput,
+        rule_registry,
+        llm_rule_runner,
+    ) -> EngineReviewResult:
+        return EngineReviewResult(risk="none", findings=[], counts=FindingCounts())
+
+    monkeypatch.setattr("mr_guardian.core.review.LocalGitProvider", FakeGitProvider)
+    monkeypatch.setattr("mr_guardian.core.review.run_review", fake_run_review)
+
+    result = review_merge_request(ReviewRequest(base="main"))
+
+    assert not Path("sources/yaml").exists()
+    assert {policy_result.policy_path.name for policy_result in result.policy_results} == {
+        "python-policy.yml",
+        "unity-policy.yml",
+    }

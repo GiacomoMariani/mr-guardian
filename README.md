@@ -64,6 +64,10 @@ Minimal CLI install:
 python -m pip install -e .
 ```
 
+Installed packages include default YAML policies. During development MR Guardian
+uses repo-local `sources/yaml` when it exists; if that directory is missing or
+empty, it falls back to packaged default policies.
+
 Feature-specific installs:
 
 ```bash
@@ -184,6 +188,14 @@ Run the Streamlit review-history dashboard:
 python -m streamlit run app/streamlit_app.py
 ```
 
+From an installed wheel outside the source checkout, resolve the packaged
+dashboard path first:
+
+```powershell
+$dashboard = python -c "from pathlib import Path; import app.streamlit_app; print(Path(app.streamlit_app.__file__))"
+python -m streamlit run $dashboard
+```
+
 Run the GitLab webhook FastAPI service:
 
 ```bash
@@ -193,6 +205,9 @@ python -m uvicorn app.api:app --host 0.0.0.0 --port 8000
 
 Docker and Render deployment notes are tracked in
 [Docs/docker-deployment.md](Docs/docker-deployment.md).
+
+Packaging notes and wheel smoke checks are tracked in
+[Docs/packaging.md](Docs/packaging.md).
 
 Build and run the FastAPI service with Docker:
 

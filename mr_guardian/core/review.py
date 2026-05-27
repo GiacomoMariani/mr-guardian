@@ -8,7 +8,7 @@ from mr_guardian.core.engine import calculate_risk, count_findings, run_review
 from mr_guardian.models.policy import Policy
 from mr_guardian.models.review import EngineReviewResult
 from mr_guardian.models.review_input import ReviewInput
-from mr_guardian.policies import load_policy, policy_paths_from_directory
+from mr_guardian.policies import load_policy, policy_paths_from_directory, resolve_policy_directory
 from mr_guardian.providers import LocalGitProvider
 from mr_guardian.rules import RuleRegistry, default_rule_registry
 from mr_guardian.summarizer_ai import DisabledLlmRuleRunner, LlmRuleRunner
@@ -71,8 +71,7 @@ def review_merge_request(
     llm_rule_runner: LlmRuleRunner | None = None,
 ) -> ReviewResult:
     """Run the local review pipeline for a merge request."""
-    resolved_policy_directory = Path(request.policy_directory)
-    policy_paths = policy_paths_from_directory(resolved_policy_directory)
+    requested_policy_directory = Path(request.policy_directory)
     provider = LocalGitProvider(repo_path)
     review_input = provider.collect(request.base).model_copy(
         update={
@@ -83,15 +82,17 @@ def review_merge_request(
     registry = rule_registry or default_rule_registry()
     resolved_llm_rule_runner = llm_rule_runner or DisabledLlmRuleRunner()
 
-    policy_results = [
-        _review_policy(
-            policy_path=policy_path,
-            review_input=review_input,
-            rule_registry=registry,
-            llm_rule_runner=resolved_llm_rule_runner,
-        )
-        for policy_path in policy_paths
-    ]
+    with resolve_policy_directory(requested_policy_directory) as resolved_policy_directory:
+        policy_paths = policy_paths_from_directory(resolved_policy_directory)
+        policy_results = [
+            _review_policy(
+                policy_path=policy_path,
+                review_input=review_input,
+                rule_registry=registry,
+                llm_rule_runner=resolved_llm_rule_runner,
+            )
+            for policy_path in policy_paths
+        ]
     engine_result = _combine_engine_results(
         [policy_result.engine_result for policy_result in policy_results]
     )
