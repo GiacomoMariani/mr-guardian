@@ -279,3 +279,124 @@ def test_loads_all_yaml_policies_from_directory(tmp_path: Path) -> None:
 
     assert len(policies) == 2
     assert {policy.rules[0].id for policy in policies} == {"MR-META-001", "PYTHON-PRINT-001"}
+
+
+def test_unity_policy_loads_lifecycle_llm_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "UNITY-LIFECYCLE-LLM-001")
+
+    assert rule.type == "llm"
+    assert rule.enabled is True
+    assert rule.severity == "info"
+    assert rule.source == "unity-policy.yml#UNITY-LIFECYCLE-LLM-001"
+    assert rule.prompt is not None
+    assert "Awake" in rule.prompt
+    assert "OnEnable" in rule.prompt
+    assert "Only report issues grounded in the diff." in rule.prompt
+    assert rule.parameters["inputs"] == {
+        "include_diff": True,
+        "include_changed_files": True,
+    }
+    assert rule.parameters["output_contract"] == {
+        "max_findings": 3,
+        "allow_blocking": False,
+    }
+
+
+def test_unity_policy_loads_ui_performance_llm_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "UNITY-UI-PERF-LLM-001")
+
+    assert rule.type == "llm"
+    assert rule.enabled is True
+    assert rule.severity == "info"
+    assert rule.source == "unity-policy.yml#UNITY-UI-PERF-LLM-001"
+    assert rule.prompt is not None
+    assert "Canvas rebuilds" in rule.prompt
+    assert "raycast targets" in rule.prompt
+    assert "return no findings" in rule.prompt
+    assert rule.parameters["inputs"] == {
+        "include_diff": True,
+        "include_changed_files": True,
+    }
+    assert rule.parameters["output_contract"] == {
+        "max_findings": 3,
+        "allow_blocking": False,
+    }
+
+
+def test_unity_policy_loads_asset_loading_llm_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "UNITY-ASSET-LOADING-LLM-001")
+
+    assert rule.type == "llm"
+    assert rule.enabled is True
+    assert rule.severity == "info"
+    assert rule.source == "unity-policy.yml#UNITY-ASSET-LOADING-LLM-001"
+    assert rule.prompt is not None
+    assert "Addressables" in rule.prompt
+    assert "AssetBundle" in rule.prompt
+    assert "memory lifecycle" in rule.prompt
+    assert "platform-specific content" in rule.prompt
+    assert "UNITY-RESOURCES-001" in rule.prompt
+    assert rule.parameters["inputs"] == {
+        "include_diff": True,
+        "include_changed_files": True,
+    }
+    assert rule.parameters["output_contract"] == {
+        "max_findings": 3,
+        "allow_blocking": False,
+    }
+
+
+def test_unity_policy_loads_physics_llm_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "UNITY-PHYSICS-LLM-001")
+
+    assert rule.type == "llm"
+    assert rule.enabled is True
+    assert rule.severity == "info"
+    assert rule.source == "unity-policy.yml#UNITY-PHYSICS-LLM-001"
+    assert rule.prompt is not None
+    assert "Update versus FixedUpdate" in rule.prompt
+    assert "layer masks" in rule.prompt
+    assert "raycasts or casts" in rule.prompt
+    assert "Rigidbody movement" in rule.prompt
+    assert "collision or trigger" in rule.prompt
+    assert rule.parameters["inputs"] == {
+        "include_diff": True,
+        "include_changed_files": True,
+    }
+    assert rule.parameters["output_contract"] == {
+        "max_findings": 3,
+        "allow_blocking": False,
+    }
+
+
+def test_unity_policy_loads_scriptableobject_llm_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "UNITY-SCRIPTABLEOBJECT-LLM-001")
+
+    assert rule.type == "llm"
+    assert rule.enabled is True
+    assert rule.severity == "info"
+    assert rule.source == "unity-policy.yml#UNITY-SCRIPTABLEOBJECT-LLM-001"
+    assert rule.prompt is not None
+    assert "ScriptableObject" in rule.prompt
+    assert "hidden global state" in rule.prompt
+    assert "mutable runtime state" in rule.prompt
+    assert "non-stateless" in rule.prompt
+    assert "editor/runtime state leakage" in rule.prompt
+    assert rule.parameters["inputs"] == {
+        "include_diff": True,
+        "include_changed_files": True,
+    }
+    assert rule.parameters["output_contract"] == {
+        "max_findings": 3,
+        "allow_blocking": False,
+    }

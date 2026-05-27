@@ -18,6 +18,10 @@ DETERMINISTIC_RULE_IDS = {
     "UNITY-PREFAB-001",
     "UNITY-PROJECTSETTINGS-001",
     "UNITY-TESTS-001",
+    "UNITY-EVENTS-001",
+    "UNITY-PERF-GC-001",
+    "UNITY-POOLING-001",
+    "UNITY-RESOURCES-001",
     "CSHARP-DEBUG-001",
     "CSHARP-GETCOMPONENT-001",
     "CSHARP-SIZE-001",
@@ -303,6 +307,255 @@ def test_gameplay_code_passes_when_test_file_changed() -> None:
         changed_files=[
             make_changed_file("Assets/Scripts/Player.cs"),
             make_changed_file("Assets/Tests/PlayerTests.cs"),
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings == []
+
+
+def test_unity_event_subscription_rule_triggers_without_unsubscribe() -> None:
+    rule = make_rule(
+        "UNITY-EVENTS-001",
+        implementation="unity_event_subscription",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "subscribe_tokens": ["+=", ".AddListener(", "AddEventListener("],
+                "unsubscribe_tokens": ["-=", ".RemoveListener(", "RemoveEventListener("],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/PlayerHud.cs",
+                added_lines=["health.OnChanged += Refresh;\n"],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].rule_id == "UNITY-EVENTS-001"
+    assert result.findings[0].severity == "warning"
+    assert result.findings[0].file_path == Path("Assets/Scripts/PlayerHud.cs")
+    assert result.findings[0].line_number == 1
+
+
+def test_unity_event_subscription_rule_passes_with_unsubscribe() -> None:
+    rule = make_rule(
+        "UNITY-EVENTS-001",
+        implementation="unity_event_subscription",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "subscribe_tokens": ["+=", ".AddListener(", "AddEventListener("],
+                "unsubscribe_tokens": ["-=", ".RemoveListener(", "RemoveEventListener("],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/PlayerHud.cs",
+                added_lines=[
+                    "health.OnChanged += Refresh;\n",
+                    "health.OnChanged -= Refresh;\n",
+                ],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings == []
+
+
+def test_unity_per_frame_allocation_rule_triggers_inside_update() -> None:
+    rule = make_rule(
+        "UNITY-PERF-GC-001",
+        implementation="unity_per_frame_allocation",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "callbacks": ["Update", "LateUpdate", "FixedUpdate"],
+                "allocation_tokens": ["new ", ".Where(", ".Select(", ".ToList("],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/EnemyTracker.cs",
+                added_lines=[
+                    "private void Update() {\n",
+                    "var visibleEnemies = new List<Enemy>();\n",
+                    "}\n",
+                ],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].rule_id == "UNITY-PERF-GC-001"
+    assert result.findings[0].severity == "warning"
+    assert result.findings[0].file_path == Path("Assets/Scripts/EnemyTracker.cs")
+    assert result.findings[0].line_number == 2
+
+
+def test_unity_per_frame_allocation_rule_passes_outside_update() -> None:
+    rule = make_rule(
+        "UNITY-PERF-GC-001",
+        implementation="unity_per_frame_allocation",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "callbacks": ["Update", "LateUpdate", "FixedUpdate"],
+                "allocation_tokens": ["new ", ".Where(", ".Select(", ".ToList("],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/EnemyTracker.cs",
+                added_lines=[
+                    "private void Awake() {\n",
+                    "visibleEnemies = new List<Enemy>();\n",
+                    "}\n",
+                ],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings == []
+
+
+def test_unity_pooling_rule_triggers_for_runtime_instantiate() -> None:
+    rule = make_rule(
+        "UNITY-POOLING-001",
+        implementation="unity_runtime_instantiation",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "pooling_tokens": ["Instantiate(", "Destroy("],
+                "runtime_method_name_contains": ["Spawn", "Update", "OnTrigger"],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/EnemySpawner.cs",
+                added_lines=[
+                    "private void SpawnEnemy() {\n",
+                    "var enemy = Instantiate(enemyPrefab);\n",
+                    "}\n",
+                ],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].rule_id == "UNITY-POOLING-001"
+    assert result.findings[0].severity == "warning"
+    assert result.findings[0].file_path == Path("Assets/Scripts/EnemySpawner.cs")
+    assert result.findings[0].line_number == 2
+
+
+def test_unity_pooling_rule_passes_for_setup_instantiate() -> None:
+    rule = make_rule(
+        "UNITY-POOLING-001",
+        implementation="unity_runtime_instantiation",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "pooling_tokens": ["Instantiate(", "Destroy("],
+                "runtime_method_name_contains": ["Spawn", "Update", "OnTrigger"],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/EnemySpawner.cs",
+                added_lines=[
+                    "private void Awake() {\n",
+                    "previewEnemy = Instantiate(enemyPrefab);\n",
+                    "}\n",
+                ],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings == []
+
+
+def test_unity_resources_load_rule_triggers_for_added_resource_load() -> None:
+    rule = make_rule(
+        "UNITY-RESOURCES-001",
+        implementation="unity_resources_load",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "resource_tokens": ["Resources.Load", "Resources.LoadAll"],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/AssetLoader.cs",
+                added_lines=["var prefab = Resources.Load<GameObject>(assetPath);\n"],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert len(result.findings) == 1
+    assert result.findings[0].rule_id == "UNITY-RESOURCES-001"
+    assert result.findings[0].severity == "warning"
+    assert result.findings[0].file_path == Path("Assets/Scripts/AssetLoader.cs")
+    assert result.findings[0].line_number == 1
+
+
+def test_unity_resources_load_rule_passes_without_resource_load() -> None:
+    rule = make_rule(
+        "UNITY-RESOURCES-001",
+        implementation="unity_resources_load",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "resource_tokens": ["Resources.Load", "Resources.LoadAll"],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/AssetLoader.cs",
+                added_lines=["var handle = Addressables.LoadAssetAsync<GameObject>(assetKey);\n"],
+            )
         ],
     )
 

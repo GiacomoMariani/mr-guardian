@@ -171,6 +171,90 @@ rules:
         mr_sections:
           - Manual Validation
 
+  - id: UNITY-EVENTS-001
+    type: deterministic
+    implementation: unity_event_subscription
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-EVENTS-001
+    description: Event subscriptions should have a visible unsubscribe path.
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        subscribe_tokens:
+          - "+="
+          - ".AddListener("
+          - "AddEventListener("
+        unsubscribe_tokens:
+          - "-="
+          - ".RemoveListener("
+          - "RemoveEventListener("
+
+  - id: UNITY-PERF-GC-001
+    type: deterministic
+    implementation: unity_per_frame_allocation
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-PERF-GC-001
+    description: Avoid likely GC allocations inside Unity per-frame callbacks.
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        callbacks:
+          - "Update"
+          - "LateUpdate"
+          - "FixedUpdate"
+        allocation_tokens:
+          - "new "
+          - ".Where("
+          - ".Select("
+          - ".ToList("
+          - ".ToArray("
+          - "string.Format("
+          - "$\""
+
+  - id: UNITY-POOLING-001
+    type: deterministic
+    implementation: unity_runtime_instantiation
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-POOLING-001
+    description: Runtime Instantiate or Destroy usage should be checked for pooling needs.
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        pooling_tokens:
+          - "Instantiate("
+          - "Destroy("
+        runtime_method_name_contains:
+          - "Update"
+          - "LateUpdate"
+          - "FixedUpdate"
+          - "Spawn"
+          - "Despawn"
+          - "Fire"
+          - "Shoot"
+          - "OnTrigger"
+          - "OnCollision"
+
+  - id: UNITY-RESOURCES-001
+    type: deterministic
+    implementation: unity_resources_load
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-RESOURCES-001
+    description: Avoid newly introduced Resources.Load usage without an explicit asset-loading plan.
+    parameters:
+      match:
+        changed_files:
+          - "Assets/**/*.cs"
+        resource_tokens:
+          - "Resources.Load"
+          - "Resources.LoadAll"
+
   - id: CSHARP-DEBUG-001
     type: deterministic
     implementation: csharp_debug_log
@@ -264,6 +348,97 @@ rules:
     description: Check whether the change appears broader than the stated intent.
     prompt: |
       Review the provided diff for unrelated scope, unnecessary abstractions, or generated code that is not clearly connected to the change.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false
+
+  - id: UNITY-LIFECYCLE-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-LIFECYCLE-LLM-001
+    description: Check whether Unity lifecycle changes rely on fragile execution order assumptions.
+    prompt: |
+      Review the provided Unity C# diff for fragile lifecycle coupling or execution order assumptions involving Awake, OnEnable, Start, Update, LateUpdate, FixedUpdate, OnDisable, or script execution order.
+      Look for initialization that depends on another component being ready too early, event setup that may run before dependencies exist, physics logic in the wrong update loop, or per-frame behavior that belongs in an event-driven path.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false
+
+  - id: UNITY-UI-PERF-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-UI-PERF-LLM-001
+    description: Check Unity UI changes for performance and validation risk.
+    prompt: |
+      Review the provided Unity diff for UI performance risks involving Canvas rebuilds, dynamic layout updates, unnecessary raycast targets, expensive UI updates in per-frame code, UI Toolkit or uGUI hierarchy changes, TextMeshPro updates, or UI prefab changes that should be manually profiled.
+      If the diff does not touch Unity UI code or UI assets, return no findings.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false
+
+  - id: UNITY-ASSET-LOADING-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-ASSET-LOADING-LLM-001
+    description: Check broader Unity asset-loading changes for memory, lifecycle, and platform risk.
+    prompt: |
+      Review the provided Unity diff for asset-loading risks beyond direct Resources.Load usage.
+      Focus on Addressables, AssetBundle usage, runtime loading paths, memory lifecycle, unload behavior, reference ownership, cache invalidation, and platform-specific content delivery or build-target risks.
+      The deterministic UNITY-RESOURCES-001 rule handles direct Resources.Load and Resources.LoadAll matches; only report broader asset-loading issues grounded in the diff.
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false
+
+  - id: UNITY-PHYSICS-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-PHYSICS-LLM-001
+    description: Check Unity physics changes for update-loop, query, movement, and collision risks.
+    prompt: |
+      Review the provided Unity diff for physics risks involving Update versus FixedUpdate usage, physics queries without explicit layer masks, excessive raycasts or casts, Rigidbody movement through transform changes, and collision or trigger behavior changes.
+      If the diff does not touch Unity physics code, physics components, collision logic, trigger logic, Rigidbody movement, raycasts, casts, or related scene/prefab setup, return no findings.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs:
+        include_diff: true
+        include_changed_files: true
+      output_contract:
+        max_findings: 3
+        allow_blocking: false
+
+  - id: UNITY-SCRIPTABLEOBJECT-LLM-001
+    type: llm
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-SCRIPTABLEOBJECT-LLM-001
+    description: Check ScriptableObject changes for hidden state, runtime mutation, and editor/runtime leakage.
+    prompt: |
+      Review the provided Unity diff for ScriptableObject architecture risks.
+      Check whether ScriptableObject usage is appropriate for data, configuration, or event-channel patterns; look for hidden global state, mutable runtime state stored in asset files, non-stateless ScriptableObject patterns, and editor/runtime state leakage.
+      Return an advisory finding when changed ScriptableObject usage appears non-stateless or could persist runtime state back into assets.
       Only report issues grounded in the diff.
     parameters:
       inputs:

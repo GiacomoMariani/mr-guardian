@@ -23,6 +23,12 @@ from mr_guardian.rules.unity_assets import (
     ChangedFilesRequireValidationRule,
     ProductionCodeRequiresTestsOrValidationRule,
 )
+from mr_guardian.rules.unity_events import UnityEventSubscriptionRule
+from mr_guardian.rules.unity_performance import (
+    UnityPerFrameAllocationRule,
+    UnityRuntimeInstantiationRule,
+)
+from mr_guardian.rules.unity_resources import UnityResourcesLoadRule
 
 DEFAULT_RULE_FACTORIES: dict[str, Callable[[], DeterministicRule]] = {
     "SIZE-FILES-001": lambda: ChangedFileCountRule("SIZE-FILES-001"),
@@ -39,6 +45,10 @@ DEFAULT_RULE_FACTORIES: dict[str, Callable[[], DeterministicRule]] = {
         "UNITY-PROJECTSETTINGS-001"
     ),
     "UNITY-TESTS-001": lambda: ProductionCodeRequiresTestsOrValidationRule("UNITY-TESTS-001"),
+    "UNITY-EVENTS-001": lambda: UnityEventSubscriptionRule("UNITY-EVENTS-001"),
+    "UNITY-PERF-GC-001": lambda: UnityPerFrameAllocationRule("UNITY-PERF-GC-001"),
+    "UNITY-POOLING-001": lambda: UnityRuntimeInstantiationRule("UNITY-POOLING-001"),
+    "UNITY-RESOURCES-001": lambda: UnityResourcesLoadRule("UNITY-RESOURCES-001"),
     "CSHARP-DEBUG-001": CSharpDebugLogRule,
     "CSHARP-GETCOMPONENT-001": lambda: AddedLineTokenRule(
         "CSHARP-GETCOMPONENT-001",
