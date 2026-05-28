@@ -97,7 +97,7 @@ def test_review_command_outputs_real_report(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     assert "MR Guardian Review" in result.output
-    assert "**Risk:** None" in result.output
+    assert "Verdict: `PASSED`" in result.output
     assert "No findings were triggered." in result.output
 
 

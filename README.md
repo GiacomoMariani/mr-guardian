@@ -106,12 +106,12 @@ This is an agentic review layer that is traceable, bounded, testable, and useful
 
 ## Roadmap
 
-Implemented features include local review, all-policy YAML loading, deterministic Unity/C#/MR rules, advisory OpenAI-backed LLM rules, GitLab webhooks, GitLab MR comments, SQLite history, Streamlit analytics, report noise control, and wheel packaging.
+Implemented features include local review, all-policy YAML loading, deterministic Unity/C#/MR rules, advisory OpenAI-backed LLM rules, optional LLM review summaries, GitLab webhooks, optional GitLab MR comments, SQLite review history, manual review import, PM and lead Streamlit dashboards, developer performance summaries, report noise control, and wheel packaging.
 
 Planned improvements:
 
-- Add evaluation benchmarks for deterministic and LLM rule quality.
-- Add tracing for per-rule execution, prompt payload size, and provider latency.
-- Expand Unity coverage for serialized assets, Addressables, package changes, and editor/runtime migration risk.
-- Add richer GitLab API support for MR metadata and repository state beyond local branch sync.
-- Harden deployment with migrations, auth boundaries, CI packaging checks, and release automation.
+- Add evaluation benchmarks for deterministic rules, LLM rules, and LLM summaries.
+- Add richer observability for rule execution, prompt size, provider latency, token usage, and review outcomes.
+- Add review comparison views to track how an MR changes between review attempts.
+- Expand GitLab integration with richer MR metadata, merge state, approval state, and deployment signals.
+- Harden deployment with database migrations, authentication boundaries, CI packaging checks, and release automation.
