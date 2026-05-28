@@ -9,6 +9,7 @@ from mr_guardian.models.policy import EvaluationDimension, RuleType, Severity
 
 RiskLevel = Literal["none", "info", "warning", "high", "blocking"]
 LlmRuleStatus = Literal["succeeded", "skipped", "failed", "rate_limited"]
+LlmSummaryStatus = Literal["succeeded", "failed", "rate_limited"]
 EVALUATION_ORDER: tuple[EvaluationDimension, ...] = ("coding", "mr_structure")
 
 
@@ -48,6 +49,22 @@ class LlmRuleMetric(BaseModel):
     model: str
     status: LlmRuleStatus
     duration_ms: int
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    error_message: str | None = None
+
+
+class LlmReviewSummary(BaseModel):
+    """Optional LLM-generated summary for a completed review result."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: LlmSummaryStatus
+    provider: str
+    model: str
+    duration_ms: int
+    text: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None

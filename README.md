@@ -4,141 +4,102 @@
 
 AI-assisted development helps teams ship faster, but it also makes changes harder to track.
 
-MR Guardian turns your team’s standards into early MR checks. Deterministic rules catch clear risks before review, like oversized MRs or protected files being modified, while customizable LLM rules help cover issues that need more context.
+MR Guardian turns best-practices into automated MR checks. 
+- Deterministic rules catch clear risks like oversized MRs or protected files being modified
+- LLM rules cover issues that need more context.
 
-Reviewers will spend less time on routine checks and more time on decisions that need human judgment.
+Developers spend less time on routine checks and more attention where human judgment creates value.
 
 > **See it in action:** [Link]
 
 **LLM analysis requires an API key.**
 
-## Why MR Guardian exists
+## MR Review Layout
 
-AI-assisted development has made writing code easier, but verifying it harder: merge requests are larger, generated code can look correct without being safe, and specialized workflows often hide risk outside normal diffs.
+MR Guardian generates a clear review report for every MR, showing each triggered rule alongside its severity.   
+It also uses an LLM to produce a short summary of the key context behind the changes, so reviewers know *why* before they dig into *what*.
 
-MR Guardian
-- junior developers get earlier feedback;
-- senior engineers spend less time on mechanical checks;
-- teams build shared memory around recurring risks;
-- AI stays bounded, transparent, and advisory;
-- final judgment stays with the people responsible for the system.
+[SCREENSHOT HERE]
 
-The goal is not fewer human reviews.
+## Rules
 
-The goal is better human reviews: calmer, clearer, more focused, and more respectful of everyone’s time.
+MR Guardian reviews merge requests using two kinds of rules:
 
-## How rules are made
+### Deterministic Rules
 
-Deterministic rules handle clear production signals, while scoped LLM checks add structured, non-blocking analysis where context helps.
+Deterministic rules check clear, repeatable conditions: missing MR sections, oversized changes, or known coding patterns.   
+Each one can be enabled, disabled, and tuned to match your team's standards (for example, defining exactly how many lines count as "too many").
 
-## What MR Guardian does
+### LLM Rules
 
-MR Guardian reviews local Git diffs or GitLab Merge Requests and produces a structured Markdown report. When used through GitLab webhooks, it can run automatically on MR events and optionally post findings back to the merge request.
+LLM rules send selected merge request context, like the diff and changed files, through a configured prompt.  
+This lets the LLM act as a reviewer for the targeted instructions you define: check this risk, inspect that pattern, or flag concerns that need broader context to catch.
 
-It focuses on three questions:
+## Rules Generation
+MR Guardian ships with rules derived from this curated [set of best practices](https://github.com/GiacomoMariani/UnityBestPractices). You're welcome to apply them as-is, but I strongly recommend building your own: every project has its own quirks and demands its own tuning.
 
-1. **Is this merge request reviewable?**  
-   Does it include enough description, validation evidence, and scope control for a human reviewer to make a good decision?
+Deterministic rule configuration lives in [`sources/yaml/unity-policy.yml`](sources/yaml/unity-policy.yml) and [`sources/yaml/python-policy.yml`](sources/yaml/python-policy.yml). The Python implementations live in [`mr_guardian/rules/`](mr_guardian/rules/).
 
-2. **Does it touch production-sensitive Unity areas?**  
-   Does it modify scenes, prefabs, serialized assets, `ProjectSettings`, packages, plugins, gameplay scripts, runtime loading, lifecycle behavior, physics, UI, or ScriptableObject patterns?
+LLM rules need setup: write the prompt, choose the context to send, and keep the output focused. To turn existing guidance into rule candidates, use the [`rule-generation prompt`](Docs/rule-generation-prompt.md). Full LLM rule instructions are in [`Docs/llm-rule-authoring.md`](Docs/llm-rule-authoring.md).
 
-3. **Are there repeatable code risks that should be checked before review?**  
-   Does the change contain patterns such as debug logs, large classes or methods, broad directory scope, per-frame allocations, `GetComponent` usage, event subscription issues, pooling concerns, or `Resources.Load` usage?
+Here's an example:
 
-## Why it is useful in production workflows
-
-MR Guardian is useful because it adds a **pre-review quality gate** where teams usually rely on human attention alone.
-
-| Production review problem | How MR Guardian helps |
-| --- | --- |
-| Reviewers are overloaded by more frequent or larger MRs | Summarizes risk before review and highlights scope, changed files, and triggered rules. |
-| AI-assisted code increases the need for verification | Treats LLM output as advisory and keeps deterministic policy checks as the reliable base. |
-| Unity risk is not always obvious from text diffs | Flags Unity-specific change areas such as scenes, prefabs, settings, packages, plugins, and gameplay behavior. |
-| Teams repeat the same review comments across MRs | Encodes recurring review expectations as YAML policy with stable rule IDs. |
-| Senior engineers spend time on mechanical checks | Automates repeatable checks so humans can focus on architecture, correctness, product impact, mentorship, and tradeoffs. |
-| Review feedback is hard to measure over time | Stores review history, triggered rules, risk counts, changed lines/files, reports, and LLM metrics in SQLite. |
-| AI reviewers can be noisy or overconfident | Uses bounded LLM rules with structured output, max-finding limits, retries, timeouts, token metrics, and failure isolation. |
-
-## Design principle: automation should reduce risk, not create new risk
-
-MR Guardian deliberately avoids a “just ask an LLM to review the diff” architecture.
-
-Instead, it separates review into two layers:
-
-- **Deterministic rules** produce reliable findings for enforceable policies.
-- **LLM rules** provide bounded advisory review for judgment-heavy areas where language models can help but should not block a merge.
-
-This keeps the system explainable. A production team can inspect the policy, trace findings to stable rule IDs, understand which checks are deterministic, and decide how much trust to place in advisory AI output.
-
-## What this demonstrates
-
-- Agentic AI workflow design across policy loading, tool-backed diff collection, rule routing, LLM execution, reporting, and persistence.
-- A deterministic-first review architecture that uses AI without surrendering correctness to the model.
-- Policy-as-code using executable YAML rules, stable rule IDs, typed validation, and package-ready default policies.
-- Tool-augmented reasoning over MR metadata, changed files, diff hunks, GitLab webhook events, repository state, and review history.
-- Unity-specific engineering judgment for scenes, prefabs, `ProjectSettings`, gameplay scripts, validation evidence, runtime loading, lifecycle, physics, UI, and ScriptableObject risk.
-- Production-oriented reliability patterns: structured outputs, fallback behavior, rate-limit handling, non-fatal provider failures, tests, packaging, persisted metrics, and optional MR comments.
-
-## Architecture at a glance
-
-```mermaid
-flowchart TD
-    Entry[CLI / GitLab Webhook / Streamlit] --> Review[Review Orchestrator]
-    Review --> Provider[Local Git / GitLab Sync]
-    Provider --> Input[Typed Review Input]
-    Review --> Policy[YAML Policy Loader]
-    Policy --> Engine[Review Engine]
-    Input --> Engine
-    Engine --> Rules[Deterministic Rule Registry]
-    Engine --> LLM[Advisory LLM Runner]
-    Rules --> Result[Typed Findings]
-    LLM --> Result
-    Result --> Report[Markdown Review Report]
-    Result --> History[SQLite Review History]
-    History --> Dashboard[Streamlit Dashboard]
+```yaml
+- id: SIZE-LINES-001
+  type: deterministic
+  implementation: size_changed_lines
+  evaluation: mr_structure
+  enabled: true
+  severity: warning
+  source: unity-policy.yml#SIZE-LINES-001
+  description: Large line-count changes should be split or explained.
+  parameters:
+    threshold:
+      max_changed_lines: 500
 ```
 
-Runtime rules come only from YAML. Each rule declares `type: deterministic` or `type: llm`; deterministic rules map to Python implementations, while LLM rules carry prompts and output contracts. Markdown best-practice documents are kept as human guidance and are not loaded by runtime code.
+## Review Philosophy
+MR Guardian is intentionally conservative. It exists to display risks, not manufacture noise—to make human review easier without ever trying to replace it. It gives junior developers earlier feedback, frees senior engineers from mechanical checks, and gives teams a clearer memory of the risks that resurface across merge requests.
 
-## Core capabilities
+The goal isn't fewer human reviews. It's *better* ones: clearer, more focused, and more respectful of everyone's time.
 
-- **Local and GitLab MR review**: review local diffs or GitLab Merge Requests before they reach human reviewers.
-- **Webhook automation**: FastAPI GitLab webhook support accepts MR events, validates secrets, queues background reviews, syncs branches, stores results, and can post comments back to GitLab.
-- **Deterministic rule engine**: enforce repeatable policy checks without relying on model behavior.
-- **Advisory LLM review**: run scoped OpenAI-backed rules with structured JSON output and bounded finding counts.
-- **YAML policy loading**: define review behavior through executable policy files instead of hard-coded review preferences.
-- **Markdown reports**: generate readable review reports that separate deterministic findings from advisory AI feedback.
-- **SQLite review memory**: persist review scope, developer identity, risk counts, changed files/lines, triggered rules, reports, and LLM metrics.
-- **Streamlit analytics**: inspect review history, risk trends, and rule activity over time.
-- **Packaging support**: ship default policies with wheel packaging and deployment notes.
+## Architecture
 
-## Technical highlights
+For system layout, component boundaries, and runtime policy flow, see [`Docs/architecture.md`](Docs/architecture.md).
 
-- **Deterministic-first review model**: deterministic rules handle enforceable checks; LLM rules remain advisory and cannot create blocking findings.
-- **Traceable policy architecture**: findings carry stable IDs such as `MR-META-001`, `UNITY-SCENE-001`, `CSHARP-DEBUG-001`, and `UNITY-PHYSICS-LLM-001`.
-- **Typed policy validation**: Pydantic models reject invalid severities, missing implementations, blocking LLM rules, and unknown rule-level fields.
-- **Bounded LLM execution**: OpenAI-backed rules use structured JSON output, prompt-scoped diff context, max-finding limits, retries, timeouts, rate-limit handling, and token usage capture.
-- **Unity-aware rule coverage**: implemented rules cover MR metadata, changed size, broad directory scope, scenes, prefabs, `ProjectSettings`, gameplay validation, C# debug logs, `GetComponent`, class/method size, public fields, event subscriptions, per-frame allocations, pooling, and `Resources.Load`.
-- **Review memory and analytics**: SQLite stores review scope, developer identity, risk counts, changed lines/files, triggered rules, generated reports, and per-rule LLM metrics for Streamlit analysis.
-- **Automation-ready delivery**: webhook review, optional MR comments, Docker notes, deployment guidance, and package-ready defaults.
+## Technical scope
 
-## Example review philosophy
+MR Guardian applies production-oriented agentic AI engineering. It uses LLMs inside a controlled software system, not as an unbounded reviewer.
 
-MR Guardian is intentionally conservative:
+It combines tool-backed context, deterministic rules, advisory model reasoning, reporting, persistence, and human review into one review workflow.
 
-- It should surface risks, not create noise.
-- It should make human review easier, not bypass it.
-- It should fail safely when an external provider fails.
-- It should clearly distinguish enforceable policy from advisory model judgment.
-- It should help teams learn which risks repeat across merge requests.
+Key technical areas:
+
+- **Agentic workflow design:** loads policy, collects diffs, routes rules, runs LLM checks, generates reports, and persists review history.
+- **Deterministic-first architecture:** keeps enforceable checks outside the model, so correctness does not depend on LLM behavior.
+- **Bounded LLM execution:** scopes model input, requires structured output, limits findings, handles retries, tracks tokens, and keeps feedback advisory.
+- **Tool-augmented reasoning:** uses MR metadata, changed files, diff hunks, GitLab webhook events, repository state, and historical review data.
+- **Policy-as-code:** defines executable YAML rules with stable IDs, typed validation, and package-ready defaults.
+- **Human-in-the-loop review:** surfaces risk for engineers while keeping final judgment with the people responsible for the system.
+- **Production reliability:** handles structured outputs, fallbacks, rate limits, non-fatal provider failures, tests, packaging, persisted metrics, and optional MR comments.
+- **Unity-specific review judgment:** checks scenes, prefabs, `ProjectSettings`, gameplay scripts, validation evidence, runtime loading, lifecycle behavior, physics, UI, ScriptableObjects, `GetComponent`, event subscriptions, per-frame allocations, pooling, and `Resources.Load`.
+
+This is not “AI reviews code.”
+
+This is an agentic review layer that is traceable, bounded, testable, and useful in a real engineering workflow.
 
 ## Documentation
 
 - Architecture: [`Docs/architecture.md`](Docs/architecture.md)
 - Agent-assisted setup: [`Docs/agent-setup-prompt.md`](Docs/agent-setup-prompt.md)
 - Installation: [`Docs/installation.md`](Docs/installation.md)
+- Rule generation prompt: [`Docs/rule-generation-prompt.md`](Docs/rule-generation-prompt.md)
 - LLM rule authoring: [`Docs/llm-rule-authoring.md`](Docs/llm-rule-authoring.md)
+- PM dashboard: [`Docs/pm-dashboard.md`](Docs/pm-dashboard.md)
+- Lead dashboard: [`Docs/lead-dashboard.md`](Docs/lead-dashboard.md)
+- Developer performance: [`Docs/developer-performance.md`](Docs/developer-performance.md)
+- Manual review submission: [`Docs/manual-review-submission.md`](Docs/manual-review-submission.md)
+- Ticket key conventions: [`Docs/ticket-key-conventions.md`](Docs/ticket-key-conventions.md)
 - Docker and Render notes: [`Docs/docker-deployment.md`](Docs/docker-deployment.md)
 - Packaging notes: [`Docs/packaging.md`](Docs/packaging.md)
 - Unity rule roadmap: [`Docs/unity-rule-roadmap.md`](Docs/unity-rule-roadmap.md)
@@ -154,13 +115,3 @@ Planned improvements:
 - Expand Unity coverage for serialized assets, Addressables, package changes, and editor/runtime migration risk.
 - Add richer GitLab API support for MR metadata and repository state beyond local branch sync.
 - Harden deployment with migrations, auth boundaries, CI packaging checks, and release automation.
-
-## Positioning
-
-MR Guardian is not a replacement for senior code review, team ownership, or engineering responsibility. It is a workflow layer for teams that want to preserve the human parts of review while code volume, AI-assisted development, and production pressure increase.
-
-It helps reviewers stay focused on the work only humans can do well: understanding intent, challenging assumptions, mentoring teammates, protecting quality, and making careful decisions before code reaches production.
-
-It helps reviewers answer the question that matters most:
-
-**“What should I pay attention to before this change reaches production?”**

@@ -119,6 +119,8 @@ For OpenAI-backed LLM rules:
 MR_GUARDIAN_LLM_PROVIDER=openai
 MR_GUARDIAN_OPENAI_API_KEY=your_openai_api_key_here
 MR_GUARDIAN_OPENAI_MODEL=gpt-4.1-mini
+MR_GUARDIAN_LLM_SUMMARY_ENABLED=false
+MR_GUARDIAN_LLM_SUMMARY_MAX_CHARS=700
 ```
 
 If the OpenAI package is missing, LLM findings will show:

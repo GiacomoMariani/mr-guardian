@@ -3,7 +3,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from mr_guardian.models.history import ReviewRunCreate
-from mr_guardian.models.review import FindingCounts, LlmRuleMetric, ReviewEvaluation
+from mr_guardian.models.review import (
+    FindingCounts,
+    LlmReviewSummary,
+    LlmRuleMetric,
+    ReviewEvaluation,
+)
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -15,6 +20,7 @@ def make_review_run(
     ticket_key: str | None = None,
     triggered_rule_ids: list[str] | None = None,
     llm_metrics: list[LlmRuleMetric] | None = None,
+    llm_summary: LlmReviewSummary | None = None,
     evaluations: list[ReviewEvaluation] | None = None,
     timestamp: datetime | None = None,
 ) -> ReviewRunCreate:
@@ -51,6 +57,7 @@ def make_review_run(
             ),
         ],
         llm_metrics=llm_metrics or [],
+        llm_summary=llm_summary,
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
     )
@@ -115,6 +122,7 @@ def test_stores_review_run(tmp_path: Path) -> None:
     assert record.evaluations[0].evaluation == "coding"
     assert record.evaluations[0].risk == "warning"
     assert record.evaluations[0].triggered_rule_ids == ["PYTHON-PRINT-001"]
+    assert record.llm_summary is None
     assert record.generated_review_report == "## MR Guardian Review\n"
 
 
@@ -237,6 +245,7 @@ def test_migrates_existing_rows_with_review_score(tmp_path: Path) -> None:
     assert migrated_run is not None
     assert migrated_run.ticket_key is None
     assert migrated_run.review_score == 37
+    assert migrated_run.llm_summary is None
 
 
 def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
@@ -302,6 +311,62 @@ def test_stores_llm_rule_metrics(tmp_path: Path) -> None:
     assert found_run.llm_metrics[1].status == "rate_limited"
     assert found_run.llm_metrics[1].input_tokens is None
     assert found_run.llm_metrics[1].error_message == "LLM provider rate limit reached."
+
+
+def test_stores_llm_review_summary(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            llm_summary=LlmReviewSummary(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=820,
+                text="Review summary.",
+                input_tokens=300,
+                output_tokens=40,
+                total_tokens=340,
+            )
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert found_run.llm_summary is not None
+    assert found_run.llm_summary.status == "succeeded"
+    assert found_run.llm_summary.provider == "openai"
+    assert found_run.llm_summary.model == "gpt-4.1-mini"
+    assert found_run.llm_summary.duration_ms == 820
+    assert found_run.llm_summary.text == "Review summary."
+    assert found_run.llm_summary.input_tokens == 300
+    assert found_run.llm_summary.output_tokens == 40
+    assert found_run.llm_summary.total_tokens == 340
+
+
+def test_stores_failed_llm_review_summary(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            llm_summary=LlmReviewSummary(
+                status="failed",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=120,
+                error_message="provider unavailable",
+            )
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert found_run.llm_summary is not None
+    assert found_run.llm_summary.status == "failed"
+    assert found_run.llm_summary.text is None
+    assert found_run.llm_summary.error_message == "provider unavailable"
 
 
 def test_stores_evaluation_summaries(tmp_path: Path) -> None:

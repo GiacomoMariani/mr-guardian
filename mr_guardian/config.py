@@ -23,6 +23,8 @@ class Settings:
         self.openai_model = os.getenv("MR_GUARDIAN_OPENAI_MODEL", "gpt-4.1-mini")
         self.openai_timeout_seconds = _float_env("MR_GUARDIAN_OPENAI_TIMEOUT_SECONDS", 30.0)
         self.openai_max_retries = _int_env("MR_GUARDIAN_OPENAI_MAX_RETRIES", 2)
+        self.llm_summary_enabled = _bool_env("MR_GUARDIAN_LLM_SUMMARY_ENABLED", False)
+        self.llm_summary_max_chars = _int_env("MR_GUARDIAN_LLM_SUMMARY_MAX_CHARS", 700)
         self.gitlab_webhook_secret = os.getenv("GITLAB_WEBHOOK_SECRET", "")
         self.gitlab_token = os.getenv("GITLAB_TOKEN", "")
         self.gitlab_base_url = os.getenv("GITLAB_BASE_URL", "https://gitlab.com")

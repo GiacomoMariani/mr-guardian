@@ -8,6 +8,7 @@ from mr_guardian.models.policy import EvaluationDimension, Severity
 from mr_guardian.models.review import (
     EVALUATION_ORDER,
     Finding,
+    LlmReviewSummary,
     LlmRuleMetric,
     ReviewEvaluation,
     RiskLevel,
@@ -51,10 +52,19 @@ def render_review_report(result: ReviewResult) -> str:
         f"- Info: {counts.info}",
         f"- Changed files: {len(result.review_input.changed_files)}",
         f"- Changed lines: {_count_changed_lines(result.review_input)}",
-        "",
-        "### Evaluation",
-        "",
     ]
+
+    if result.llm_summary is not None:
+        lines.extend(["", "### LLM Summary", ""])
+        lines.extend(_render_llm_summary(result.llm_summary))
+
+    lines.extend(
+        [
+            "",
+            "### Evaluation",
+            "",
+        ]
+    )
 
     lines.extend(_render_evaluations(_review_evaluations(result)))
     lines.extend(
@@ -204,6 +214,16 @@ def _render_llm_usage(metrics: list[LlmRuleMetric]) -> list[str]:
         if metric.error_message is not None:
             lines.append(f"  - Error: {metric.error_message}")
     return lines
+
+
+def _render_llm_summary(summary: LlmReviewSummary) -> list[str]:
+    if summary.status == "succeeded" and summary.text:
+        return [summary.text]
+
+    status = summary.status.replace("_", " ")
+    if summary.error_message:
+        return [f"LLM summary unavailable: {status} - {summary.error_message}"]
+    return [f"LLM summary unavailable: {status}."]
 
 
 def _render_finding_overview(findings: list[Finding]) -> list[str]:

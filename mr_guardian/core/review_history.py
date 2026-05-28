@@ -48,6 +48,7 @@ def store_review_result(
                 evaluations=result.engine_result.evaluations
                 or summarize_review_evaluations(result.engine_result.findings),
                 llm_metrics=result.engine_result.llm_metrics,
+                llm_summary=result.llm_summary,
                 generated_review_report=report,
             )
         )

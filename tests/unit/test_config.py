@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from mr_guardian.config import load_env_file
+from mr_guardian.config import Settings, load_env_file
 
 
 def test_load_env_file_sets_missing_values(
@@ -38,3 +38,17 @@ def test_load_env_file_does_not_override_existing_values(
     load_env_file(env_path)
 
     assert os.environ["MR_GUARDIAN_POLICY_DIR"] == "from-shell"
+
+
+def test_settings_load_llm_summary_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MR_GUARDIAN_LLM_SUMMARY_ENABLED", "true")
+    monkeypatch.setenv("MR_GUARDIAN_LLM_SUMMARY_MAX_CHARS", "512")
+
+    settings = Settings()
+
+    assert settings.llm_summary_enabled is True
+    assert settings.llm_summary_max_chars == 512

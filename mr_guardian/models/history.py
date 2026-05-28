@@ -4,7 +4,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from mr_guardian.models.review import LlmRuleMetric, ReviewEvaluation, RiskLevel
+from mr_guardian.models.review import (
+    LlmReviewSummary,
+    LlmRuleMetric,
+    ReviewEvaluation,
+    RiskLevel,
+)
 
 
 class ReviewRunCreate(BaseModel):
@@ -28,6 +33,7 @@ class ReviewRunCreate(BaseModel):
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
+    llm_summary: LlmReviewSummary | None = None
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None
@@ -57,6 +63,7 @@ class ReviewRunRecord(BaseModel):
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
+    llm_summary: LlmReviewSummary | None = None
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None

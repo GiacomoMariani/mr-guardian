@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from mr_guardian.core.review import PolicyReviewResult, ReviewResult
-from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts, LlmRuleMetric
+from mr_guardian.models.review import (
+    EngineReviewResult,
+    Finding,
+    FindingCounts,
+    LlmReviewSummary,
+    LlmRuleMetric,
+)
 from mr_guardian.models.review_input import ChangedFile, DiffHunk, DiffLine, ReviewInput
 from mr_guardian.reporting.report import render_review_report
 
@@ -49,6 +55,7 @@ def make_review_input() -> ReviewInput:
 def make_review_result(
     *findings: Finding,
     llm_metrics: list[LlmRuleMetric] | None = None,
+    llm_summary: LlmReviewSummary | None = None,
 ) -> ReviewResult:
     counts = FindingCounts(
         blocking=sum(1 for finding in findings if finding.severity == "blocking"),
@@ -92,6 +99,7 @@ def make_review_result(
             counts=counts,
             llm_metrics=llm_metrics or [],
         ),
+        llm_summary=llm_summary,
     )
 
 
@@ -272,3 +280,40 @@ def test_renders_llm_usage_metrics() -> None:
     assert "Total tokens: 1280" in report
     assert "Status: rate_limited" in report
     assert "Error: LLM provider rate limit reached." in report
+
+
+def test_renders_llm_review_summary() -> None:
+    report = render_review_report(
+        make_review_result(
+            llm_summary=LlmReviewSummary(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=420,
+                text="This MR needs reviewer attention on metadata.",
+                input_tokens=100,
+                output_tokens=20,
+                total_tokens=120,
+            )
+        )
+    )
+
+    assert "### LLM Summary" in report
+    assert "This MR needs reviewer attention on metadata." in report
+
+
+def test_renders_llm_review_summary_failure() -> None:
+    report = render_review_report(
+        make_review_result(
+            llm_summary=LlmReviewSummary(
+                status="failed",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=100,
+                error_message="provider unavailable",
+            )
+        )
+    )
+
+    assert "### LLM Summary" in report
+    assert "LLM summary unavailable: failed - provider unavailable" in report

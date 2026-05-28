@@ -11,7 +11,7 @@ from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.models.history import ReviewRunRecord
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySync
 from mr_guardian.reporting.report import render_review_report
-from mr_guardian.summarizer_ai import LlmRuleRunner
+from mr_guardian.summarizer_ai import LlmReviewSummaryRunner, LlmRuleRunner
 
 
 class GitLabTriggeredReview(BaseModel):
@@ -47,6 +47,8 @@ def review_gitlab_merge_request(
     policy_directory: str | Path,
     database_path: Path,
     llm_rule_runner: LlmRuleRunner,
+    llm_summary_runner: LlmReviewSummaryRunner | None = None,
+    llm_summary_max_chars: int = 700,
     review_commenter: GitLabReviewCommenter | None = None,
 ) -> GitLabTriggeredReview:
     """Run and store a local review for an accepted GitLab MR webhook."""
@@ -67,6 +69,8 @@ def review_gitlab_merge_request(
             ),
             repo_path=target.repo_path,
             llm_rule_runner=llm_rule_runner,
+            llm_summary_runner=llm_summary_runner,
+            llm_summary_max_chars=llm_summary_max_chars,
         )
         result = result.model_copy(update={"developer_id": merge_request.author})
         report = render_review_report(result)

@@ -13,7 +13,7 @@ from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
-from mr_guardian.summarizer_ai import create_llm_rule_runner
+from mr_guardian.summarizer_ai import create_llm_review_summary_runner, create_llm_rule_runner
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,15 @@ def _run_gitlab_review_job(job_id: str, mr: GitLabMergeRequestWebhook) -> None:
                     openai_timeout_seconds=settings.openai_timeout_seconds,
                     openai_max_retries=settings.openai_max_retries,
                 ),
+                llm_summary_runner=create_llm_review_summary_runner(
+                    enabled=settings.llm_summary_enabled,
+                    provider=settings.llm_provider,
+                    openai_api_key=settings.openai_api_key,
+                    openai_model=settings.openai_model,
+                    openai_timeout_seconds=settings.openai_timeout_seconds,
+                    openai_max_retries=settings.openai_max_retries,
+                ),
+                llm_summary_max_chars=settings.llm_summary_max_chars,
                 review_commenter=_review_commenter(settings),
             )
         except GitLabRepositorySyncError:

@@ -4,11 +4,18 @@ import sqlite3
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 from mr_guardian.core.review_score import calculate_review_score
 from mr_guardian.models.history import ReviewRunCreate, ReviewRunRecord, TriggeredRuleStat
 from mr_guardian.models.performance import DeveloperActivity
-from mr_guardian.models.review import FindingCounts, LlmRuleMetric, ReviewEvaluation
+from mr_guardian.models.review import (
+    FindingCounts,
+    LlmReviewSummary,
+    LlmRuleMetric,
+    LlmSummaryStatus,
+    ReviewEvaluation,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS review_runs (
@@ -29,6 +36,15 @@ CREATE TABLE IF NOT EXISTS review_runs (
     changed_file_count INTEGER NOT NULL,
     changed_line_count INTEGER NOT NULL,
     review_score INTEGER NOT NULL DEFAULT 100,
+    llm_summary TEXT,
+    llm_summary_status TEXT,
+    llm_summary_provider TEXT,
+    llm_summary_model TEXT,
+    llm_summary_duration_ms INTEGER,
+    llm_summary_input_tokens INTEGER,
+    llm_summary_output_tokens INTEGER,
+    llm_summary_total_tokens INTEGER,
+    llm_summary_error_message TEXT,
     generated_review_report TEXT NOT NULL
 );
 
@@ -134,8 +150,18 @@ class ReviewHistoryStore:
             "changed_file_count",
             "changed_line_count",
             "review_score",
+            "llm_summary",
+            "llm_summary_status",
+            "llm_summary_provider",
+            "llm_summary_model",
+            "llm_summary_duration_ms",
+            "llm_summary_input_tokens",
+            "llm_summary_output_tokens",
+            "llm_summary_total_tokens",
+            "llm_summary_error_message",
             "generated_review_report",
         ]
+        llm_summary = run.llm_summary
         values = [
             timestamp.isoformat(),
             run.review_scope,
@@ -153,6 +179,15 @@ class ReviewHistoryStore:
             run.changed_file_count,
             run.changed_line_count,
             review_score,
+            llm_summary.text if llm_summary is not None else None,
+            llm_summary.status if llm_summary is not None else None,
+            llm_summary.provider if llm_summary is not None else None,
+            llm_summary.model if llm_summary is not None else None,
+            llm_summary.duration_ms if llm_summary is not None else None,
+            llm_summary.input_tokens if llm_summary is not None else None,
+            llm_summary.output_tokens if llm_summary is not None else None,
+            llm_summary.total_tokens if llm_summary is not None else None,
+            llm_summary.error_message if llm_summary is not None else None,
             run.generated_review_report,
         ]
         if "project_name" in columns:
@@ -451,6 +486,7 @@ class ReviewHistoryStore:
             triggered_rule_ids=self._triggered_rule_ids(review_id),
             evaluations=self._evaluations(review_id),
             llm_metrics=self._llm_metrics(review_id),
+            llm_summary=_llm_summary_from_row(row),
             generated_review_report=str(row["generated_review_report"]),
         )
 
@@ -580,6 +616,34 @@ class ReviewHistoryStore:
                 END
                 """
             )
+        if "llm_summary" not in columns:
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary TEXT")
+        if "llm_summary_status" not in columns:
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_status TEXT")
+        if "llm_summary_provider" not in columns:
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_provider TEXT")
+        if "llm_summary_model" not in columns:
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_model TEXT")
+        if "llm_summary_duration_ms" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_duration_ms INTEGER"
+            )
+        if "llm_summary_input_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_input_tokens INTEGER"
+            )
+        if "llm_summary_output_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_output_tokens INTEGER"
+            )
+        if "llm_summary_total_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_total_tokens INTEGER"
+            )
+        if "llm_summary_error_message" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_error_message TEXT"
+            )
 
     def _ensure_schema_indexes(self) -> None:
         self._connection.execute(
@@ -617,6 +681,23 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     msg = f"Expected integer-compatible SQLite value, got {type(value).__name__}."
     raise TypeError(msg)
+
+
+def _llm_summary_from_row(row: sqlite3.Row) -> LlmReviewSummary | None:
+    status = _optional_str(row["llm_summary_status"])
+    if status is None:
+        return None
+    return LlmReviewSummary(
+        status=cast(LlmSummaryStatus, status),
+        provider=_optional_str(row["llm_summary_provider"]) or "unknown",
+        model=_optional_str(row["llm_summary_model"]) or "unknown",
+        duration_ms=_optional_int(row["llm_summary_duration_ms"]) or 0,
+        text=_optional_str(row["llm_summary"]),
+        input_tokens=_optional_int(row["llm_summary_input_tokens"]),
+        output_tokens=_optional_int(row["llm_summary_output_tokens"]),
+        total_tokens=_optional_int(row["llm_summary_total_tokens"]),
+        error_message=_optional_str(row["llm_summary_error_message"]),
+    )
 
 
 def _optional_float(value: object) -> float | None:

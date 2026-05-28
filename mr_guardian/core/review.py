@@ -1,17 +1,29 @@
 """Review orchestration entry points."""
 
 from pathlib import Path
+from time import perf_counter
 
 from pydantic import BaseModel, ConfigDict
 
 from mr_guardian.core.engine import calculate_risk, count_findings, run_review
 from mr_guardian.models.policy import Policy
-from mr_guardian.models.review import EngineReviewResult, summarize_review_evaluations
+from mr_guardian.models.review import (
+    EngineReviewResult,
+    LlmReviewSummary,
+    LlmSummaryStatus,
+    summarize_review_evaluations,
+)
 from mr_guardian.models.review_input import ReviewInput
 from mr_guardian.policies import load_policy, policy_paths_from_directory, resolve_policy_directory
 from mr_guardian.providers import LocalGitProvider
 from mr_guardian.rules import RuleRegistry, default_rule_registry
-from mr_guardian.summarizer_ai import DisabledLlmRuleRunner, LlmRuleRunner
+from mr_guardian.summarizer_ai import (
+    DisabledLlmRuleRunner,
+    LlmReviewSummaryRunner,
+    LlmRuleRunner,
+    LlmSummaryRateLimitError,
+    ReviewSummaryInput,
+)
 
 
 class ReviewRequest(BaseModel):
@@ -49,6 +61,7 @@ class ReviewResult(BaseModel):
     developer_id: str = "unknown"
     review_input: ReviewInput
     engine_result: EngineReviewResult
+    llm_summary: LlmReviewSummary | None = None
 
     @property
     def risk(self) -> str:
@@ -70,6 +83,8 @@ def review_merge_request(
     repo_path: str | Path = ".",
     rule_registry: RuleRegistry | None = None,
     llm_rule_runner: LlmRuleRunner | None = None,
+    llm_summary_runner: LlmReviewSummaryRunner | None = None,
+    llm_summary_max_chars: int = 700,
 ) -> ReviewResult:
     """Run the local review pipeline for a merge request."""
     requested_policy_directory = Path(request.policy_directory)
@@ -99,13 +114,20 @@ def review_merge_request(
         [policy_result.engine_result for policy_result in policy_results]
     )
 
-    return ReviewResult(
+    result = ReviewResult(
         base_ref=request.base,
         policy_directory=resolved_policy_directory,
         policy_results=policy_results,
         developer_id=provider.developer_id(),
         review_input=review_input,
         engine_result=engine_result,
+    )
+    if llm_summary_runner is None:
+        return result
+    return _with_llm_summary(
+        result,
+        llm_summary_runner=llm_summary_runner,
+        max_chars=llm_summary_max_chars,
     )
 
 
@@ -148,6 +170,76 @@ def _combine_engine_results(results: list[EngineReviewResult]) -> EngineReviewRe
             for metric in result.llm_metrics
         ],
         evaluations=summarize_review_evaluations(findings),
+    )
+
+
+def _with_llm_summary(
+    result: ReviewResult,
+    *,
+    llm_summary_runner: LlmReviewSummaryRunner,
+    max_chars: int,
+) -> ReviewResult:
+    started_at = perf_counter()
+    try:
+        summary_text = llm_summary_runner.summarize(
+            review=ReviewSummaryInput(
+                base_ref=result.base_ref,
+                developer_id=result.developer_id,
+                review_input=result.review_input,
+                risk=result.engine_result.risk,
+                counts=result.engine_result.counts,
+                findings=result.engine_result.findings,
+                evaluations=result.engine_result.evaluations
+                or summarize_review_evaluations(result.engine_result.findings),
+            ),
+            max_chars=max_chars,
+        )
+    except LlmSummaryRateLimitError as exc:
+        summary = _llm_summary_result(
+            status="rate_limited",
+            runner=llm_summary_runner,
+            started_at=started_at,
+            text=None,
+            error_message=str(exc),
+        )
+    except Exception as exc:
+        summary = _llm_summary_result(
+            status="failed",
+            runner=llm_summary_runner,
+            started_at=started_at,
+            text=None,
+            error_message=str(exc),
+        )
+    else:
+        summary = _llm_summary_result(
+            status="succeeded",
+            runner=llm_summary_runner,
+            started_at=started_at,
+            text=summary_text,
+            error_message=None,
+        )
+    return result.model_copy(update={"llm_summary": summary})
+
+
+def _llm_summary_result(
+    *,
+    status: LlmSummaryStatus,
+    runner: LlmReviewSummaryRunner,
+    started_at: float,
+    text: str | None,
+    error_message: str | None,
+) -> LlmReviewSummary:
+    usage = runner.last_token_usage
+    return LlmReviewSummary(
+        status=status,
+        provider=runner.provider_name,
+        model=runner.model_name,
+        duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
+        text=text,
+        input_tokens=usage.input_tokens if usage is not None else None,
+        output_tokens=usage.output_tokens if usage is not None else None,
+        total_tokens=usage.total_tokens if usage is not None else None,
+        error_message=error_message,
     )
 
 

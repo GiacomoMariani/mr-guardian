@@ -4,6 +4,10 @@ MR Guardian LLM rules are YAML rules with `type: llm`. They are used for
 advisory review checks that need judgment over the diff, such as unnecessary
 abstraction, unclear scope, or risky design changes.
 
+LLM rules are separate from the optional LLM review summary. Rules can create
+advisory findings. The review summary only explains the completed review result
+and never changes findings, risk, counts, or scores.
+
 LLM rules are never allowed to create blocking findings. Use deterministic rules
 for checks that must block a Merge Request.
 
@@ -147,6 +151,8 @@ MR_GUARDIAN_OPENAI_API_KEY=your_openai_api_key_here
 MR_GUARDIAN_OPENAI_MODEL=gpt-4.1-mini
 MR_GUARDIAN_OPENAI_TIMEOUT_SECONDS=30
 MR_GUARDIAN_OPENAI_MAX_RETRIES=2
+MR_GUARDIAN_LLM_SUMMARY_ENABLED=false
+MR_GUARDIAN_LLM_SUMMARY_MAX_CHARS=700
 ```
 
 If the provider is disabled or the API key is missing, LLM rules are skipped.
