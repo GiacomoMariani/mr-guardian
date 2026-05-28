@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
 from mr_guardian.policies import (
     PolicyValidationError,
@@ -25,6 +26,7 @@ rules:
   - id: MR-META-001
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: {enabled_value}
     severity: {severity}
     source: unity-policy.yml#MR-META-001
@@ -45,6 +47,7 @@ def test_loads_valid_policy(tmp_path: Path) -> None:
     assert policy.rules[0].id == "MR-META-001"
     assert policy.rules[0].type == "deterministic"
     assert policy.rules[0].implementation == "mr_required_section"
+    assert policy.rules[0].evaluation == "mr_structure"
     assert policy.rules[0].enabled is True
     assert policy.rules[0].severity == "blocking"
     assert policy.rules[0].source == "unity-policy.yml#MR-META-001"
@@ -69,6 +72,7 @@ rules:
   - id: MR-META-001
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -95,6 +99,7 @@ rules:
   - id: MR-META-001
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -174,6 +179,7 @@ version: 1
 rules:
   - id: PYTHON-DESIGN-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: blocking
     source: python-policy.yml#PYTHON-DESIGN-LLM-001
@@ -195,6 +201,7 @@ version: 1
 rules:
   - id: PYTHON-DESIGN-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: python-policy.yml#PYTHON-DESIGN-LLM-001
@@ -216,6 +223,7 @@ rules:
   - id: PYTHON-PRINT-001
     type: deterministic
     implementation: python_print
+    evaluation: coding
     enabled: true
     severity: warning
     source: python-policy.yml#PYTHON-PRINT-001
@@ -234,6 +242,16 @@ def test_fails_on_invalid_severity(tmp_path: Path) -> None:
     policy_path = write_policy(tmp_path, valid_policy_yaml(severity="critical"))
 
     with pytest.raises(PolicyValidationError, match="severity"):
+        load_policy(policy_path)
+
+
+def test_fails_on_invalid_evaluation(tmp_path: Path) -> None:
+    policy_path = write_policy(
+        tmp_path,
+        valid_policy_yaml().replace("evaluation: mr_structure", "evaluation: review_style"),
+    )
+
+    with pytest.raises(PolicyValidationError, match="evaluation"):
         load_policy(policy_path)
 
 
@@ -281,6 +299,20 @@ def test_loads_all_yaml_policies_from_directory(tmp_path: Path) -> None:
     assert {policy.rules[0].id for policy in policies} == {"MR-META-001", "PYTHON-PRINT-001"}
 
 
+def test_source_yaml_policies_explicitly_classify_every_rule() -> None:
+    for policy_path in Path("sources/yaml").glob("*.yml"):
+        raw_policy = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+        assert isinstance(raw_policy, dict)
+        rules = raw_policy["rules"]
+        assert isinstance(rules, list)
+        assert all("evaluation" in rule for rule in rules)
+
+        policy = load_policy(policy_path)
+        assert {rule.evaluation for rule in policy.rules}.issubset(
+            {"coding", "mr_structure"}
+        )
+
+
 def test_unity_policy_loads_lifecycle_llm_rule() -> None:
     policy = load_policy(Path("sources/yaml/unity-policy.yml"))
 
@@ -301,6 +333,23 @@ def test_unity_policy_loads_lifecycle_llm_rule() -> None:
     assert rule.parameters["output_contract"] == {
         "max_findings": 3,
         "allow_blocking": False,
+    }
+
+
+def test_unity_policy_loads_ticket_key_rule() -> None:
+    policy = load_policy(Path("sources/yaml/unity-policy.yml"))
+
+    rule = next(rule for rule in policy.rules if rule.id == "MR-TICKET-001")
+
+    assert rule.type == "deterministic"
+    assert rule.implementation == "mr_title_ticket_key"
+    assert rule.enabled is True
+    assert rule.severity == "blocking"
+    assert rule.evaluation == "mr_structure"
+    assert rule.source == "unity-policy.yml#MR-TICKET-001"
+    assert rule.parameters == {
+        "title_pattern": r"\bTK-\d+\b",
+        "required_review_scopes": ["gitlab-webhook"],
     }
 
 

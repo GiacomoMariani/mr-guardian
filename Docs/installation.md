@@ -141,6 +141,20 @@ CLI review:
 python -m mr_guardian.cli.main review --base main --no-store
 ```
 
+Stored review history:
+
+```bash
+python -m mr_guardian.cli.main logs
+python -m mr_guardian.cli.main log-report 1
+python -m mr_guardian.cli.main clear-logs --yes
+```
+
+Manual review import:
+
+```bash
+python -m mr_guardian.cli.main submit-manual-review --file personal-notes/review.json
+```
+
 Dashboard:
 
 ```bash

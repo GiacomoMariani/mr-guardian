@@ -56,7 +56,16 @@ def make_review_result(
         warning=sum(1 for finding in findings if finding.severity == "warning"),
         info=sum(1 for finding in findings if finding.severity == "info"),
     )
-    risk = "warning" if counts.warning else "none"
+    if counts.blocking:
+        risk = "blocking"
+    elif counts.high:
+        risk = "high"
+    elif counts.warning:
+        risk = "warning"
+    elif counts.info:
+        risk = "info"
+    else:
+        risk = "none"
 
     return ReviewResult(
         base_ref="main",
@@ -95,6 +104,9 @@ def test_generates_report_with_no_findings() -> None:
     assert "- Blocking: 0" in report
     assert "- Changed files: 1" in report
     assert "- Changed lines: 2" in report
+    assert "### Evaluation" in report
+    assert "- Coding: None" in report
+    assert "- MR structure: None" in report
     assert "### Reviewer Focus" in report
     assert "No immediate reviewer action required." in report
     assert "### LLM Usage" in report
@@ -114,6 +126,7 @@ def test_generates_report_with_findings() -> None:
                 severity="warning",
                 message="print calls should not be introduced.",
                 source="python-policy.yml#PYTHON-PRINT-001",
+                evaluation="coding",
                 rule_type="deterministic",
                 file_path=Path("mr_guardian/example.py"),
                 line_number=4,
@@ -128,6 +141,37 @@ def test_generates_report_with_findings() -> None:
     assert "Location: mr_guardian/example.py:4" in report
     assert "Source: python-policy.yml#PYTHON-PRINT-001" in report
     assert "Rule type: deterministic" in report
+
+
+def test_generates_evaluation_summary() -> None:
+    report = render_review_report(
+        make_review_result(
+            Finding(
+                rule_id="PYTHON-PRINT-001",
+                severity="warning",
+                message="print calls should not be introduced.",
+                source="python-policy.yml#PYTHON-PRINT-001",
+                evaluation="coding",
+                rule_type="deterministic",
+            ),
+            Finding(
+                rule_id="MR-META-001",
+                severity="blocking",
+                message="MR metadata is missing required section(s): Test Plan.",
+                source="unity-policy.yml#MR-META-001",
+                evaluation="mr_structure",
+                rule_type="deterministic",
+            ),
+        )
+    )
+
+    assert "### Evaluation" in report
+    assert "- Coding: Warning" in report
+    assert "  - Warning: 1" in report
+    assert "  - Rules: PYTHON-PRINT-001" in report
+    assert "- MR structure: Blocking" in report
+    assert "  - Blocking: 1" in report
+    assert "  - Rules: MR-META-001" in report
 
 
 def test_generates_prioritized_reviewer_focus_and_rule_overview() -> None:

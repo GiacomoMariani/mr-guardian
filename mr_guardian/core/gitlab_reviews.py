@@ -61,12 +61,14 @@ def review_gitlab_merge_request(
             ReviewRequest(
                 base=target.base_ref,
                 policy_directory=Path(policy_directory),
+                review_scope="gitlab-webhook",
                 title=merge_request.title,
                 description=merge_request.description,
             ),
             repo_path=target.repo_path,
             llm_rule_runner=llm_rule_runner,
         )
+        result = result.model_copy(update={"developer_id": merge_request.author})
         report = render_review_report(result)
         record = store_review_result(
             result,
@@ -74,6 +76,7 @@ def review_gitlab_merge_request(
             database_path=database_path,
             review_scope="gitlab-webhook",
             mr_id=merge_request.merge_request_id,
+            developer_id=merge_request.author,
         )
         comment_posted = _post_review_comment(
             commenter=review_commenter,

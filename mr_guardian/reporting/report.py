@@ -4,8 +4,15 @@ from collections import Counter
 from collections.abc import Iterable
 
 from mr_guardian.core.review import ReviewResult
-from mr_guardian.models.policy import Severity
-from mr_guardian.models.review import Finding, LlmRuleMetric, RiskLevel
+from mr_guardian.models.policy import EvaluationDimension, Severity
+from mr_guardian.models.review import (
+    EVALUATION_ORDER,
+    Finding,
+    LlmRuleMetric,
+    ReviewEvaluation,
+    RiskLevel,
+    summarize_review_evaluations,
+)
 from mr_guardian.models.review_input import DiffLine, ReviewInput
 
 SEVERITY_ORDER: tuple[Severity, ...] = ("blocking", "high", "warning", "info")
@@ -17,6 +24,10 @@ SEVERITY_LABELS: dict[Severity, str] = {
 }
 SEVERITY_RANK: dict[Severity, int] = {
     severity: index for index, severity in enumerate(SEVERITY_ORDER)
+}
+EVALUATION_LABELS: dict[EvaluationDimension, str] = {
+    "coding": "Coding",
+    "mr_structure": "MR structure",
 }
 MAX_FINDINGS_PER_SEVERITY = 10
 MAX_REVIEWER_FOCUS_ITEMS = 5
@@ -41,9 +52,18 @@ def render_review_report(result: ReviewResult) -> str:
         f"- Changed files: {len(result.review_input.changed_files)}",
         f"- Changed lines: {_count_changed_lines(result.review_input)}",
         "",
-        "### Reviewer Focus",
+        "### Evaluation",
         "",
     ]
+
+    lines.extend(_render_evaluations(_review_evaluations(result)))
+    lines.extend(
+        [
+            "",
+            "### Reviewer Focus",
+            "",
+        ]
+    )
 
     lines.extend(_render_reviewer_focus(result.engine_result.findings))
     lines.extend(["", "### LLM Usage", ""])
@@ -111,6 +131,44 @@ def _render_finding(finding: Finding) -> str:
     if finding.rule_type is not None:
         lines.append(f"  - Rule type: {finding.rule_type}")
     return "\n".join(lines)
+
+
+def _render_evaluations(evaluations: list[ReviewEvaluation]) -> list[str]:
+    lines: list[str] = []
+    for evaluation in evaluations:
+        lines.append(
+            f"- {EVALUATION_LABELS[evaluation.evaluation]}: "
+            f"{_format_risk(evaluation.risk)}"
+        )
+        lines.append(f"  - Blocking: {evaluation.counts.blocking}")
+        lines.append(f"  - High: {evaluation.counts.high}")
+        lines.append(f"  - Warning: {evaluation.counts.warning}")
+        lines.append(f"  - Info: {evaluation.counts.info}")
+        if evaluation.triggered_rule_ids:
+            lines.append(f"  - Rules: {', '.join(evaluation.triggered_rule_ids)}")
+        else:
+            lines.append("  - Rules: none")
+    return lines
+
+
+def _review_evaluations(result: ReviewResult) -> list[ReviewEvaluation]:
+    evaluations = result.engine_result.evaluations or summarize_review_evaluations(
+        result.engine_result.findings
+    )
+    evaluation_by_dimension = {
+        evaluation.evaluation: evaluation for evaluation in evaluations
+    }
+    fallback_evaluations = summarize_review_evaluations(result.engine_result.findings)
+    fallback_by_dimension = {
+        evaluation.evaluation: evaluation for evaluation in fallback_evaluations
+    }
+    return [
+        evaluation_by_dimension.get(
+            evaluation,
+            fallback_by_dimension[evaluation],
+        )
+        for evaluation in EVALUATION_ORDER
+    ]
 
 
 def _render_reviewer_focus(findings: list[Finding]) -> list[str]:

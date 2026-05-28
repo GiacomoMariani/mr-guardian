@@ -7,11 +7,19 @@ abstraction, unclear scope, or risky design changes.
 LLM rules are never allowed to create blocking findings. Use deterministic rules
 for checks that must block a Merge Request.
 
+Every LLM rule declares an evaluation dimension:
+
+- `coding` for implementation, runtime, design, maintainability, and Unity/C#/Python
+  code concerns.
+- `mr_structure` for MR readiness, scope, metadata, validation evidence, and
+  reviewer context.
+
 ## Minimal Rule
 
 ```yaml
 - id: PYTHON-DESIGN-LLM-001
   type: llm
+  evaluation: coding
   enabled: true
   severity: info
   source: python-policy.yml#PYTHON-DESIGN-LLM-001
@@ -96,6 +104,10 @@ parameters:
 if an LLM response tries to create a blocking finding, it is downgraded to
 `high`.
 
+LLM output may include an `evaluation` value per finding. When it is omitted,
+MR Guardian uses the YAML rule's configured evaluation. Invalid evaluation
+values are rejected during output validation.
+
 ## Severity
 
 Allowed severities are:
@@ -146,6 +158,7 @@ review execution.
 ## Authoring Checklist
 
 - Use `type: llm`.
+- Set `evaluation` to `coding` or `mr_structure`.
 - Keep the rule `enabled` only when the prompt is ready for normal reports.
 - Keep severity advisory: `info`, `warning`, or `high`.
 - Make the prompt narrow and evidence-based.

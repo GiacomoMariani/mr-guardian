@@ -6,6 +6,12 @@ from typing import Annotated
 import typer
 
 from mr_guardian.config import get_settings
+from mr_guardian.core.manual_review import (
+    ManualReviewError,
+    manual_review_error_report,
+    manual_review_success_report,
+    store_manual_review_file,
+)
 from mr_guardian.core.metadata import resolve_description
 from mr_guardian.core.review import ReviewRequest, review_merge_request
 from mr_guardian.core.review_history import store_review_result
@@ -79,6 +85,24 @@ def review(
             review_scope="local-all-policies",
         )
     typer.echo(report)
+
+
+@app.command("submit-manual-review")
+def submit_manual_review(
+    file: Annotated[Path, typer.Option("--file", help="Manual review JSON payload.")],
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="Path to the SQLite review history database."),
+    ] = None,
+) -> None:
+    """Validate and store a manually written review."""
+    settings = get_settings()
+    try:
+        record = store_manual_review_file(file, database_path=db or settings.history_db_path)
+    except ManualReviewError as exc:
+        raise typer.BadParameter(manual_review_error_report(exc)) from exc
+
+    typer.echo(manual_review_success_report(record))
 
 
 @app.command()

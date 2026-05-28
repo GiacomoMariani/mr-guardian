@@ -10,6 +10,7 @@ from mr_guardian.models.review import (
     LlmRuleMetric,
     LlmRuleStatus,
     RiskLevel,
+    summarize_review_evaluations,
 )
 from mr_guardian.models.review_input import ReviewInput
 from mr_guardian.rules.base import RuleEvaluationContext
@@ -54,6 +55,7 @@ def run_review(
                     "rule_id": policy_rule.id,
                     "severity": policy_rule.severity,
                     "source": policy_rule.source,
+                    "evaluation": policy_rule.evaluation,
                     "rule_type": policy_rule.type,
                 }
             )
@@ -66,6 +68,7 @@ def run_review(
         findings=findings,
         counts=counts,
         llm_metrics=llm_metrics,
+        evaluations=summarize_review_evaluations(findings),
     )
 
 
@@ -132,6 +135,7 @@ def _llm_failure_finding(rule: PolicyRule, exc: Exception) -> Finding:
         severity="info",
         message=f"LLM rule skipped: {exc}",
         source=rule.source,
+        evaluation=rule.evaluation,
         rule_type=rule.type,
     )
 

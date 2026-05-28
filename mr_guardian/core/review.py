@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from mr_guardian.core.engine import calculate_risk, count_findings, run_review
 from mr_guardian.models.policy import Policy
-from mr_guardian.models.review import EngineReviewResult
+from mr_guardian.models.review import EngineReviewResult, summarize_review_evaluations
 from mr_guardian.models.review_input import ReviewInput
 from mr_guardian.policies import load_policy, policy_paths_from_directory, resolve_policy_directory
 from mr_guardian.providers import LocalGitProvider
@@ -21,6 +21,7 @@ class ReviewRequest(BaseModel):
 
     base: str
     policy_directory: Path = Path("sources/yaml")
+    review_scope: str = "local-all-policies"
     title: str = ""
     description: str = ""
 
@@ -75,6 +76,7 @@ def review_merge_request(
     provider = LocalGitProvider(repo_path)
     review_input = provider.collect(request.base).model_copy(
         update={
+            "review_scope": request.review_scope,
             "title": request.title,
             "description": request.description,
         }
@@ -145,6 +147,7 @@ def _combine_engine_results(results: list[EngineReviewResult]) -> EngineReviewRe
             for result in results
             for metric in result.llm_metrics
         ],
+        evaluations=summarize_review_evaluations(findings),
     )
 
 

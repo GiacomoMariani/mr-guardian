@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from mr_guardian.models.history import ReviewRunRecord, TriggeredRuleStat
+from mr_guardian.models.performance import DeveloperActivity
 from mr_guardian.models.review import RiskLevel
 from mr_guardian.storage import ReviewHistoryStore
 
@@ -39,6 +40,7 @@ class DashboardData(BaseModel):
     most_triggered_rules: list[TriggeredRuleStat]
     trend_points: list[TrendPoint]
     ai_code_risk_frequency: int
+    developer_activity: list[DeveloperActivity]
 
 
 def load_dashboard_data(
@@ -52,12 +54,14 @@ def load_dashboard_data(
     try:
         recent_reviews = store.recent_review_runs(limit=recent_limit)
         most_triggered_rules = store.most_triggered_rules(limit=rule_limit)
+        developer_activity = store.developer_activity()
     finally:
         store.close()
 
     return prepare_dashboard_data(
         recent_reviews=recent_reviews,
         most_triggered_rules=most_triggered_rules,
+        developer_activity=developer_activity,
     )
 
 
@@ -65,6 +69,7 @@ def prepare_dashboard_data(
     *,
     recent_reviews: list[ReviewRunRecord],
     most_triggered_rules: list[TriggeredRuleStat],
+    developer_activity: list[DeveloperActivity] | None = None,
 ) -> DashboardData:
     """Prepare manager-facing metrics from review history records."""
     return DashboardData(
@@ -73,6 +78,7 @@ def prepare_dashboard_data(
         most_triggered_rules=most_triggered_rules,
         trend_points=_trend_points(recent_reviews),
         ai_code_risk_frequency=_ai_code_risk_frequency(recent_reviews),
+        developer_activity=developer_activity or _developer_activity(recent_reviews),
     )
 
 
@@ -105,4 +111,32 @@ def _ai_code_risk_frequency(review_runs: list[ReviewRunRecord]) -> int:
         1
         for run in review_runs
         if any(rule_id.startswith("AI-CODE") for rule_id in run.triggered_rule_ids)
+    )
+
+
+def _developer_activity(review_runs: list[ReviewRunRecord]) -> list[DeveloperActivity]:
+    latest_by_developer: dict[str, ReviewRunRecord] = {}
+    runs_by_developer: dict[str, list[ReviewRunRecord]] = {}
+    for run in review_runs:
+        runs_by_developer.setdefault(run.developer_id, []).append(run)
+        current_latest = latest_by_developer.get(run.developer_id)
+        if current_latest is None or run.timestamp > current_latest.timestamp:
+            latest_by_developer[run.developer_id] = run
+
+    activity = [
+        DeveloperActivity(
+            developer_id=developer_id,
+            last_review_at=latest_by_developer[developer_id].timestamp,
+            review_request_count=len(developer_runs),
+            average_score=round(
+                sum(run.review_score for run in developer_runs) / len(developer_runs),
+                2,
+            ),
+        )
+        for developer_id, developer_runs in runs_by_developer.items()
+    ]
+    return sorted(
+        activity,
+        key=lambda item: (item.last_review_at, item.developer_id),
+        reverse=True,
     )

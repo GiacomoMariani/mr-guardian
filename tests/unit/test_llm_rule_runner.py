@@ -22,6 +22,7 @@ def make_llm_rule(*, severity: str = "info", max_findings: int = 3) -> PolicyRul
     return PolicyRule(
         id="PYTHON-DESIGN-LLM-001",
         type="llm",
+        evaluation="coding",
         enabled=True,
         severity=severity,
         source="python-policy.yml#PYTHON-DESIGN-LLM-001",
@@ -42,6 +43,7 @@ def test_converts_valid_llm_output_into_advisory_findings() -> None:
             LlmRuleOutputFinding(
                 message="This abstraction is not justified by the diff.",
                 severity="info",
+                evaluation="mr_structure",
                 file_path="mr_guardian/example.py",
                 line_number=12,
             )
@@ -53,6 +55,7 @@ def test_converts_valid_llm_output_into_advisory_findings() -> None:
     assert len(findings) == 1
     assert findings[0].rule_id == "PYTHON-DESIGN-LLM-001"
     assert findings[0].severity == "info"
+    assert findings[0].evaluation == "mr_structure"
     assert findings[0].rule_type == "llm"
     assert findings[0].file_path == Path("mr_guardian/example.py")
     assert findings[0].line_number == 12
@@ -65,6 +68,7 @@ def test_llm_output_cannot_create_blocking_findings() -> None:
             LlmRuleOutputFinding(
                 message="Reported as blocking by model.",
                 severity="blocking",
+                evaluation=None,
                 file_path=None,
                 line_number=None,
             )
@@ -74,14 +78,27 @@ def test_llm_output_cannot_create_blocking_findings() -> None:
     findings = findings_from_llm_output(rule=rule, output=output)
 
     assert findings[0].severity == "high"
+    assert findings[0].evaluation == "coding"
 
 
 def test_limits_llm_findings_from_output_contract() -> None:
     rule = make_llm_rule(max_findings=1)
     output = LlmRuleOutput(
         findings=[
-            LlmRuleOutputFinding(message="first", severity=None, file_path=None, line_number=None),
-            LlmRuleOutputFinding(message="second", severity=None, file_path=None, line_number=None),
+            LlmRuleOutputFinding(
+                message="first",
+                severity=None,
+                evaluation=None,
+                file_path=None,
+                line_number=None,
+            ),
+            LlmRuleOutputFinding(
+                message="second",
+                severity=None,
+                evaluation=None,
+                file_path=None,
+                line_number=None,
+            ),
         ]
     )
 
@@ -98,6 +115,7 @@ def test_parses_valid_llm_json_output() -> None:
             {
               "message": "Use a simpler function.",
               "severity": "warning",
+              "evaluation": "coding",
               "file_path": "mr_guardian/example.py",
               "line_number": 4
             }
@@ -108,6 +126,48 @@ def test_parses_valid_llm_json_output() -> None:
 
     assert output.findings[0].message == "Use a simpler function."
     assert output.findings[0].severity == "warning"
+    assert output.findings[0].evaluation == "coding"
+
+
+def test_llm_output_evaluation_defaults_to_rule_evaluation_when_omitted() -> None:
+    output = parse_llm_output(
+        """
+        {
+          "findings": [
+            {
+              "message": "Use a simpler function.",
+              "severity": "warning",
+              "file_path": "mr_guardian/example.py",
+              "line_number": 4
+            }
+          ]
+        }
+        """
+    )
+
+    findings = findings_from_llm_output(rule=make_llm_rule(), output=output)
+
+    assert output.findings[0].evaluation is None
+    assert findings[0].evaluation == "coding"
+
+
+def test_rejects_invalid_llm_output_evaluation() -> None:
+    with pytest.raises(ValueError, match="Invalid LLM output structure"):
+        parse_llm_output(
+            """
+            {
+              "findings": [
+                {
+                  "message": "Use a simpler function.",
+                  "severity": "warning",
+                  "evaluation": "review_style",
+                  "file_path": "mr_guardian/example.py",
+                  "line_number": 4
+                }
+              ]
+            }
+            """
+        )
 
 
 def test_rejects_invalid_llm_json_output() -> None:
@@ -251,6 +311,7 @@ def test_openai_schema_uses_plain_string_file_paths(
     assert set(finding_schema["required"]) == {  # type: ignore[index]
         "message",
         "severity",
+        "evaluation",
         "file_path",
         "line_number",
     }

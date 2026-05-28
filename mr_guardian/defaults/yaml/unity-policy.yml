@@ -4,6 +4,7 @@ rules:
   - id: SIZE-FILES-001
     type: deterministic
     implementation: size_changed_files
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#SIZE-FILES-001
@@ -15,6 +16,7 @@ rules:
   - id: SIZE-LINES-001
     type: deterministic
     implementation: size_changed_lines
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#SIZE-LINES-001
@@ -26,6 +28,7 @@ rules:
   - id: SIZE-DIRECTORIES-001
     type: deterministic
     implementation: size_changed_directories
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#SIZE-DIRECTORIES-001
@@ -37,6 +40,7 @@ rules:
   - id: MR-META-001
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -56,6 +60,7 @@ rules:
   - id: MR-META-002
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#MR-META-002
@@ -68,6 +73,7 @@ rules:
   - id: MR-META-003
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#MR-META-003
@@ -80,6 +86,7 @@ rules:
   - id: MR-META-004
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#MR-META-004
@@ -92,6 +99,7 @@ rules:
   - id: MR-META-005
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#MR-META-005
@@ -101,9 +109,23 @@ rules:
         mr_sections:
           - Reviewer Notes
 
+  - id: MR-TICKET-001
+    type: deterministic
+    implementation: mr_title_ticket_key
+    evaluation: mr_structure
+    enabled: true
+    severity: blocking
+    source: unity-policy.yml#MR-TICKET-001
+    description: GitLab MR titles must include a ticket key.
+    parameters:
+      title_pattern: "\\bTK-\\d+\\b"
+      required_review_scopes:
+        - gitlab-webhook
+
   - id: UNITY-SCENE-001
     type: deterministic
     implementation: changed_files_require_mr_section
+    evaluation: mr_structure
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-SCENE-001
@@ -126,6 +148,7 @@ rules:
   - id: UNITY-PREFAB-001
     type: deterministic
     implementation: changed_files_require_validation
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-PREFAB-001
@@ -138,6 +161,7 @@ rules:
   - id: UNITY-PROJECTSETTINGS-001
     type: deterministic
     implementation: changed_files_require_mr_section
+    evaluation: mr_structure
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-PROJECTSETTINGS-001
@@ -154,6 +178,7 @@ rules:
   - id: UNITY-TESTS-001
     type: deterministic
     implementation: production_code_requires_tests_or_validation
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-TESTS-001
@@ -174,6 +199,7 @@ rules:
   - id: UNITY-EVENTS-001
     type: deterministic
     implementation: unity_event_subscription
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-EVENTS-001
@@ -194,6 +220,7 @@ rules:
   - id: UNITY-PERF-GC-001
     type: deterministic
     implementation: unity_per_frame_allocation
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-PERF-GC-001
@@ -218,6 +245,7 @@ rules:
   - id: UNITY-POOLING-001
     type: deterministic
     implementation: unity_runtime_instantiation
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-POOLING-001
@@ -243,6 +271,7 @@ rules:
   - id: UNITY-RESOURCES-001
     type: deterministic
     implementation: unity_resources_load
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-RESOURCES-001
@@ -258,6 +287,7 @@ rules:
   - id: CSHARP-DEBUG-001
     type: deterministic
     implementation: csharp_debug_log
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-DEBUG-001
@@ -273,6 +303,7 @@ rules:
   - id: CSHARP-GETCOMPONENT-001
     type: deterministic
     implementation: csharp_get_component
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-GETCOMPONENT-001
@@ -287,6 +318,7 @@ rules:
   - id: CSHARP-SIZE-001
     type: deterministic
     implementation: csharp_class_size
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-SIZE-001
@@ -298,6 +330,7 @@ rules:
   - id: CSHARP-SIZE-002
     type: deterministic
     implementation: csharp_method_size
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-SIZE-002
@@ -309,6 +342,7 @@ rules:
   - id: CSHARP-PARAMETERS-001
     type: deterministic
     implementation: csharp_method_parameters
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-PARAMETERS-001
@@ -320,6 +354,7 @@ rules:
   - id: CSHARP-PUBLIC-FIELDS-001
     type: deterministic
     implementation: csharp_public_fields
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-PUBLIC-FIELDS-001
@@ -332,6 +367,7 @@ rules:
   - id: AI-CODE-001
     type: deterministic
     implementation: ai_code_large_change
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#AI-CODE-001
@@ -342,6 +378,7 @@ rules:
 
   - id: AI-CODE-LLM-001
     type: llm
+    evaluation: mr_structure
     enabled: true
     severity: info
     source: unity-policy.yml#AI-CODE-LLM-001
@@ -359,6 +396,7 @@ rules:
 
   - id: UNITY-LIFECYCLE-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: unity-policy.yml#UNITY-LIFECYCLE-LLM-001
@@ -377,6 +415,7 @@ rules:
 
   - id: UNITY-UI-PERF-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: unity-policy.yml#UNITY-UI-PERF-LLM-001
@@ -395,6 +434,7 @@ rules:
 
   - id: UNITY-ASSET-LOADING-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: unity-policy.yml#UNITY-ASSET-LOADING-LLM-001
@@ -413,6 +453,7 @@ rules:
 
   - id: UNITY-PHYSICS-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: unity-policy.yml#UNITY-PHYSICS-LLM-001
@@ -431,6 +472,7 @@ rules:
 
   - id: UNITY-SCRIPTABLEOBJECT-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: unity-policy.yml#UNITY-SCRIPTABLEOBJECT-LLM-001

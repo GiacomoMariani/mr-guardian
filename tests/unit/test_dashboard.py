@@ -12,11 +12,13 @@ def make_review_run(
     risk: RiskLevel = "warning",
     triggered_rule_ids: list[str] | None = None,
     timestamp: datetime | None = None,
+    developer_id: str = "Test User",
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
         review_scope="local-all-policies",
         branch_name="main",
+        developer_id=developer_id,
         policy_version=1,
         risk=risk,
         blocking_count=1 if risk == "blocking" else 0,
@@ -59,6 +61,7 @@ def test_dashboard_data_preparation_works_with_seeded_history() -> None:
     ] == 1
     assert data.ai_code_risk_frequency == 1
     assert [point.date for point in data.trend_points] == ["2026-05-24", "2026-05-25"]
+    assert data.developer_activity[0].developer_id == "Test User"
 
 
 def test_recent_reviews_can_be_loaded_from_storage(tmp_path: Path) -> None:
@@ -72,6 +75,7 @@ def test_recent_reviews_can_be_loaded_from_storage(tmp_path: Path) -> None:
 
     assert len(data.recent_reviews) == 1
     assert data.recent_reviews[0].timestamp.date().isoformat() == "2026-05-25"
+    assert data.developer_activity[0].last_review_at.date().isoformat() == "2026-05-25"
 
 
 def test_risk_counts_can_be_calculated_from_storage_data() -> None:
@@ -90,6 +94,29 @@ def test_risk_counts_can_be_calculated_from_storage_data() -> None:
     assert counts["blocking"] == 1
     assert counts["warning"] == 1
     assert counts["none"] == 0
+
+
+def test_developer_activity_is_sorted_by_latest_review() -> None:
+    old_timestamp = datetime(2026, 5, 24, tzinfo=timezone.utc)
+    new_timestamp = old_timestamp + timedelta(days=1)
+    store = ReviewHistoryStore(":memory:")
+    old_record = store.store_review_run(
+        make_review_run(developer_id="Older Developer", timestamp=old_timestamp)
+    )
+    new_record = store.store_review_run(
+        make_review_run(developer_id="Recent Developer", timestamp=new_timestamp)
+    )
+    store.close()
+
+    data = prepare_dashboard_data(
+        recent_reviews=[old_record, new_record],
+        most_triggered_rules=[],
+    )
+
+    assert [item.developer_id for item in data.developer_activity] == [
+        "Recent Developer",
+        "Older Developer",
+    ]
 
 
 def test_most_triggered_rules_can_be_calculated_from_storage_data() -> None:

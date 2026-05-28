@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Severity = Literal["blocking", "high", "warning", "info"]
 RuleType = Literal["deterministic", "llm"]
+EvaluationDimension = Literal["coding", "mr_structure"]
 
 
 class PolicyRule(BaseModel):
@@ -16,6 +17,7 @@ class PolicyRule(BaseModel):
     id: str
     type: RuleType
     implementation: str | None = None
+    evaluation: EvaluationDimension = "coding"
     enabled: bool
     severity: Severity
     source: str

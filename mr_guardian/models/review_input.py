@@ -49,6 +49,7 @@ class ReviewInput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     base_ref: str
+    review_scope: str = "local-all-policies"
     changed_files: list[ChangedFile]
     title: str = ""
     description: str = ""

@@ -8,7 +8,7 @@ from typing import Any, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from mr_guardian.models.policy import PolicyRule, Severity
+from mr_guardian.models.policy import EvaluationDimension, PolicyRule, Severity
 from mr_guardian.models.review import Finding
 from mr_guardian.models.review_input import DiffLine, ReviewInput
 
@@ -38,6 +38,7 @@ class LlmRuleOutputFinding(BaseModel):
 
     message: str
     severity: Severity | None
+    evaluation: EvaluationDimension | None = None
     file_path: str | None
     line_number: int | None
 
@@ -163,7 +164,7 @@ class OpenAiLlmRuleRunner:
                     "format": {
                         "type": "json_schema",
                         "name": "mr_guardian_llm_rule_output",
-                        "schema": LlmRuleOutput.model_json_schema(),
+                        "schema": _strict_response_schema(),
                         "strict": True,
                     }
                 },
@@ -216,6 +217,7 @@ def findings_from_llm_output(*, rule: PolicyRule, output: LlmRuleOutput) -> list
                 severity=severity,
                 message=output_finding.message,
                 source=rule.source,
+                evaluation=output_finding.evaluation or rule.evaluation,
                 rule_type=rule.type,
                 file_path=_finding_path(output_finding.file_path),
                 line_number=output_finding.line_number,
@@ -278,6 +280,7 @@ def _build_llm_prompt(*, rule: PolicyRule, review_input: ReviewInput) -> str:
         "Rule:",
         f"ID: {rule.id}",
         f"Severity: {rule.severity}",
+        f"Evaluation: {rule.evaluation}",
         f"Description: {rule.description}",
         "Prompt:",
         rule.prompt or "",
@@ -340,3 +343,23 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     if status_code == 429:
         return True
     return "ratelimit" in exc.__class__.__name__.lower().replace("_", "")
+
+
+def _strict_response_schema() -> dict[str, Any]:
+    schema = LlmRuleOutput.model_json_schema()
+    _require_all_properties(schema)
+    return schema
+
+
+def _require_all_properties(schema: object) -> None:
+    if isinstance(schema, dict):
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            schema["required"] = list(properties)
+        for value in schema.values():
+            _require_all_properties(value)
+        return
+
+    if isinstance(schema, list):
+        for item in schema:
+            _require_all_properties(item)

@@ -12,6 +12,7 @@ from mr_guardian.rules.csharp_size import (
     CSharpMethodSizeRule,
 )
 from mr_guardian.rules.mr_metadata import RequiredMrSectionRule
+from mr_guardian.rules.mr_ticket_key import MrTitleTicketKeyRule
 from mr_guardian.rules.python_print import PythonPrintRule
 from mr_guardian.rules.size import (
     ChangedDirectoryCountRule,
@@ -39,6 +40,7 @@ DEFAULT_RULE_FACTORIES: dict[str, Callable[[], DeterministicRule]] = {
     "MR-META-003": lambda: RequiredMrSectionRule("MR-META-003"),
     "MR-META-004": lambda: RequiredMrSectionRule("MR-META-004"),
     "MR-META-005": lambda: RequiredMrSectionRule("MR-META-005"),
+    "MR-TICKET-001": lambda: MrTitleTicketKeyRule("MR-TICKET-001"),
     "UNITY-SCENE-001": lambda: ChangedFilesRequireMrSectionRule("UNITY-SCENE-001"),
     "UNITY-PREFAB-001": lambda: ChangedFilesRequireValidationRule("UNITY-PREFAB-001"),
     "UNITY-PROJECTSETTINGS-001": lambda: ChangedFilesRequireMrSectionRule(

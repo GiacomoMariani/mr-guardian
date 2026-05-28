@@ -62,6 +62,8 @@ rules:
     assert len(recent_runs) == 1
     assert recent_runs[0].review_scope == "gitlab-webhook"
     assert recent_runs[0].branch_name == "refs/remotes/origin/main"
+    assert recent_runs[0].developer_id == "Jane Developer"
+    assert recent_runs[0].ticket_key == "TK-234"
     assert recent_runs[0].triggered_rule_ids == ["PYTHON-PRINT-001"]
 
 
@@ -95,7 +97,7 @@ def merge_request_payload() -> dict[str, Any]:
         "object_attributes": {
             "action": "open",
             "iid": 7,
-            "title": "Add webhook listener",
+            "title": "TK-234 Add webhook listener",
             "description": "## Test Plan\n- Ran webhook test",
             "url": "https://gitlab.com/team/MRGuardian/-/merge_requests/7",
             "source_branch": "feature/webhooks",

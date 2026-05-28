@@ -4,6 +4,7 @@ rules:
   - id: PYTHON-PRINT-001
     type: deterministic
     implementation: python_print
+    evaluation: coding
     enabled: true
     severity: warning
     source: python-policy.yml#PYTHON-PRINT-001
@@ -17,6 +18,7 @@ rules:
 
   - id: PYTHON-DESIGN-LLM-001
     type: llm
+    evaluation: coding
     enabled: true
     severity: info
     source: python-policy.yml#PYTHON-DESIGN-LLM-001

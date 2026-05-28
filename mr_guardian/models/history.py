@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from mr_guardian.models.review import LlmRuleMetric, RiskLevel
+from mr_guardian.models.review import LlmRuleMetric, ReviewEvaluation, RiskLevel
 
 
 class ReviewRunCreate(BaseModel):
@@ -15,6 +15,7 @@ class ReviewRunCreate(BaseModel):
     review_scope: str
     branch_name: str
     developer_id: str = "unknown"
+    ticket_key: str | None = None
     policy_version: int
     risk: RiskLevel
     blocking_count: int
@@ -23,8 +24,10 @@ class ReviewRunCreate(BaseModel):
     info_count: int
     changed_file_count: int
     changed_line_count: int
+    review_score: int | None = Field(default=None, ge=0, le=100)
     triggered_rule_ids: list[str]
-    llm_metrics: list[LlmRuleMetric] = []
+    evaluations: list[ReviewEvaluation] = Field(default_factory=list)
+    llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None
@@ -41,6 +44,7 @@ class ReviewRunRecord(BaseModel):
     review_scope: str
     branch_name: str
     developer_id: str = "unknown"
+    ticket_key: str | None = None
     policy_version: int
     risk: RiskLevel
     blocking_count: int
@@ -49,8 +53,10 @@ class ReviewRunRecord(BaseModel):
     info_count: int
     changed_file_count: int
     changed_line_count: int
+    review_score: int = Field(default=100, ge=0, le=100)
     triggered_rule_ids: list[str]
-    llm_metrics: list[LlmRuleMetric] = []
+    evaluations: list[ReviewEvaluation] = Field(default_factory=list)
+    llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None

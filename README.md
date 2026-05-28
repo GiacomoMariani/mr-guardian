@@ -1,274 +1,166 @@
 # MR Guardian
 
-Python-based Unity Merge Request review assistant.
+**Human-centered pre-review automation for merge requests.**
 
-MR Guardian reviews local Git diffs or GitLab merge requests against Unity best-practice policies.
+AI-assisted development helps teams ship faster, but it also makes changes harder to track.
 
-YAML files in `sources/yaml/` are the runtime source of truth. Markdown files in
-`sources/markdown/` are human guidance only and are not loaded or validated by the tool.
+MR Guardian turns your team’s standards into early MR checks. Deterministic rules catch clear risks before review, like oversized MRs or protected files being modified, while customizable LLM rules help cover issues that need more context.
 
-## YAML Policy Format
+Reviewers will spend less time on routine checks and more time on decisions that need human judgment.
 
-YAML policy files are a set of executable rules. The only top-level policy fields
-are:
+> **See it in action:** [Link]
 
-- `version`
-- `rules`
+**LLM analysis requires an API key.**
 
-Every item under `rules` is a rule. All runtime rules come from YAML, and each
-rule must declare its execution type:
+## Why MR Guardian exists
 
-- `deterministic`: implemented in Python and registered in MR Guardian.
-- `llm`: prompt-driven advisory checks that will be sent to an LLM with review context.
+AI-assisted development has made writing code easier, but verifying it harder: merge requests are larger, generated code can look correct without being safe, and specialized workflows often hide risk outside normal diffs.
 
-Each rule has stable metadata plus optional parameters:
+MR Guardian
+- junior developers get earlier feedback;
+- senior engineers spend less time on mechanical checks;
+- teams build shared memory around recurring risks;
+- AI stays bounded, transparent, and advisory;
+- final judgment stays with the people responsible for the system.
 
-```yaml
-version: 1
+The goal is not fewer human reviews.
 
-rules:
-  - id: PYTHON-PRINT-001
-    type: deterministic
-    implementation: python_print
-    enabled: true
-    severity: warning
-    source: python-policy.yml#PYTHON-PRINT-001
-    description: Python code should use logging instead of newly introduced print calls.
-    parameters:
-      match:
-        changed_files:
-          - "**/*.py"
-        added_lines_contain:
-          - "print("
+The goal is better human reviews: calmer, clearer, more focused, and more respectful of everyone’s time.
+
+## How rules are made
+
+Deterministic rules handle clear production signals, while scoped LLM checks add structured, non-blocking analysis where context helps.
+
+## What MR Guardian does
+
+MR Guardian reviews local Git diffs or GitLab Merge Requests and produces a structured Markdown report. When used through GitLab webhooks, it can run automatically on MR events and optionally post findings back to the merge request.
+
+It focuses on three questions:
+
+1. **Is this merge request reviewable?**  
+   Does it include enough description, validation evidence, and scope control for a human reviewer to make a good decision?
+
+2. **Does it touch production-sensitive Unity areas?**  
+   Does it modify scenes, prefabs, serialized assets, `ProjectSettings`, packages, plugins, gameplay scripts, runtime loading, lifecycle behavior, physics, UI, or ScriptableObject patterns?
+
+3. **Are there repeatable code risks that should be checked before review?**  
+   Does the change contain patterns such as debug logs, large classes or methods, broad directory scope, per-frame allocations, `GetComponent` usage, event subscription issues, pooling concerns, or `Resources.Load` usage?
+
+## Why it is useful in production workflows
+
+MR Guardian is useful because it adds a **pre-review quality gate** where teams usually rely on human attention alone.
+
+| Production review problem | How MR Guardian helps |
+| --- | --- |
+| Reviewers are overloaded by more frequent or larger MRs | Summarizes risk before review and highlights scope, changed files, and triggered rules. |
+| AI-assisted code increases the need for verification | Treats LLM output as advisory and keeps deterministic policy checks as the reliable base. |
+| Unity risk is not always obvious from text diffs | Flags Unity-specific change areas such as scenes, prefabs, settings, packages, plugins, and gameplay behavior. |
+| Teams repeat the same review comments across MRs | Encodes recurring review expectations as YAML policy with stable rule IDs. |
+| Senior engineers spend time on mechanical checks | Automates repeatable checks so humans can focus on architecture, correctness, product impact, mentorship, and tradeoffs. |
+| Review feedback is hard to measure over time | Stores review history, triggered rules, risk counts, changed lines/files, reports, and LLM metrics in SQLite. |
+| AI reviewers can be noisy or overconfident | Uses bounded LLM rules with structured output, max-finding limits, retries, timeouts, token metrics, and failure isolation. |
+
+## Design principle: automation should reduce risk, not create new risk
+
+MR Guardian deliberately avoids a “just ask an LLM to review the diff” architecture.
+
+Instead, it separates review into two layers:
+
+- **Deterministic rules** produce reliable findings for enforceable policies.
+- **LLM rules** provide bounded advisory review for judgment-heavy areas where language models can help but should not block a merge.
+
+This keeps the system explainable. A production team can inspect the policy, trace findings to stable rule IDs, understand which checks are deterministic, and decide how much trust to place in advisory AI output.
+
+## What this demonstrates
+
+- Agentic AI workflow design across policy loading, tool-backed diff collection, rule routing, LLM execution, reporting, and persistence.
+- A deterministic-first review architecture that uses AI without surrendering correctness to the model.
+- Policy-as-code using executable YAML rules, stable rule IDs, typed validation, and package-ready default policies.
+- Tool-augmented reasoning over MR metadata, changed files, diff hunks, GitLab webhook events, repository state, and review history.
+- Unity-specific engineering judgment for scenes, prefabs, `ProjectSettings`, gameplay scripts, validation evidence, runtime loading, lifecycle, physics, UI, and ScriptableObject risk.
+- Production-oriented reliability patterns: structured outputs, fallback behavior, rate-limit handling, non-fatal provider failures, tests, packaging, persisted metrics, and optional MR comments.
+
+## Architecture at a glance
+
+```mermaid
+flowchart TD
+    Entry[CLI / GitLab Webhook / Streamlit] --> Review[Review Orchestrator]
+    Review --> Provider[Local Git / GitLab Sync]
+    Provider --> Input[Typed Review Input]
+    Review --> Policy[YAML Policy Loader]
+    Policy --> Engine[Review Engine]
+    Input --> Engine
+    Engine --> Rules[Deterministic Rule Registry]
+    Engine --> LLM[Advisory LLM Runner]
+    Rules --> Result[Typed Findings]
+    LLM --> Result
+    Result --> Report[Markdown Review Report]
+    Result --> History[SQLite Review History]
+    History --> Dashboard[Streamlit Dashboard]
 ```
 
-Rule-specific settings belong under `parameters`. Deterministic rules require an
-`implementation`. LLM rules require a `prompt` and cannot use `severity: blocking`.
+Runtime rules come only from YAML. Each rule declares `type: deterministic` or `type: llm`; deterministic rules map to Python implementations, while LLM rules carry prompts and output contracts. Markdown best-practice documents are kept as human guidance and are not loaded by runtime code.
 
-## Development
+## Core capabilities
 
-Use Python 3.10 or newer.
+- **Local and GitLab MR review**: review local diffs or GitLab Merge Requests before they reach human reviewers.
+- **Webhook automation**: FastAPI GitLab webhook support accepts MR events, validates secrets, queues background reviews, syncs branches, stores results, and can post comments back to GitLab.
+- **Deterministic rule engine**: enforce repeatable policy checks without relying on model behavior.
+- **Advisory LLM review**: run scoped OpenAI-backed rules with structured JSON output and bounded finding counts.
+- **YAML policy loading**: define review behavior through executable policy files instead of hard-coded review preferences.
+- **Markdown reports**: generate readable review reports that separate deterministic findings from advisory AI feedback.
+- **SQLite review memory**: persist review scope, developer identity, risk counts, changed files/lines, triggered rules, reports, and LLM metrics.
+- **Streamlit analytics**: inspect review history, risk trends, and rule activity over time.
+- **Packaging support**: ship default policies with wheel packaging and deployment notes.
 
-Full installation details are in
-[Docs/installation.md](Docs/installation.md).
+## Technical highlights
 
-Recommended local development install:
+- **Deterministic-first review model**: deterministic rules handle enforceable checks; LLM rules remain advisory and cannot create blocking findings.
+- **Traceable policy architecture**: findings carry stable IDs such as `MR-META-001`, `UNITY-SCENE-001`, `CSHARP-DEBUG-001`, and `UNITY-PHYSICS-LLM-001`.
+- **Typed policy validation**: Pydantic models reject invalid severities, missing implementations, blocking LLM rules, and unknown rule-level fields.
+- **Bounded LLM execution**: OpenAI-backed rules use structured JSON output, prompt-scoped diff context, max-finding limits, retries, timeouts, rate-limit handling, and token usage capture.
+- **Unity-aware rule coverage**: implemented rules cover MR metadata, changed size, broad directory scope, scenes, prefabs, `ProjectSettings`, gameplay validation, C# debug logs, `GetComponent`, class/method size, public fields, event subscriptions, per-frame allocations, pooling, and `Resources.Load`.
+- **Review memory and analytics**: SQLite stores review scope, developer identity, risk counts, changed lines/files, triggered rules, generated reports, and per-rule LLM metrics for Streamlit analysis.
+- **Automation-ready delivery**: webhook review, optional MR comments, Docker notes, deployment guidance, and package-ready defaults.
 
-```bash
-python -m pip install -e ".[dev,dashboard,server,ai]"
-```
+## Example review philosophy
 
-Minimal CLI install:
+MR Guardian is intentionally conservative:
 
-```bash
-python -m pip install -e .
-```
+- It should surface risks, not create noise.
+- It should make human review easier, not bypass it.
+- It should fail safely when an external provider fails.
+- It should clearly distinguish enforceable policy from advisory model judgment.
+- It should help teams learn which risks repeat across merge requests.
 
-Installed packages include default YAML policies. During development MR Guardian
-uses repo-local `sources/yaml` when it exists; if that directory is missing or
-empty, it falls back to packaged default policies.
+## Documentation
 
-Feature-specific installs:
+- Architecture: [`Docs/architecture.md`](Docs/architecture.md)
+- Agent-assisted setup: [`Docs/agent-setup-prompt.md`](Docs/agent-setup-prompt.md)
+- Installation: [`Docs/installation.md`](Docs/installation.md)
+- LLM rule authoring: [`Docs/llm-rule-authoring.md`](Docs/llm-rule-authoring.md)
+- Docker and Render notes: [`Docs/docker-deployment.md`](Docs/docker-deployment.md)
+- Packaging notes: [`Docs/packaging.md`](Docs/packaging.md)
+- Unity rule roadmap: [`Docs/unity-rule-roadmap.md`](Docs/unity-rule-roadmap.md)
 
-```bash
-python -m pip install -e ".[dashboard]"
-python -m pip install -e ".[server]"
-python -m pip install -e ".[ai]"
-python -m pip install -e ".[all]"
-```
+## Roadmap
 
-Equivalent requirements files are available for environments that use
-`pip install -r`:
+Implemented features include local review, all-policy YAML loading, deterministic Unity/C#/MR rules, advisory OpenAI-backed LLM rules, GitLab webhooks, GitLab MR comments, SQLite history, Streamlit analytics, report noise control, and wheel packaging.
 
-```bash
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-python -m pip install -r requirements-dashboard.txt
-python -m pip install -r requirements-server.txt
-python -m pip install -r requirements-ai.txt
-python -m pip install -r requirements-all.txt
-```
+Planned improvements:
 
-On Windows, pip may warn that `mr-guardian.exe` was installed into a Scripts
-directory that is not on `PATH`. Add the printed Scripts directory to your user
-`PATH`, then reopen PowerShell, or run the CLI with
-`python -m mr_guardian.cli.main`.
+- Add evaluation benchmarks for deterministic and LLM rule quality.
+- Add tracing for per-rule execution, prompt payload size, and provider latency.
+- Expand Unity coverage for serialized assets, Addressables, package changes, and editor/runtime migration risk.
+- Add richer GitLab API support for MR metadata and repository state beyond local branch sync.
+- Harden deployment with migrations, auth boundaries, CI packaging checks, and release automation.
 
-Configure local paths:
+## Positioning
 
-```bash
-cp .env.example .env
-```
+MR Guardian is not a replacement for senior code review, team ownership, or engineering responsibility. It is a workflow layer for teams that want to preserve the human parts of review while code volume, AI-assisted development, and production pressure increase.
 
-MR Guardian reads `.env` automatically. Use it to set the default repository,
-YAML policy directory, default YAML policy file, human guidance directory,
-SQLite history database, and reports directory. Shell environment variables
-override values from `.env`.
+It helps reviewers stay focused on the work only humans can do well: understanding intent, challenging assumptions, mentoring teammates, protecting quality, and making careful decisions before code reaches production.
 
-Reports include the developer identity from the reviewed Git repository. MR
-Guardian reads `git config user.name` first and falls back to `git config
-user.email` when no name is configured.
+It helps reviewers answer the question that matters most:
 
-Run the CLI:
-
-```bash
-python -m mr_guardian.cli.main review --base main
-```
-
-By default, MR Guardian evaluates every YAML policy file in the configured policy
-directory, `sources/yaml`.
-
-Run a local review without storing it in history:
-
-```bash
-python -m mr_guardian.cli.main review --base main --no-store
-```
-
-Override the policy directory when needed:
-
-```bash
-python -m mr_guardian.cli.main review --base main --policy-dir sources/yaml
-```
-
-LLM rules are skipped by default unless an LLM provider is configured. To enable
-OpenAI-backed advisory LLM rules, install the AI extra and set the provider and
-API key:
-
-```bash
-python -m pip install -e ".[ai]"
-```
-
-```env
-MR_GUARDIAN_LLM_PROVIDER=openai
-MR_GUARDIAN_OPENAI_API_KEY=your_openai_api_key_here
-MR_GUARDIAN_OPENAI_MODEL=gpt-4.1-mini
-MR_GUARDIAN_OPENAI_TIMEOUT_SECONDS=30
-MR_GUARDIAN_OPENAI_MAX_RETRIES=2
-```
-
-LLM rules are isolated from deterministic review execution. Timeouts, malformed
-responses, rate limits, and provider failures are reported as advisory `info`
-findings for the affected LLM rule; deterministic findings still complete.
-
-LLM rule prompting is configured in YAML. See
-[Docs/llm-rule-authoring.md](Docs/llm-rule-authoring.md) for rule examples,
-prompting guidance, and output-contract conventions.
-
-Run the CLI with local MR metadata:
-
-```bash
-python -m mr_guardian.cli.main review --base main --title "Add player movement" --description-file mr-description.md
-```
-
-The MR metadata options are useful for local reviews because local Git does not
-provide a merge request title or description. Use `--description` for short text
-or `--description-file` for a Markdown file.
-
-Show stored review logs in a readable table:
-
-```bash
-python -m mr_guardian.cli.main logs
-```
-
-Limit how many recent review logs are shown:
-
-```bash
-python -m mr_guardian.cli.main logs --limit 10
-```
-
-Show the generated report for a stored review ID:
-
-```bash
-python -m mr_guardian.cli.main log-report 1
-```
-
-Run the Streamlit review-history dashboard:
-
-```bash
-python -m streamlit run app/streamlit_app.py
-```
-
-From an installed wheel outside the source checkout, resolve the packaged
-dashboard path first:
-
-```powershell
-$dashboard = python -c "from pathlib import Path; import app.streamlit_app; print(Path(app.streamlit_app.__file__))"
-python -m streamlit run $dashboard
-```
-
-Run the GitLab webhook FastAPI service:
-
-```bash
-python -m pip install -e ".[server]"
-python -m uvicorn app.api:app --host 0.0.0.0 --port 8000
-```
-
-Docker and Render deployment notes are tracked in
-[Docs/docker-deployment.md](Docs/docker-deployment.md).
-
-Packaging notes and wheel smoke checks are tracked in
-[Docs/packaging.md](Docs/packaging.md).
-
-Build and run the FastAPI service with Docker:
-
-```bash
-docker build -t mr-guardian .
-docker run --rm -p 8000:8000 mr-guardian
-```
-
-Check the service:
-
-```bash
-curl http://localhost:8000/healthz
-```
-
-Configure GitLab to send Merge Request webhooks to:
-
-```text
-POST /webhooks/gitlab
-```
-
-If `GITLAB_WEBHOOK_SECRET` is set, MR Guardian validates GitLab's
-`X-Gitlab-Token` header. Opened and reopened Merge Request events trigger the
-same local review flow as `review --base main`. The HTTP request returns after
-queueing a background job; use the returned `job_id` with
-`GET /webhook-jobs/{job_id}` to check status. Successful jobs are stored in
-SQLite with review scope `gitlab-webhook`.
-
-To post completed webhook review reports back to GitLab as Merge Request notes,
-configure a token with permission to create MR notes and enable comment
-delivery:
-
-```env
-GITLAB_TOKEN=your_gitlab_token_with_note_permission_here
-GITLAB_POST_REVIEW_COMMENTS=true
-GITLAB_API_TIMEOUT_SECONDS=10
-```
-
-Before reviewing, the service fetches the GitLab source and target branches from
-`GITLAB_REMOTE_NAME` and creates a temporary detached worktree under
-`GITLAB_WORKTREE_DIR`. It reviews the source branch worktree against the fetched
-target branch ref, stores the result, and removes the temporary worktree. The
-service can post GitLab comments when `GITLAB_POST_REVIEW_COMMENTS=true`.
-
-Reports start with a short reviewer-focus section and a compact triggered-rule
-overview before the full details. Findings are grouped by severity and displayed
-non-blocking findings are capped per severity so large reviews stay readable.
-Blocking findings are never hidden.
-
-Configure authentication for private repository fetches through the Git remote
-or Git credential manager used by `MR_GUARDIAN_REPO_PATH`.
-
-Remove all stored review logs:
-
-```bash
-python -m mr_guardian.cli.main clear-logs --yes
-```
-
-Run checks:
-
-```bash
-pytest
-ruff check .
-mypy mr_guardian
-```
+**“What should I pay attention to before this change reaches production?”**

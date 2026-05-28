@@ -18,7 +18,8 @@ The wheel includes:
 - PEP 561 typing marker, `mr_guardian/py.typed`.
 
 Source distributions include the README, installation docs, requirements files,
-`.env.example`, example policies, and repo-local `sources/yaml` policies.
+`.env.example`, repo-local `sources/yaml` policies, and any future files placed
+under `examples/`.
 
 ## Default Policies
 

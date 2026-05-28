@@ -10,24 +10,24 @@ Build a portfolio-ready tool that reviews Unity Merge Requests against team-spec
 
 The tool does **not** replace human review.
 
-It acts as a workflow assistant that checks whether an MR is ready for review, highlights risky Unity-specific changes, stores review history, and points developers back to the team's best-practices documentation.
+It acts as a workflow assistant that checks whether an MR is ready for review, highlights risky Unity-specific changes, stores review history, and keeps findings traceable through YAML policy rules. Optional guidance notes can explain practices for humans, but runtime code only loads YAML.
 
 ---
 
-# Part 1 — What We Need to Implement
+# Part 1 — Product Scope and Implementation Context
 
-This is the implementation plan for the portfolio piece.
+This document records the product scope for the portfolio piece. See `Docs/status.txt` for the current implemented state.
 
-MR Guardian should be a working Python tool with:
+MR Guardian is a Python tool with:
 
 - a CLI for real usage
 - a Streamlit dashboard for demos and project managers
 - deterministic Unity MR checks
-- a YAML policy file
+- YAML policy files
 - optional best-practices notes for humans
 - stable rule IDs
 - persistent review history
-- optional AI summarization
+- optional advisory LLM rules
 
 ---
 
@@ -41,13 +41,13 @@ CLI             -> developer / CI usage
 Streamlit app   -> demo, analysis, and project manager dashboard
 ```
 
-Initial local command:
+Local review command:
 
 ```bash
 mr-guardian review --base main
 ```
 
-Later GitLab automation:
+GitLab webhook automation:
 
 ```text
 POST /webhooks/gitlab
@@ -59,7 +59,7 @@ Streamlit command:
 streamlit run app/streamlit_app.py
 ```
 
-The tool should:
+The tool can:
 
 - review changed files
 - review MR title and description
@@ -69,25 +69,26 @@ The tool should:
 - store every review run in a local database
 - show historical review trends in Streamlit
 - optionally post the report as a GitLab MR comment
-- optionally use AI to summarize deterministic findings
+- optionally run advisory LLM rules when provider configuration is available
 
 ---
 
 ## 2. Technology Stack
 
-Recommended stack:
+Current stack:
 
 ```text
 Python
 Typer
 Pydantic
-PyYAML or ruamel.yaml
+PyYAML
 Git CLI
 SQLite
 Streamlit
 pytest
 Rich
-python-gitlab later
+FastAPI
+Uvicorn
 OpenAI API optional
 ```
 
@@ -126,6 +127,7 @@ rules:
   - id: UNITY-SCENE-001
     type: deterministic
     implementation: changed_files_require_mr_section
+    evaluation: mr_structure
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-SCENE-001
@@ -159,6 +161,7 @@ Example LLM rule:
 ```yaml
 - id: ARCH-DESIGN-001
   type: llm
+  evaluation: coding
   enabled: true
   severity: info
   source: python-policy.yml#ARCH-DESIGN-001
@@ -228,27 +231,27 @@ or validate guidance documents.
 | YAML policy loader | Loads executable rules and thresholds |
 | Rule engine | Runs checks and returns findings |
 | LLM rule runner | Runs prompt-driven advisory YAML rules |
-| review reporter | Generates the MR review report |
-| Suggested fix generator | Produces copy-pasteable MR sections |
+| Review reporter | Generates the MR review report |
 | History store | Stores review runs and findings |
 | Streamlit dashboard | Shows current and historical review insights |
+| FastAPI webhook service | Receives GitLab Merge Request webhook events |
 | Fixture tests | Tests rules against sample MRs |
 
-Optional:
+Optional runtime integrations:
 
 | Component | Purpose |
 |---|---|
-| AI summary | Summarizes deterministic findings |
-| GitLab provider | Fetches MR title, description, files, and diffs |
+| LLM rules | Produce advisory structured findings from YAML prompts |
+| GitLab webhook review | Receives MR events and prepares local worktrees |
 | GitLab reporter | Posts one MR comment |
 
 ---
 
 ## 6. Review History
 
-MR Guardian should store every review run.
+MR Guardian stores review runs in SQLite.
 
-Recommended first implementation:
+Current implementation:
 
 ```text
 SQLite database
@@ -263,15 +266,19 @@ Store:
 - MR ID if available
 - commit SHA if available
 - policy version
-- best-practices source version
+- policy source reference
 - risk level
 - number of blocking issues
 - number of high-priority warnings
 - number of warnings
 - triggered rule IDs
+- developer ID when available
+- ticket key when the MR title contains one
+- coding and MR-structure evaluation summaries
+- review score
 - changed file count
 - changed line count
-- whether AI summary was used
+- LLM usage metrics when available
 - generated review report
 
 This makes the tool useful for project managers.
@@ -516,32 +523,34 @@ Suggested section:
 
 ---
 
-## 9. Optional AI Summary
+## 9. Optional LLM Rules
 
-AI should only summarize deterministic findings.
+LLM rules are YAML rules with `type: llm`. They are advisory and cannot create
+blocking findings.
 
-The AI receives:
+The LLM runner can receive:
 
 - MR title
 - MR description
 - changed files
-- rule findings
-- relevant policy rules
+- enabled YAML rule configuration
 - compact diff summary
 
-The AI produces:
+The LLM returns structured findings with:
 
-- risk level
-- summary
-- reviewer focus areas
-- suggested author actions
-- questions for the author or reviewer
+- severity
+- message
+- optional file path and line number
+- evaluation dimension
+
+Provider failures, missing configuration, rate limits, and invalid output become
+advisory `info` findings so deterministic review can still finish.
 
 Rule:
 
 ```text
-Rules find issues.
-AI explains and prioritizes them.
+Deterministic rules can block.
+LLM rules stay advisory.
 Humans make the final decision.
 ```
 
@@ -563,48 +572,29 @@ mr-guardian/
     rules/
     reporting/
     storage/
-    ai/
+    summarizer_ai/
 
   app/
+    api.py
     streamlit_app.py
 
-  fixtures/
-    sample_mrs/
-      good_unity_mr/
-      risky_scene_mr/
-      risky_prefab_mr/
-      project_settings_mr/
-      ai_generated_overreach_mr/
-
-  docs/
+  Docs/
     architecture.md
-    rule-id-conventions.md
-    faq.md
-    limitations.md
-    agentic-workflow.md
+    installation.md
+    llm-rule-authoring.md
+    pm-dashboard.md
+    lead-dashboard.md
+    developer-performance.md
 
   tickets/
     001-create-cli-skeleton.md
-    002-add-policy-loader.md
-    003-add-rule-id-validation.md
-    004-add-history-store.md
-    005-add-streamlit-dashboard.md
-    006-add-unity-scene-risk-rule.md
-    007-add-unity-prefab-risk-rule.md
-    008-add-project-settings-rule.md
-    009-add-metadata-fix-suggestions.md
-    010-add-csharp-rules.md
-    011-add-test-change-rule.md
-    012-add-ai-code-risk-rule.md
-    013-add-report-renderer.md
-    014-add-ai-summary.md
-    015-add-gitlab-provider.md
-    016-add-demo-fixtures.md
+    ...
 
   tests/
+    unit/
+    integration/
+
   pyproject.toml
-  README.md
-  AGENTS.md
 ```
 
 ---
@@ -618,6 +608,7 @@ rules:
   - id: MR-META-001
     type: deterministic
     implementation: mr_required_section
+    evaluation: mr_structure
     enabled: true
     severity: blocking
     source: unity-policy.yml#MR-META-001
@@ -637,6 +628,7 @@ rules:
   - id: UNITY-SCENE-001
     type: deterministic
     implementation: changed_files_require_mr_section
+    evaluation: mr_structure
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-SCENE-001
@@ -659,6 +651,7 @@ rules:
   - id: UNITY-PREFAB-001
     type: deterministic
     implementation: changed_files_require_validation
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-PREFAB-001
@@ -671,6 +664,7 @@ rules:
   - id: UNITY-PROJECTSETTINGS-001
     type: deterministic
     implementation: changed_files_require_mr_section
+    evaluation: mr_structure
     enabled: true
     severity: high
     source: unity-policy.yml#UNITY-PROJECTSETTINGS-001
@@ -687,6 +681,7 @@ rules:
   - id: UNITY-TESTS-001
     type: deterministic
     implementation: production_code_requires_tests_or_validation
+    evaluation: mr_structure
     enabled: true
     severity: warning
     source: unity-policy.yml#UNITY-TESTS-001
@@ -707,6 +702,7 @@ rules:
   - id: CSHARP-DEBUG-001
     type: deterministic
     implementation: csharp_debug_log
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#CSHARP-DEBUG-001
@@ -722,6 +718,7 @@ rules:
   - id: AI-CODE-001
     type: deterministic
     implementation: ai_code_large_change
+    evaluation: coding
     enabled: true
     severity: warning
     source: unity-policy.yml#AI-CODE-001
@@ -983,11 +980,11 @@ This keeps the system maintainable, explainable, configurable, and testable.
 
 AI-only review can be inconsistent.
 
-MR Guardian should use deterministic rules for findings and AI only for summarization.
+MR Guardian uses deterministic rules for reliable enforcement and optional LLM rules for advisory review judgment.
 
 ```text
-Rules find issues.
-AI explains and prioritizes them.
+Deterministic rules can block.
+LLM rules stay advisory.
 Humans make the final decision.
 ```
 
@@ -1002,7 +999,7 @@ This project demonstrates:
 - policy-as-code
 - Unity-specific engineering judgment
 - deterministic automation
-- safe AI summarization
+- bounded LLM orchestration
 - Streamlit dashboarding
 - persistent review analytics
 - realistic scope
@@ -1113,7 +1110,7 @@ Best portfolio headline:
 
 Best one-liner:
 
-> A Python-based policy-as-code review assistant that uses YAML for executable rules, optional notes for human best practices, Streamlit for review analytics, and optional AI summaries to improve Unity MR quality.
+> A Python-based policy-as-code review assistant that uses YAML for executable deterministic and LLM rules, optional notes for human best practices, Streamlit for review analytics, and SQLite history to improve Unity MR quality.
 
 AI-assisted programming angle:
 

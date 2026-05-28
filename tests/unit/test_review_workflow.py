@@ -51,10 +51,52 @@ def test_review_merge_request_passes_metadata_to_engine(
 
     assert result.review_input.title == "Add movement"
     assert result.review_input.description == "## Test Plan\n- Ran"
+    assert result.review_input.review_scope == "local-all-policies"
     assert result.developer_id == "Test User"
     assert result.policy_results[0].policy_path == policy_path
     assert captured_review_input is not None
     assert captured_review_input.title == "Add movement"
+
+
+def test_review_merge_request_passes_review_scope_to_review_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy_path = tmp_path / "policy.yml"
+    policy_path.write_text("version: 1\nrules: []\n", encoding="utf-8")
+
+    class FakeGitProvider:
+        def __init__(self, repo_path: str | Path = ".") -> None:
+            self.repo_path = repo_path
+
+        def collect(self, base_ref: str) -> ReviewInput:
+            return ReviewInput(base_ref=base_ref, changed_files=[])
+
+        def developer_id(self) -> str:
+            return "Test User"
+
+    def fake_run_review(
+        *,
+        policy: Policy,
+        review_input: ReviewInput,
+        rule_registry,
+        llm_rule_runner,
+    ) -> EngineReviewResult:
+        assert review_input.review_scope == "gitlab-webhook"
+        return EngineReviewResult(risk="none", findings=[], counts=FindingCounts())
+
+    monkeypatch.setattr("mr_guardian.core.review.LocalGitProvider", FakeGitProvider)
+    monkeypatch.setattr("mr_guardian.core.review.run_review", fake_run_review)
+
+    result = review_merge_request(
+        ReviewRequest(
+            base="main",
+            policy_directory=tmp_path,
+            review_scope="gitlab-webhook",
+        )
+    )
+
+    assert result.review_input.review_scope == "gitlab-webhook"
 
 
 def test_review_merge_request_combines_multiple_policy_results(

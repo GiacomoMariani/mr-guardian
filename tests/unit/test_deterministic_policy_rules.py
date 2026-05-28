@@ -14,6 +14,7 @@ DETERMINISTIC_RULE_IDS = {
     "MR-META-003",
     "MR-META-004",
     "MR-META-005",
+    "MR-TICKET-001",
     "UNITY-SCENE-001",
     "UNITY-PREFAB-001",
     "UNITY-PROJECTSETTINGS-001",
@@ -211,6 +212,52 @@ def test_each_mr_metadata_rule_id_triggers() -> None:
 
         assert result.findings[0].rule_id == rule_id
         assert section in result.findings[0].message
+
+
+def test_mr_ticket_key_rule_triggers_for_gitlab_scope() -> None:
+    rule = make_rule(
+        "MR-TICKET-001",
+        implementation="mr_title_ticket_key",
+        severity="blocking",
+        parameters={
+            "title_pattern": r"\bTK-\d+\b",
+            "required_review_scopes": ["gitlab-webhook"],
+        },
+    ).model_copy(update={"evaluation": "mr_structure"})
+    review_input = ReviewInput(
+        base_ref="main",
+        review_scope="gitlab-webhook",
+        changed_files=[],
+        title="Add player movement",
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings[0].rule_id == "MR-TICKET-001"
+    assert result.findings[0].severity == "blocking"
+    assert result.findings[0].evaluation == "mr_structure"
+
+
+def test_mr_ticket_key_rule_does_not_trigger_for_local_scope() -> None:
+    rule = make_rule(
+        "MR-TICKET-001",
+        implementation="mr_title_ticket_key",
+        severity="blocking",
+        parameters={
+            "title_pattern": r"\bTK-\d+\b",
+            "required_review_scopes": ["gitlab-webhook"],
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        review_scope="local-all-policies",
+        changed_files=[],
+        title="Add player movement",
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings == []
 
 
 def test_unity_scene_requires_manual_validation_section() -> None:

@@ -88,7 +88,7 @@ def test_gitlab_webhook_triggers_local_review_and_stores_history(
         GitLabMergeRequestWebhook(
             project_id="42",
             project_name="team/MRGuardian",
-            title="Add webhook review",
+            title="TK-234 Add webhook review",
             description="## Test Plan\n- Ran webhook test",
             url="https://gitlab.com/team/MRGuardian/-/merge_requests/7",
             source_branch="feature/webhooks",
@@ -112,7 +112,8 @@ def test_gitlab_webhook_triggers_local_review_and_stores_history(
     assert captured_request == ReviewRequest(
         base="refs/remotes/origin/main",
         policy_directory=tmp_path,
-        title="Add webhook review",
+        review_scope="gitlab-webhook",
+        title="TK-234 Add webhook review",
         description="## Test Plan\n- Ran webhook test",
     )
     assert sync_calls == ["prepare", "cleanup"]
@@ -121,6 +122,8 @@ def test_gitlab_webhook_triggers_local_review_and_stores_history(
     assert recent_runs[0].review_scope == "gitlab-webhook"
     assert recent_runs[0].mr_id == "7"
     assert recent_runs[0].branch_name == "refs/remotes/origin/main"
+    assert recent_runs[0].developer_id == "Jane Developer"
+    assert recent_runs[0].ticket_key == "TK-234"
     assert recent_runs[0].triggered_rule_ids == ["PYTHON-PRINT-001"]
 
 
@@ -170,7 +173,7 @@ def test_gitlab_webhook_posts_review_comment_when_configured(
         GitLabMergeRequestWebhook(
             project_id="42",
             project_name="team/MRGuardian",
-            title="Add webhook review",
+            title="TK-234 Add webhook review",
             description="",
             url="https://gitlab.com/team/MRGuardian/-/merge_requests/7",
             source_branch="feature/webhooks",

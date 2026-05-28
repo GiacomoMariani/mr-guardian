@@ -23,6 +23,7 @@ def finding(
         severity=rule.severity,
         message=message,
         source=rule.source,
+        evaluation=rule.evaluation,
         file_path=file_path,
         line_number=line_number,
     )

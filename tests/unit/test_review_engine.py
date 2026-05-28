@@ -89,10 +89,22 @@ def make_rule(rule_id: str, *, enabled: bool = True, severity: str = "warning") 
         id=rule_id,
         type="deterministic",
         implementation="fake_rule",
+        evaluation="coding",
         enabled=enabled,
         severity=severity,
         source=f"unity-policy.yml#{rule_id}",
         description="Test rule.",
+    )
+
+
+def make_mr_structure_rule(
+    rule_id: str,
+    *,
+    enabled: bool = True,
+    severity: str = "warning",
+) -> PolicyRule:
+    return make_rule(rule_id, enabled=enabled, severity=severity).model_copy(
+        update={"evaluation": "mr_structure"}
     )
 
 
@@ -190,6 +202,7 @@ def test_runs_enabled_llm_rules_with_configured_runner() -> None:
     policy_rule = PolicyRule(
         id="ARCH-DESIGN-001",
         type="llm",
+        evaluation="coding",
         enabled=True,
         severity="info",
         source="python-policy.yml#ARCH-DESIGN-001",
@@ -257,6 +270,7 @@ def test_llm_rule_failure_is_reported_without_stopping_review() -> None:
     llm_rule = PolicyRule(
         id="ARCH-DESIGN-001",
         type="llm",
+        evaluation="mr_structure",
         enabled=True,
         severity="info",
         source="python-policy.yml#ARCH-DESIGN-001",
@@ -278,6 +292,7 @@ def test_llm_rule_failure_is_reported_without_stopping_review() -> None:
     assert result.findings[0].rule_id == "MR-META-001"
     assert result.findings[1].rule_id == "ARCH-DESIGN-001"
     assert result.findings[1].severity == "info"
+    assert result.findings[1].evaluation == "mr_structure"
     assert result.findings[1].rule_type == "llm"
     assert result.findings[1].message == "LLM rule skipped: LLM provider request timed out."
     assert result.llm_metrics[0].status == "failed"
@@ -366,6 +381,35 @@ def test_computes_finding_counts() -> None:
     assert result.counts.high == 1
     assert result.counts.warning == 1
     assert result.counts.info == 1
+
+
+def test_computes_evaluation_summaries() -> None:
+    coding_rule = make_rule("CODE-TEST-001", severity="warning")
+    structure_rule = make_mr_structure_rule("MR-STRUCTURE-001", severity="high")
+    registry = RuleRegistry(
+        [
+            FakeRule("CODE-TEST-001", [make_finding("CODE-TEST-001")]),
+            FakeRule("MR-STRUCTURE-001", [make_finding("MR-STRUCTURE-001")]),
+        ]
+    )
+
+    result = run_review(
+        policy=make_policy(coding_rule, structure_rule),
+        review_input=make_review_input(),
+        rule_registry=registry,
+    )
+
+    evaluation_by_name = {
+        evaluation.evaluation: evaluation for evaluation in result.evaluations
+    }
+
+    assert result.risk == "high"
+    assert evaluation_by_name["coding"].risk == "warning"
+    assert evaluation_by_name["coding"].counts.warning == 1
+    assert evaluation_by_name["coding"].triggered_rule_ids == ["CODE-TEST-001"]
+    assert evaluation_by_name["mr_structure"].risk == "high"
+    assert evaluation_by_name["mr_structure"].counts.high == 1
+    assert evaluation_by_name["mr_structure"].triggered_rule_ids == ["MR-STRUCTURE-001"]
 
 
 def test_computes_risk_level_from_findings() -> None:

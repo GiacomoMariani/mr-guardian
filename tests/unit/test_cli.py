@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,35 @@ from mr_guardian.models.history import ReviewRunCreate
 from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts
 from mr_guardian.models.review_input import ChangedFile, DiffHunk, DiffLine, ReviewInput
 from mr_guardian.storage import ReviewHistoryStore
+
+
+def valid_manual_review_payload() -> dict[str, object]:
+    return {
+        "review_scope": "manual-review",
+        "branch_name": "feature/manual-review",
+        "title": "TK-777 Manual review",
+        "developer_id": "Test Reviewer",
+        "policy_version": 1,
+        "risk": "none",
+        "findings": [],
+        "evaluations": [
+            {
+                "evaluation": "coding",
+                "risk": "none",
+                "counts": {"blocking": 0, "high": 0, "warning": 0, "info": 0},
+                "triggered_rule_ids": [],
+            },
+            {
+                "evaluation": "mr_structure",
+                "risk": "none",
+                "counts": {"blocking": 0, "high": 0, "warning": 0, "info": 0},
+                "triggered_rule_ids": [],
+            },
+        ],
+        "changed_file_count": 0,
+        "changed_line_count": 0,
+        "generated_review_report": "## Manual Review\n\nLooks good.",
+    }
 
 
 def make_empty_review_result(base: str, policy_directory: Path) -> ReviewResult:
@@ -47,7 +77,7 @@ def test_review_command_exits_successfully(monkeypatch: pytest.MonkeyPatch) -> N
 
     result = runner.invoke(
         app,
-        ["review", "--base", "main"],
+        ["review", "--base", "main", "--title", "TK-234 Add CLI review"],
     )
 
     assert result.exit_code == 0
@@ -221,6 +251,7 @@ def test_review_command_stores_review_history(
             developer_id="Test User",
             review_input=ReviewInput(
                 base_ref=request.base,
+                title=request.title,
                 changed_files=[
                     ChangedFile(
                         path=Path("mr_guardian/example.py"),
@@ -267,7 +298,7 @@ def test_review_command_stores_review_history(
 
     result = runner.invoke(
         app,
-        ["review", "--base", "main"],
+        ["review", "--base", "main", "--title", "TK-234 Add CLI review"],
     )
 
     store = ReviewHistoryStore(database_path)
@@ -279,6 +310,8 @@ def test_review_command_stores_review_history(
     assert recent_runs[0].review_scope == "local-all-policies"
     assert recent_runs[0].branch_name == "main"
     assert recent_runs[0].developer_id == "Test User"
+    assert recent_runs[0].ticket_key == "TK-234"
+    assert recent_runs[0].review_score == 95
     assert recent_runs[0].policy_version == 3
     assert recent_runs[0].changed_file_count == 1
     assert recent_runs[0].changed_line_count == 1
@@ -302,6 +335,57 @@ def test_review_command_no_store_skips_review_history(
     result = runner.invoke(app, ["review", "--base", "main", "--no-store"])
 
     assert result.exit_code == 0
+    assert not database_path.exists()
+
+
+def test_submit_manual_review_command_stores_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
+    payload_path = tmp_path / "manual-review.json"
+    payload_path.write_text(json.dumps(valid_manual_review_payload()), encoding="utf-8")
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["submit-manual-review", "--file", str(payload_path)],
+    )
+
+    store = ReviewHistoryStore(database_path)
+    recent_runs = store.recent_review_runs()
+    store.close()
+
+    assert result.exit_code == 0
+    assert "Manual review stored successfully." in result.output
+    assert "Review ID: 1" in result.output
+    assert len(recent_runs) == 1
+    assert recent_runs[0].review_scope == "manual-review"
+    assert recent_runs[0].ticket_key == "TK-777"
+    assert recent_runs[0].generated_review_report == "## Manual Review\n\nLooks good."
+
+
+def test_submit_manual_review_command_reports_validation_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
+    payload = valid_manual_review_payload()
+    payload["risk"] = "high"
+    payload_path = tmp_path / "manual-review.json"
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["submit-manual-review", "--file", str(payload_path)],
+    )
+
+    assert result.exit_code != 0
+    assert "Manual review submission failed" in result.output
+    assert "does not match findings risk" in result.output
     assert not database_path.exists()
 
 
