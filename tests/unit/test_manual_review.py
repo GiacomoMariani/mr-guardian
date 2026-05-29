@@ -122,6 +122,9 @@ def test_stores_valid_manual_review(tmp_path: Path) -> None:
     assert stored_record.ticket_key == "TK-234"
     assert stored_record.review_score == 80
     assert stored_record.triggered_rule_ids == ["PYTHON-PRINT-001", "MR-META-001"]
+    assert len(stored_record.findings) == 2
+    assert stored_record.findings[0].rule_id == "PYTHON-PRINT-001"
+    assert stored_record.findings[0].file_path == Path("mr_guardian/example.py")
     assert stored_record.evaluations[0].evaluation == "coding"
     assert stored_record.evaluations[0].risk == "warning"
     assert stored_record.evaluations[1].evaluation == "mr_structure"

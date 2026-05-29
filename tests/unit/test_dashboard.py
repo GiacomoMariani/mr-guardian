@@ -135,6 +135,38 @@ def test_streamlit_app_imports_without_running_review() -> None:
     assert callable(streamlit_app.main)
 
 
+def test_developer_link_is_url_safe() -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert (
+        streamlit_app._developer_link("Jane Developer/Lead")
+        == "?view=developer&developer=Jane%20Developer%2FLead#Jane Developer/Lead"
+    )
+
+
+def test_developer_view_query_param_is_detected() -> None:
+    import app.streamlit_app as streamlit_app
+
+    class FakeStreamlit:
+        query_params = {"view": "developer"}
+
+    assert streamlit_app._is_developer_view(FakeStreamlit())
+
+
+def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
+    from app.streamlit_style import dashboard_css, theme_from_label
+
+    light_css = dashboard_css("light")
+    dark_css = dashboard_css("dark")
+
+    assert theme_from_label("Light") == "light"
+    assert theme_from_label("Dark") == "dark"
+    assert "--mg-paper: #f4f1ea;" in light_css
+    assert "--mg-paper: #0e1117;" in dark_css
+    assert "mg-page-heading" in light_css
+    assert "stMetric" in dark_css
+
+
 def test_no_rule_logic_exists_in_streamlit_folder() -> None:
     app_source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 

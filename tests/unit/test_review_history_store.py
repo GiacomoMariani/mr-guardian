@@ -2,8 +2,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from mr_guardian.models.history import ReviewRunCreate
+from mr_guardian.models.history import ReviewPolicySummary, ReviewRunCreate
 from mr_guardian.models.review import (
+    Finding,
     FindingCounts,
     LlmReviewSummary,
     LlmRuleMetric,
@@ -22,6 +23,8 @@ def make_review_run(
     llm_metrics: list[LlmRuleMetric] | None = None,
     llm_summary: LlmReviewSummary | None = None,
     evaluations: list[ReviewEvaluation] | None = None,
+    findings: list[Finding] | None = None,
+    policy_summaries: list[ReviewPolicySummary] | None = None,
     timestamp: datetime | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
@@ -40,6 +43,7 @@ def make_review_run(
         info_count=0,
         changed_file_count=3,
         changed_line_count=12,
+        findings=findings or [],
         triggered_rule_ids=rule_ids,
         evaluations=evaluations
         or [
@@ -58,6 +62,7 @@ def make_review_run(
         ],
         llm_metrics=llm_metrics or [],
         llm_summary=llm_summary,
+        policy_summaries=policy_summaries or [],
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
     )
@@ -95,6 +100,8 @@ def test_initializes_schema(tmp_path: Path) -> None:
     assert {
         "review_runs",
         "triggered_rules",
+        "review_findings",
+        "review_policies",
         "review_llm_rule_metrics",
         "review_evaluations",
         "review_evaluation_triggered_rules",
@@ -119,6 +126,8 @@ def test_stores_review_run(tmp_path: Path) -> None:
     assert record.review_score == 95
     assert record.changed_file_count == 3
     assert record.changed_line_count == 12
+    assert record.findings == []
+    assert record.policy_summaries == []
     assert record.evaluations[0].evaluation == "coding"
     assert record.evaluations[0].risk == "warning"
     assert record.evaluations[0].triggered_rule_ids == ["PYTHON-PRINT-001"]
@@ -257,6 +266,60 @@ def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
     store.close()
 
     assert record.triggered_rule_ids == ["PYTHON-PRINT-001", "CSHARP-DEBUG-001"]
+
+
+def test_stores_structured_findings(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            findings=[
+                Finding(
+                    rule_id="PYTHON-PRINT-001",
+                    severity="warning",
+                    message="print calls should be replaced with logging.",
+                    source="python-policy.yml#PYTHON-PRINT-001",
+                    evaluation="coding",
+                    rule_type="deterministic",
+                    file_path=Path("mr_guardian/example.py"),
+                    line_number=4,
+                )
+            ]
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert len(found_run.findings) == 1
+    assert found_run.findings[0].rule_id == "PYTHON-PRINT-001"
+    assert found_run.findings[0].file_path == Path("mr_guardian/example.py")
+    assert found_run.findings[0].line_number == 4
+
+
+def test_stores_policy_summaries(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            policy_summaries=[
+                ReviewPolicySummary(
+                    policy_path="sources/yaml/python-policy.yml",
+                    policy_version=1,
+                    enabled_rule_count=2,
+                    disabled_rule_count=1,
+                )
+            ]
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert len(found_run.policy_summaries) == 1
+    assert found_run.policy_summaries[0].policy_path == "sources/yaml/python-policy.yml"
+    assert found_run.policy_summaries[0].enabled_rule_count == 2
+    assert found_run.policy_summaries[0].disabled_rule_count == 1
 
 
 def test_stores_ticket_key_and_review_score(tmp_path: Path) -> None:

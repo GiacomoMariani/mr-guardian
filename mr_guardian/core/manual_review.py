@@ -121,6 +121,7 @@ def manual_review_to_review_run(payload: ManualReviewPayload) -> ReviewRunCreate
         changed_file_count=payload.changed_file_count,
         changed_line_count=payload.changed_line_count,
         review_score=calculate_review_score_from_counts(counts),
+        findings=payload.findings,
         triggered_rule_ids=[finding.rule_id for finding in payload.findings],
         evaluations=evaluations,
         generated_review_report=payload.generated_review_report,

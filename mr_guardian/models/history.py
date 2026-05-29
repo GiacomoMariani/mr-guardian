@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from mr_guardian.models.review import (
+    Finding,
     LlmReviewSummary,
     LlmRuleMetric,
     ReviewEvaluation,
@@ -30,10 +31,12 @@ class ReviewRunCreate(BaseModel):
     changed_file_count: int
     changed_line_count: int
     review_score: int | None = Field(default=None, ge=0, le=100)
+    findings: list[Finding] = Field(default_factory=list)
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     llm_summary: LlmReviewSummary | None = None
+    policy_summaries: list["ReviewPolicySummary"] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None
@@ -60,10 +63,12 @@ class ReviewRunRecord(BaseModel):
     changed_file_count: int
     changed_line_count: int
     review_score: int = Field(default=100, ge=0, le=100)
+    findings: list[Finding] = Field(default_factory=list)
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     llm_summary: LlmReviewSummary | None = None
+    policy_summaries: list["ReviewPolicySummary"] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
     commit_sha: str | None = None
@@ -76,3 +81,14 @@ class TriggeredRuleStat(BaseModel):
 
     rule_id: str
     trigger_count: int
+
+
+class ReviewPolicySummary(BaseModel):
+    """A compact summary of one evaluated policy file."""
+
+    model_config = ConfigDict(frozen=True)
+
+    policy_path: str
+    policy_version: int
+    enabled_rule_count: int
+    disabled_rule_count: int

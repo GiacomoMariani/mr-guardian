@@ -7,9 +7,16 @@ from pathlib import Path
 from typing import cast
 
 from mr_guardian.core.review_score import calculate_review_score
-from mr_guardian.models.history import ReviewRunCreate, ReviewRunRecord, TriggeredRuleStat
+from mr_guardian.models.history import (
+    ReviewPolicySummary,
+    ReviewRunCreate,
+    ReviewRunRecord,
+    TriggeredRuleStat,
+)
 from mr_guardian.models.performance import DeveloperActivity
+from mr_guardian.models.policy import EvaluationDimension, RuleType, Severity
 from mr_guardian.models.review import (
+    Finding,
     FindingCounts,
     LlmReviewSummary,
     LlmRuleMetric,
@@ -54,6 +61,30 @@ CREATE TABLE IF NOT EXISTS triggered_rules (
     FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS review_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id INTEGER NOT NULL,
+    rule_id TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    source TEXT NOT NULL,
+    evaluation TEXT NOT NULL,
+    rule_type TEXT,
+    file_path TEXT,
+    line_number INTEGER,
+    FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS review_policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id INTEGER NOT NULL,
+    policy_path TEXT NOT NULL,
+    policy_version INTEGER NOT NULL,
+    enabled_rule_count INTEGER NOT NULL,
+    disabled_rule_count INTEGER NOT NULL,
+    FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS review_llm_rule_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     review_id INTEGER NOT NULL,
@@ -74,6 +105,12 @@ ON review_runs(timestamp DESC);
 
 CREATE INDEX IF NOT EXISTS idx_triggered_rules_rule_id
 ON triggered_rules(rule_id);
+
+CREATE INDEX IF NOT EXISTS idx_review_findings_review_id
+ON review_findings(review_id);
+
+CREATE INDEX IF NOT EXISTS idx_review_policies_review_id
+ON review_policies(review_id);
 
 CREATE INDEX IF NOT EXISTS idx_review_llm_rule_metrics_review_id
 ON review_llm_rule_metrics(review_id);
@@ -207,6 +244,8 @@ class ReviewHistoryStore:
             raise RuntimeError(msg)
         review_id = cursor.lastrowid
         self._insert_triggered_rules(review_id, run.triggered_rule_ids)
+        self._insert_findings(review_id, run.findings)
+        self._insert_policy_summaries(review_id, run.policy_summaries)
         self._insert_evaluations(review_id, run.evaluations)
         self._insert_llm_metrics(review_id, run.llm_metrics)
         self._connection.commit()
@@ -335,6 +374,8 @@ class ReviewHistoryStore:
         row = self._connection.execute("SELECT COUNT(*) AS run_count FROM review_runs").fetchone()
         run_count = int(row["run_count"]) if row is not None else 0
         self._connection.execute("DELETE FROM triggered_rules")
+        self._connection.execute("DELETE FROM review_findings")
+        self._connection.execute("DELETE FROM review_policies")
         self._connection.execute("DELETE FROM review_llm_rule_metrics")
         self._connection.execute("DELETE FROM review_evaluation_triggered_rules")
         self._connection.execute("DELETE FROM review_evaluations")
@@ -363,6 +404,68 @@ class ReviewHistoryStore:
             VALUES (?, ?)
             """,
             [(review_id, rule_id) for rule_id in rule_ids],
+        )
+
+    def _insert_findings(self, review_id: int, findings: Sequence[Finding]) -> None:
+        self._connection.executemany(
+            """
+            INSERT INTO review_findings (
+                review_id,
+                rule_id,
+                severity,
+                message,
+                source,
+                evaluation,
+                rule_type,
+                file_path,
+                line_number
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    review_id,
+                    finding.rule_id,
+                    finding.severity,
+                    finding.message,
+                    finding.source,
+                    finding.evaluation,
+                    finding.rule_type,
+                    finding.file_path.as_posix()
+                    if finding.file_path is not None
+                    else None,
+                    finding.line_number,
+                )
+                for finding in findings
+            ],
+        )
+
+    def _insert_policy_summaries(
+        self,
+        review_id: int,
+        policy_summaries: Sequence[ReviewPolicySummary],
+    ) -> None:
+        self._connection.executemany(
+            """
+            INSERT INTO review_policies (
+                review_id,
+                policy_path,
+                policy_version,
+                enabled_rule_count,
+                disabled_rule_count
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    review_id,
+                    policy.policy_path,
+                    policy.policy_version,
+                    policy.enabled_rule_count,
+                    policy.disabled_rule_count,
+                )
+                for policy in policy_summaries
+            ],
         )
 
     def _insert_llm_metrics(self, review_id: int, metrics: Sequence[LlmRuleMetric]) -> None:
@@ -483,10 +586,12 @@ class ReviewHistoryStore:
             changed_file_count=int(row["changed_file_count"]),
             changed_line_count=int(row["changed_line_count"]),
             review_score=int(row["review_score"]),
+            findings=self._findings(review_id),
             triggered_rule_ids=self._triggered_rule_ids(review_id),
             evaluations=self._evaluations(review_id),
             llm_metrics=self._llm_metrics(review_id),
             llm_summary=_llm_summary_from_row(row),
+            policy_summaries=self._policy_summaries(review_id),
             generated_review_report=str(row["generated_review_report"]),
         )
 
@@ -501,6 +606,50 @@ class ReviewHistoryStore:
             (review_id,),
         ).fetchall()
         return [str(row["rule_id"]) for row in rows]
+
+    def _findings(self, review_id: int) -> list[Finding]:
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM review_findings
+            WHERE review_id = ?
+            ORDER BY id ASC
+            """,
+            (review_id,),
+        ).fetchall()
+        return [
+            Finding(
+                rule_id=str(row["rule_id"]),
+                severity=cast(Severity, row["severity"]),
+                message=str(row["message"]),
+                source=str(row["source"]),
+                evaluation=cast(EvaluationDimension, row["evaluation"]),
+                rule_type=cast(RuleType | None, _optional_str(row["rule_type"])),
+                file_path=_optional_path(row["file_path"]),
+                line_number=_optional_int(row["line_number"]),
+            )
+            for row in rows
+        ]
+
+    def _policy_summaries(self, review_id: int) -> list[ReviewPolicySummary]:
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM review_policies
+            WHERE review_id = ?
+            ORDER BY id ASC
+            """,
+            (review_id,),
+        ).fetchall()
+        return [
+            ReviewPolicySummary(
+                policy_path=str(row["policy_path"]),
+                policy_version=int(row["policy_version"]),
+                enabled_rule_count=int(row["enabled_rule_count"]),
+                disabled_rule_count=int(row["disabled_rule_count"]),
+            )
+            for row in rows
+        ]
 
     def _evaluations(self, review_id: int) -> list[ReviewEvaluation]:
         rows = self._connection.execute(
@@ -681,6 +830,13 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     msg = f"Expected integer-compatible SQLite value, got {type(value).__name__}."
     raise TypeError(msg)
+
+
+def _optional_path(value: object) -> Path | None:
+    path = _optional_str(value)
+    if path is None:
+        return None
+    return Path(path)
 
 
 def _llm_summary_from_row(row: sqlite3.Row) -> LlmReviewSummary | None:

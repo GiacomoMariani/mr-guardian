@@ -5,7 +5,11 @@ from pathlib import Path
 from mr_guardian.core.review import ReviewResult
 from mr_guardian.core.review_score import calculate_review_score_from_counts
 from mr_guardian.core.ticket_keys import extract_ticket_key_from_title
-from mr_guardian.models.history import ReviewRunCreate, ReviewRunRecord
+from mr_guardian.models.history import (
+    ReviewPolicySummary,
+    ReviewRunCreate,
+    ReviewRunRecord,
+)
 from mr_guardian.models.review import summarize_review_evaluations
 from mr_guardian.storage import ReviewHistoryStore
 
@@ -41,6 +45,7 @@ def store_review_result(
                 changed_file_count=len(result.review_input.changed_files),
                 changed_line_count=changed_line_count(result),
                 review_score=calculate_review_score_from_counts(counts),
+                findings=result.engine_result.findings,
                 triggered_rule_ids=[
                     finding.rule_id
                     for finding in result.engine_result.findings
@@ -49,6 +54,15 @@ def store_review_result(
                 or summarize_review_evaluations(result.engine_result.findings),
                 llm_metrics=result.engine_result.llm_metrics,
                 llm_summary=result.llm_summary,
+                policy_summaries=[
+                    ReviewPolicySummary(
+                        policy_path=policy_result.policy_path.as_posix(),
+                        policy_version=policy_result.policy_version,
+                        enabled_rule_count=policy_result.enabled_rule_count,
+                        disabled_rule_count=policy_result.disabled_rule_count,
+                    )
+                    for policy_result in result.policy_results
+                ],
                 generated_review_report=report,
             )
         )

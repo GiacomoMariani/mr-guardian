@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mr_guardian.models.history import ReviewRunRecord
 from mr_guardian.models.policy import EvaluationDimension
 from mr_guardian.models.review import FindingCounts, RiskLevel
 
@@ -74,3 +75,14 @@ class LeadDashboardSummary(BaseModel):
     start_at: datetime
     end_at: datetime
     developers: list[LeadDeveloperSummary]
+
+
+class LeadDeveloperDetail(BaseModel):
+    """Developer-focused detail page data."""
+
+    model_config = ConfigDict(frozen=True)
+
+    start_at: datetime
+    end_at: datetime
+    developer: LeadDeveloperSummary
+    review_runs: list[ReviewRunRecord]

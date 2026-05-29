@@ -8,6 +8,7 @@ from mr_guardian.core.review_score import calculate_review_score_from_counts
 from mr_guardian.models.history import ReviewRunRecord
 from mr_guardian.models.lead_dashboard import (
     LeadDashboardSummary,
+    LeadDeveloperDetail,
     LeadDeveloperSummary,
     LeadEvaluationSummary,
     LeadRepeatedRule,
@@ -44,6 +45,64 @@ def load_lead_dashboard_summary(
         review_runs=review_runs,
         start_at=resolved_start_at,
         end_at=resolved_end_at,
+    )
+
+
+def load_lead_developer_detail(
+    database_path: str | Path,
+    *,
+    developer_id: str,
+    days: int,
+    end_at: datetime | None = None,
+) -> LeadDeveloperDetail | None:
+    """Load one developer's lead dashboard detail data."""
+    resolved_end_at = end_at or datetime.now(timezone.utc)
+    resolved_start_at = resolved_end_at - timedelta(days=days)
+    store = ReviewHistoryStore(database_path)
+    try:
+        review_runs = store.review_runs_for_developer(
+            developer_id=developer_id,
+            start_at=resolved_start_at,
+            end_at=resolved_end_at,
+        )
+    finally:
+        store.close()
+
+    return prepare_lead_developer_detail(
+        developer_id=developer_id,
+        review_runs=review_runs,
+        start_at=resolved_start_at,
+        end_at=resolved_end_at,
+    )
+
+
+def prepare_lead_developer_detail(
+    *,
+    developer_id: str,
+    review_runs: list[ReviewRunRecord],
+    start_at: datetime,
+    end_at: datetime,
+) -> LeadDeveloperDetail | None:
+    """Prepare the developer detail page data for a review-history window."""
+    developer_runs = [
+        run for run in review_runs if run.developer_id == developer_id
+    ]
+    if not developer_runs:
+        return None
+
+    sorted_runs = sorted(
+        developer_runs,
+        key=lambda run: (run.timestamp, run.review_id),
+        reverse=True,
+    )
+    return LeadDeveloperDetail(
+        start_at=start_at,
+        end_at=end_at,
+        developer=_developer_summary(
+            developer_id=developer_id,
+            review_runs=developer_runs,
+        ),
+        review_runs=sorted_runs,
     )
 
 

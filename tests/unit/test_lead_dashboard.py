@@ -3,7 +3,9 @@ from pathlib import Path
 
 from mr_guardian.core.lead_dashboard import (
     load_lead_dashboard_summary,
+    load_lead_developer_detail,
     prepare_lead_dashboard_summary,
+    prepare_lead_developer_detail,
 )
 from mr_guardian.models.history import ReviewRunCreate
 from mr_guardian.models.review import FindingCounts, ReviewEvaluation, RiskLevel
@@ -342,6 +344,84 @@ def test_load_lead_dashboard_summary_uses_selected_time_window(tmp_path: Path) -
     )
 
     assert summary.developers[0].tickets[0].ticket_key == "TK-NEW"
+
+
+def test_prepare_lead_developer_detail_filters_to_selected_developer() -> None:
+    start = datetime(2026, 5, 20, 10, tzinfo=timezone.utc)
+    jane_run = make_review_run(
+        developer_id="Jane",
+        ticket_key="TK-100",
+        timestamp=start,
+        risk="warning",
+        review_score=95,
+    )
+    other_run = make_review_run(
+        developer_id="Other",
+        ticket_key="TK-200",
+        timestamp=start + timedelta(hours=1),
+        risk="none",
+        review_score=100,
+    )
+    review_runs = stored_runs(jane_run, other_run)
+
+    detail = prepare_lead_developer_detail(
+        developer_id="Jane",
+        review_runs=review_runs,
+        start_at=start - timedelta(days=1),
+        end_at=start + timedelta(days=1),
+    )
+
+    assert detail is not None
+    assert detail.developer.developer_id == "Jane"
+    assert detail.developer.review_request_count == 1
+    assert [run.developer_id for run in detail.review_runs] == ["Jane"]
+
+
+def test_prepare_lead_developer_detail_returns_none_for_missing_developer() -> None:
+    start = datetime(2026, 5, 20, 10, tzinfo=timezone.utc)
+
+    detail = prepare_lead_developer_detail(
+        developer_id="Missing",
+        review_runs=[],
+        start_at=start - timedelta(days=1),
+        end_at=start + timedelta(days=1),
+    )
+
+    assert detail is None
+
+
+def test_load_lead_developer_detail_uses_selected_time_window(tmp_path: Path) -> None:
+    now = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-OLD",
+            timestamp=now - timedelta(days=10),
+            risk="warning",
+            review_score=95,
+        )
+    )
+    store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-NEW",
+            timestamp=now - timedelta(days=1),
+            risk="none",
+            review_score=100,
+        )
+    )
+    store.close()
+
+    detail = load_lead_developer_detail(
+        tmp_path / "history.sqlite",
+        developer_id="Jane",
+        days=3,
+        end_at=now,
+    )
+
+    assert detail is not None
+    assert [run.ticket_key for run in detail.review_runs] == ["TK-NEW"]
 
 
 def test_lead_aggregation_stays_outside_streamlit() -> None:

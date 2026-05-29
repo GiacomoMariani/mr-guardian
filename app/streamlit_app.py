@@ -1,8 +1,10 @@
 """Streamlit dashboard for MR Guardian review history."""
 
 import sys
+from html import escape
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from urllib.parse import quote
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -37,11 +39,22 @@ if RUNTIME_ERROR is not None:
     )
     st.stop()
 
+from app.streamlit_style import (  # noqa: E402
+    THEME_LABELS,
+    DashboardTheme,
+    dashboard_css,
+    section_heading,
+    theme_from_label,
+)
 from mr_guardian.config import get_settings  # noqa: E402
 from mr_guardian.core.dashboard import DashboardData, load_dashboard_data  # noqa: E402
-from mr_guardian.core.lead_dashboard import load_lead_dashboard_summary  # noqa: E402
+from mr_guardian.core.lead_dashboard import (  # noqa: E402
+    load_lead_dashboard_summary,
+    load_lead_developer_detail,
+)
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
 from mr_guardian.models.lead_dashboard import LeadDeveloperSummary  # noqa: E402
+from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
 
 
@@ -51,11 +64,26 @@ def main() -> None:
 
     settings = get_settings()
     st.set_page_config(page_title="MR Guardian", layout="wide")
-    st.title("MR Guardian")
+    theme_label = st.sidebar.selectbox("Theme", list(THEME_LABELS), index=0)
+    theme = theme_from_label(str(theme_label))
+    st.markdown(dashboard_css(theme), unsafe_allow_html=True)
+    _render_page_heading(
+        st,
+        title="MR Guardian",
+        kicker="Review Intelligence",
+        body=(
+            "Policy-driven merge request review history, delivery risk, "
+            "developer trends, and reviewer-ready reports."
+        ),
+    )
 
     database_path = Path(
         st.sidebar.text_input("History database", str(settings.history_db_path))
     )
+    if _is_developer_view(st):
+        _render_developer_detail_page(st, database_path, theme)
+        return
+
     recent_limit = st.sidebar.number_input(
         "Recent review limit",
         min_value=1,
@@ -69,10 +97,30 @@ def main() -> None:
     _render_pm_dashboard(st, database_path)
     _render_lead_dashboard(st, database_path)
     _render_recent_reviews(st, data)
-    _render_selected_report(st, database_path, data)
+    _render_selected_report(st, database_path, data, theme)
+
+
+def _render_page_heading(st, *, title: str, kicker: str, body: str) -> None:
+    st.markdown(
+        "\n".join(
+            [
+                '<div class="mg-page-heading">',
+                f'<div class="mg-kicker">{_html(kicker)}</div>',
+                f"<h1>{_html(title)}</h1>",
+                f"<p>{_html(body)}</p>",
+                "</div>",
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_section_heading(st, index: int, title: str) -> None:
+    st.markdown(section_heading(index, title), unsafe_allow_html=True)
 
 
 def _render_metrics(st, data: DashboardData) -> None:
+    _render_section_heading(st, 1, "Overview")
     metric_columns = st.columns(5)
     risk_counts = {risk_count.risk: risk_count.count for risk_count in data.risk_counts}
     metric_columns[0].metric("Blocking Reviews", risk_counts.get("blocking", 0))
@@ -81,7 +129,7 @@ def _render_metrics(st, data: DashboardData) -> None:
     metric_columns[3].metric("Info Reviews", risk_counts.get("info", 0))
     metric_columns[4].metric("AI-Code Risk Runs", data.ai_code_risk_frequency)
 
-    st.subheader("Most Triggered Rules")
+    _render_section_heading(st, 2, "Most Triggered Rules")
     if data.most_triggered_rules:
         st.dataframe(
             [
@@ -94,7 +142,7 @@ def _render_metrics(st, data: DashboardData) -> None:
     else:
         st.info("No triggered rules have been stored yet.")
 
-    st.subheader("Trends")
+    _render_section_heading(st, 3, "Trends")
     if data.trend_points:
         st.line_chart(
             {
@@ -113,7 +161,7 @@ def _render_metrics(st, data: DashboardData) -> None:
 
 
 def _render_recent_reviews(st, data: DashboardData) -> None:
-    st.subheader("Recent Reviews")
+    _render_section_heading(st, 8, "Recent Reviews")
     if not data.recent_reviews:
         st.info("No review runs have been stored yet.")
         return
@@ -125,7 +173,7 @@ def _render_recent_reviews(st, data: DashboardData) -> None:
                 "Timestamp": run.timestamp.isoformat(timespec="seconds"),
                 "Scope": run.review_scope,
                 "Branch": run.branch_name,
-                "Developer": run.developer_id,
+                "Developer": _developer_link(run.developer_id),
                 "Ticket": run.ticket_key or "-",
                 "Score": run.review_score,
                 "Risk": run.risk,
@@ -139,13 +187,19 @@ def _render_recent_reviews(st, data: DashboardData) -> None:
             }
             for run in data.recent_reviews
         ],
+        column_config={
+            "Developer": st.column_config.LinkColumn(
+                "Developer",
+                display_text=_DEVELOPER_LINK_DISPLAY_TEXT,
+            )
+        },
         use_container_width=True,
         hide_index=True,
     )
 
 
 def _render_pm_dashboard(st, database_path: Path) -> None:
-    st.subheader("PM Delivery View")
+    _render_section_heading(st, 4, "PM Delivery View")
     lookback_days = st.number_input(
         "PM lookback days",
         min_value=1,
@@ -191,7 +245,7 @@ def _render_pm_dashboard(st, database_path: Path) -> None:
     else:
         st.info("No ticket-linked reviews are available for this window.")
 
-    st.subheader("Recurring Blockers")
+    _render_section_heading(st, 5, "Recurring Blockers")
     if summary.recurring_blockers:
         st.dataframe(
             [
@@ -211,7 +265,7 @@ def _render_pm_dashboard(st, database_path: Path) -> None:
 
 
 def _render_lead_dashboard(st, database_path: Path) -> None:
-    st.subheader("Lead Review View")
+    _render_section_heading(st, 6, "Lead Review View")
     lookback_days = st.number_input(
         "Lead lookback days",
         min_value=1,
@@ -239,7 +293,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
     st.dataframe(
         [
             {
-                "Developer": developer.developer_id,
+                "Developer": _developer_link(developer.developer_id),
                 "Review Requests": developer.review_request_count,
                 "Tickets": developer.ticket_count,
                 "Avg Attempts": developer.average_attempts_per_ticket,
@@ -251,6 +305,12 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
             }
             for developer in visible_developers
         ],
+        column_config={
+            "Developer": st.column_config.LinkColumn(
+                "Developer",
+                display_text=_DEVELOPER_LINK_DISPLAY_TEXT,
+            )
+        },
         use_container_width=True,
         hide_index=True,
     )
@@ -309,7 +369,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
         )
 
     if developer_summary.repeated_rules:
-        st.subheader("Developer Repeated Rules")
+        _render_section_heading(st, 7, "Developer Repeated Rules")
         st.dataframe(
             [
                 {
@@ -324,7 +384,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
         )
 
     if developer_summary.evaluation_summaries:
-        st.subheader("Coding vs MR Structure")
+        _render_section_heading(st, 7, "Coding vs MR Structure")
         st.dataframe(
             [
                 {
@@ -343,6 +403,162 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
         )
 
 
+def _render_developer_detail_page(
+    st,
+    database_path: Path,
+    theme: DashboardTheme,
+) -> None:
+    developer_id = _query_param(st, "developer")
+    if not developer_id:
+        st.warning("Developer detail page requires a developer query parameter.")
+        st.markdown("[Back to dashboard](./)")
+        return
+
+    st.markdown(
+        '<div class="mg-back-link"><a href="./">Back to dashboard</a></div>',
+        unsafe_allow_html=True,
+    )
+    _render_page_heading(
+        st,
+        title=f"Developer: {developer_id}",
+        kicker="Developer Detail",
+        body=(
+            "Focused review history, score trend, ticket attempts, repeated rules, "
+            "and review reports for this developer."
+        ),
+    )
+    lookback_days = st.sidebar.number_input(
+        "Developer detail lookback days",
+        min_value=1,
+        max_value=365,
+        value=30,
+        step=1,
+    )
+    detail = load_lead_developer_detail(
+        database_path,
+        developer_id=developer_id,
+        days=int(lookback_days),
+    )
+    if detail is None:
+        st.info("No review history is available for this developer and window.")
+        return
+
+    developer = detail.developer
+    coding_score = _evaluation_average_score(developer, "coding")
+    mr_structure_score = _evaluation_average_score(developer, "mr_structure")
+    metric_columns = st.columns(5)
+    metric_columns[0].metric("Review Requests", developer.review_request_count)
+    metric_columns[1].metric("Tickets", developer.ticket_count)
+    metric_columns[2].metric("Avg Attempts", developer.average_attempts_per_ticket)
+    metric_columns[3].metric(
+        "Average Score",
+        "-" if developer.average_score is None else f"{developer.average_score:.2f}",
+    )
+    metric_columns[4].metric("Trend", developer.trend_direction)
+
+    score_columns = st.columns(5)
+    score_columns[0].metric(
+        "Coding Score",
+        "-" if coding_score is None else f"{coding_score:.2f}",
+    )
+    score_columns[1].metric(
+        "MR Structure Score",
+        "-" if mr_structure_score is None else f"{mr_structure_score:.2f}",
+    )
+    score_columns[2].metric(
+        "Latest Review",
+        developer.latest_review_at.isoformat(timespec="seconds"),
+    )
+    score_columns[3].metric("Repeated Rules", developer.repeated_rule_count)
+    score_columns[4].metric("Unlinked Reviews", developer.unlinked_review_count)
+
+    if developer.tickets:
+        _render_section_heading(st, 1, "Tickets")
+        st.dataframe(
+            [
+                {
+                    "Ticket": ticket.ticket_key,
+                    "Attempts": ticket.review_attempt_count,
+                    "First Review": ticket.first_review_at.isoformat(timespec="seconds"),
+                    "Latest Review": ticket.latest_review_at.isoformat(timespec="seconds"),
+                    "Assumed Deployed": ticket.assumed_deployed_at.isoformat(
+                        timespec="seconds"
+                    ),
+                    "Average Score": ticket.average_score,
+                    "Latest Risk": ticket.latest_risk,
+                }
+                for ticket in developer.tickets
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    if developer.repeated_rules:
+        _render_section_heading(st, 2, "Repeated Rules")
+        st.dataframe(
+            [
+                {
+                    "Rule ID": rule.rule_id,
+                    "Review Runs": rule.review_run_count,
+                    "Latest Review": rule.latest_review_at.isoformat(timespec="seconds"),
+                }
+                for rule in developer.repeated_rules
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    if developer.evaluation_summaries:
+        _render_section_heading(st, 3, "Coding vs MR Structure")
+        st.dataframe(
+            [
+                {
+                    "Evaluation": evaluation.evaluation,
+                    "Review Count": evaluation.review_count,
+                    "Average Score": evaluation.average_score,
+                    "Blocking": evaluation.counts.blocking,
+                    "High": evaluation.counts.high,
+                    "Warning": evaluation.counts.warning,
+                    "Info": evaluation.counts.info,
+                }
+                for evaluation in developer.evaluation_summaries
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    _render_section_heading(st, 4, "Developer Reviews")
+    st.dataframe(
+        [
+            {
+                "ID": run.review_id,
+                "Timestamp": run.timestamp.isoformat(timespec="seconds"),
+                "Ticket": run.ticket_key or "-",
+                "Score": run.review_score,
+                "Risk": run.risk,
+                "Blocking": run.blocking_count,
+                "High": run.high_count,
+                "Warnings": run.warning_count,
+                "Info": run.info_count,
+                "Changed Files": run.changed_file_count,
+                "Changed Lines": run.changed_line_count,
+            }
+            for run in detail.review_runs
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    selected_review_id = st.selectbox(
+        "Developer review report",
+        [run.review_id for run in detail.review_runs],
+    )
+    selected_run = next(
+        run for run in detail.review_runs if run.review_id == selected_review_id
+    )
+    _render_review_report_tabs(st, selected_run, theme)
+
+
 def _evaluation_average_score(
     developer_summary: LeadDeveloperSummary,
     evaluation: str,
@@ -353,8 +569,13 @@ def _evaluation_average_score(
     return None
 
 
-def _render_selected_report(st, database_path: Path, data: DashboardData) -> None:
-    st.subheader("Stored Report")
+def _render_selected_report(
+    st,
+    database_path: Path,
+    data: DashboardData,
+    theme: DashboardTheme,
+) -> None:
+    _render_section_heading(st, 9, "Stored Report")
     if not data.recent_reviews:
         st.info("Run a review first, then select it here.")
         return
@@ -371,7 +592,46 @@ def _render_selected_report(st, database_path: Path, data: DashboardData) -> Non
         st.warning("Selected review could not be loaded.")
         return
 
-    st.markdown(selected_run.generated_review_report)
+    _render_review_report_tabs(st, selected_run, theme)
+
+
+def _render_review_report_tabs(st, selected_run, theme: DashboardTheme) -> None:
+    visual_tab, raw_tab = st.tabs(["Visual Report", "Raw Markdown"])
+    with visual_tab:
+        st.components.v1.html(
+            render_visual_review_report(selected_run, theme=theme),
+            height=1100,
+            scrolling=True,
+        )
+    with raw_tab:
+        st.markdown(selected_run.generated_review_report)
+
+
+def _is_developer_view(st) -> bool:
+    return _query_param(st, "view") == "developer"
+
+
+def _query_param(st, key: str) -> str | None:
+    value = st.query_params.get(key)
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+    return str(value)
+
+
+def _developer_link(developer_id: str) -> str:
+    return (
+        f"?view=developer&developer={quote(developer_id, safe='')}"
+        f"#{developer_id}"
+    )
+
+
+_DEVELOPER_LINK_DISPLAY_TEXT = r"#(.+)$"
+
+
+def _html(value: str) -> str:
+    return escape(value, quote=True)
 
 
 if __name__ == "__main__":
