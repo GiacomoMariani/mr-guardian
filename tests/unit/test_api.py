@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.api import app
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
+from mr_guardian.storage import ReviewHistoryStore
 
 
 def merge_request_payload(*, action: str = "open") -> dict[str, Any]:
@@ -24,11 +25,129 @@ def merge_request_payload(*, action: str = "open") -> dict[str, Any]:
     }
 
 
+def manual_review_payload() -> dict[str, Any]:
+    return {
+        "review_scope": "manual-review",
+        "branch_name": "feature/TK-234-manual-review",
+        "title": "TK-234 Manual review",
+        "developer_id": "API Reviewer",
+        "policy_version": 1,
+        "risk": "warning",
+        "findings": [
+            {
+                "rule_id": "MANUAL-001",
+                "severity": "warning",
+                "message": "Reviewer requested clearer test evidence.",
+                "source": "manual-review#MANUAL-001",
+                "evaluation": "mr_structure",
+                "rule_type": "deterministic",
+                "file_path": None,
+                "line_number": None,
+            }
+        ],
+        "evaluations": [
+            {
+                "evaluation": "coding",
+                "risk": "none",
+                "counts": {
+                    "blocking": 0,
+                    "high": 0,
+                    "warning": 0,
+                    "info": 0,
+                },
+                "triggered_rule_ids": [],
+            },
+            {
+                "evaluation": "mr_structure",
+                "risk": "warning",
+                "counts": {
+                    "blocking": 0,
+                    "high": 0,
+                    "warning": 1,
+                    "info": 0,
+                },
+                "triggered_rule_ids": ["MANUAL-001"],
+            },
+        ],
+        "changed_file_count": 2,
+        "changed_line_count": 20,
+        "generated_review_report": "# Manual Review\n\nReviewer requested clearer test evidence.",
+        "mr_id": "42",
+        "commit_sha": None,
+    }
+
+
 def test_api_health_check() -> None:
     response = client().get("/healthz")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_api_returns_manual_review_schema() -> None:
+    response = client().get("/reviews/manual/schema")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "ManualReviewPayload"
+    assert "findings" in body["properties"]
+
+
+def test_api_stores_valid_manual_review(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+
+    response = client().post("/reviews/manual", json=manual_review_payload())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "stored"
+    assert body["review_id"] == 1
+    assert body["risk"] == "warning"
+    assert body["score"] == 95
+    assert body["ticket_key"] == "TK-234"
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(1)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.developer_id == "API Reviewer"
+    assert record.ticket_key == "TK-234"
+    assert record.findings[0].rule_id == "MANUAL-001"
+
+
+def test_api_rejects_invalid_manual_review_payload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+
+    payload = manual_review_payload()
+    payload.pop("branch_name")
+    response = client().post("/reviews/manual", json=payload)
+
+    assert response.status_code == 400
+    assert "Invalid manual review structure" in response.json()["detail"]
+
+
+def test_api_rejects_manual_review_risk_mismatch(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+
+    payload = manual_review_payload()
+    payload["risk"] = "none"
+    response = client().post("/reviews/manual", json=payload)
+
+    assert response.status_code == 400
+    assert "does not match findings risk" in response.json()["detail"]
+
+
+def test_api_rejects_non_object_manual_review_payload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+
+    response = client().post("/reviews/manual", json=[])
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Expected JSON object payload."}
 
 
 def test_api_accepts_valid_open_merge_request_webhook(monkeypatch) -> None:

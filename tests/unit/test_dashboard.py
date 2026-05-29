@@ -13,12 +13,14 @@ def make_review_run(
     triggered_rule_ids: list[str] | None = None,
     timestamp: datetime | None = None,
     developer_id: str = "Test User",
+    ticket_key: str | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
         review_scope="local-all-policies",
         branch_name="main",
         developer_id=developer_id,
+        ticket_key=ticket_key,
         policy_version=1,
         risk=risk,
         blocking_count=1 if risk == "blocking" else 0,
@@ -144,6 +146,104 @@ def test_developer_link_is_url_safe() -> None:
     )
 
 
+def test_recent_reviews_render_custom_table_with_clickable_developer() -> None:
+    import app.streamlit_app as streamlit_app
+
+    store = ReviewHistoryStore(":memory:")
+    record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane <Lead>",
+            ticket_key="TK-234",
+            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
+        )
+    )
+    store.close()
+
+    html = streamlit_app._recent_reviews_table([record])
+
+    assert "mg-dashboard-table" in html
+    assert "Developer Page" not in html
+    assert "Jane &lt;Lead&gt;" in html
+    assert "?view=developer&amp;developer=Jane%20%3CLead%3E#Jane" in html
+    assert "TK-234" in html
+
+
+def test_recent_reviews_empty_state_uses_standalone_style() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._recent_reviews_table([])
+
+    assert "mg-empty-state" in html
+    assert "No review history has been stored yet." in html
+
+
+def test_lead_developers_render_name_as_link_without_extra_open_column() -> None:
+    import app.streamlit_app as streamlit_app
+    from mr_guardian.core.lead_dashboard import prepare_lead_dashboard_summary
+
+    store = ReviewHistoryStore(":memory:")
+    record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane Developer",
+            ticket_key="TK-234",
+            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
+        )
+    )
+    store.close()
+    summary = prepare_lead_dashboard_summary(
+        review_runs=[record],
+        start_at=datetime(2026, 5, 28, tzinfo=timezone.utc),
+        end_at=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    html = streamlit_app._lead_developers_table(summary.developers)
+
+    assert "Jane Developer</a>" in html
+    assert "Developer Page" not in html
+    assert "<th>Developer</th>" in html
+    assert "<th>Review Requests</th>" in html
+
+
+def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:
+    import app.streamlit_app as streamlit_app
+    from mr_guardian.core.lead_dashboard import prepare_lead_dashboard_summary
+
+    first = datetime(2026, 5, 28, tzinfo=timezone.utc)
+    store = ReviewHistoryStore(":memory:")
+    first_record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-234",
+            timestamp=first,
+            triggered_rule_ids=["MR-META-001"],
+        )
+    )
+    second_record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-234",
+            timestamp=first + timedelta(hours=1),
+            triggered_rule_ids=["MR-META-001", "PYTHON-PRINT-001"],
+        )
+    )
+    store.close()
+    summary = prepare_lead_dashboard_summary(
+        review_runs=[first_record, second_record],
+        start_at=first - timedelta(days=1),
+        end_at=first + timedelta(days=1),
+    )
+    developer = summary.developers[0]
+
+    tickets_html = streamlit_app._lead_tickets_table(developer)
+    repeated_rules_html = streamlit_app._lead_repeated_rules_table(developer)
+    reviews_html = streamlit_app._developer_reviews_table([second_record])
+
+    assert "TK-234" in tickets_html
+    assert "MR-META-001" in repeated_rules_html
+    assert "PYTHON-PRINT-001" in reviews_html
+    assert "mg-chip" in reviews_html
+
+
 def test_developer_view_query_param_is_detected() -> None:
     import app.streamlit_app as streamlit_app
 
@@ -161,9 +261,11 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
 
     assert theme_from_label("Light") == "light"
     assert theme_from_label("Dark") == "dark"
-    assert "--mg-paper: #f4f1ea;" in light_css
-    assert "--mg-paper: #0e1117;" in dark_css
-    assert "mg-page-heading" in light_css
+    assert "--paper: #F1EBDD;" in light_css
+    assert "--paper: #15120D;" in dark_css
+    assert "Hanken Grotesk" in light_css
+    assert "JetBrains Mono" in dark_css
+    assert "mg-app-hero" in light_css
     assert "stMetric" in dark_css
 
 
@@ -173,3 +275,19 @@ def test_no_rule_logic_exists_in_streamlit_folder() -> None:
     assert "run_review" not in app_source
     assert "default_rule_registry" not in app_source
     assert "RuleRegistry" not in app_source
+
+
+def test_standalone_placeholder_values_do_not_appear_in_dashboard_rendering() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = "\n".join(
+        [
+            streamlit_app._recent_reviews_table([]),
+            streamlit_app._triggered_rules_table([]),
+            streamlit_app._pm_tickets_table([]),
+            streamlit_app._pm_blockers_table([]),
+        ]
+    )
+
+    assert "RagDemo" not in html
+    assert "Demo Developer" not in html

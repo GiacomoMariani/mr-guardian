@@ -136,6 +136,16 @@ def store_manual_review_file(
 ) -> ReviewRunRecord:
     """Load, validate, and store one manual review payload."""
     payload = load_manual_review_payload(path)
+    return store_manual_review_payload(payload, database_path=database_path)
+
+
+def store_manual_review_payload(
+    payload: ManualReviewPayload,
+    *,
+    database_path: str | Path,
+) -> ReviewRunRecord:
+    """Validate and store one manual review payload."""
+    validate_manual_review_payload(payload)
     store = ReviewHistoryStore(database_path)
     try:
         return store.store_review_run(manual_review_to_review_run(payload))

@@ -5,10 +5,17 @@ from hmac import compare_digest
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from pydantic import ValidationError
 
 from mr_guardian.config import Settings, get_settings
 from mr_guardian.core.gitlab_reviews import review_gitlab_merge_request
 from mr_guardian.core.gitlab_webhooks import process_gitlab_webhook
+from mr_guardian.core.manual_review import (
+    ManualReviewError,
+    ManualReviewPayload,
+    manual_review_payload_schema,
+    store_manual_review_payload,
+)
 from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
@@ -24,6 +31,46 @@ app = FastAPI(title="MR Guardian")
 async def healthz() -> dict[str, str]:
     """Return a lightweight health check response."""
     return {"status": "ok"}
+
+
+@app.get("/reviews/manual/schema")
+async def manual_review_schema() -> dict[str, Any]:
+    """Return the manual review submission JSON schema."""
+    return manual_review_payload_schema()
+
+
+@app.post("/reviews/manual", status_code=201)
+async def submit_manual_review(request: Request) -> dict[str, Any]:
+    """Validate and store a manually written review."""
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+
+    try:
+        payload = ManualReviewPayload.model_validate(raw_payload)
+        record = store_manual_review_payload(
+            payload,
+            database_path=get_settings().history_db_path,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid manual review structure: {exc}",
+        ) from exc
+    except ManualReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "risk": record.risk,
+        "score": record.review_score,
+        "ticket_key": record.ticket_key,
+    }
 
 
 @app.post("/webhooks/gitlab", status_code=202)

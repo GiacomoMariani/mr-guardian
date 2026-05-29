@@ -66,7 +66,12 @@ mr-guardian = "mr_guardian.cli.main:app"
 include = ["mr_guardian*", "app*"]
 
 [tool.setuptools.package-data]
-mr_guardian = ["py.typed", "defaults/yaml/*.yml", "defaults/yaml/*.yaml"]
+mr_guardian = [
+  "py.typed",
+  "defaults/yaml/*.yml",
+  "defaults/yaml/*.yaml",
+  "reporting/assets/fonts/*.woff2",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

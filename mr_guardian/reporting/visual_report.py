@@ -7,6 +7,11 @@ from typing import Literal
 from mr_guardian.models.history import ReviewRunRecord
 from mr_guardian.models.policy import Severity
 from mr_guardian.models.review import Finding, LlmRuleMetric
+from mr_guardian.reporting.design_system import (
+    css_variable_block,
+    font_face_css,
+    primitives_css,
+)
 
 VisualReportTheme = Literal["light", "dark"]
 
@@ -52,7 +57,7 @@ def render_visual_review_report(
             '<meta charset="UTF-8">',
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
             "<title>MR Guardian Review</title>",
-            f"<style>{_styles()}</style>",
+            f"<style>{_styles(theme)}</style>",
             "</head>",
             f'<body class="mg-{theme}">',
             '<div class="sheet">',
@@ -77,7 +82,19 @@ def render_visual_review_report(
     )
 
 
-def _styles() -> str:
+def _styles(theme: VisualReportTheme) -> str:
+    return "\n".join(
+        [
+            _legacy_report_styles(),
+            font_face_css(),
+            css_variable_block(theme, selector=f"body.mg-{theme}"),
+            primitives_css(),
+            _report_design_overrides(),
+        ]
+    )
+
+
+def _legacy_report_styles() -> str:
     return """
 :root{
   --ink:#1a1d21;--ink-soft:#4b5159;--ink-faint:#8b929b;
@@ -189,6 +206,54 @@ footer b{color:var(--ink-soft);font-weight:600}.pol{line-height:1.9}.right{text-
 @media(max-width:680px){body{padding:18px 10px 50px}header,.verdict,main,footer,
   .diffline{padding-left:22px;padding-right:22px}.stats{grid-template-columns:repeat(2,1fr)}
   .stat:nth-child(2){border-right:0}.n{font-size:28px}.meta{text-align:left}}
+"""
+
+
+def _report_design_overrides() -> str:
+    return """
+body {
+  background:
+    radial-gradient(circle at 12% -5%, var(--surface-3) 0%, transparent 42%),
+    var(--paper);
+  color: var(--ink);
+  font-family: var(--mg-sans);
+}
+
+.sheet {
+  background: var(--surface);
+  border-color: var(--line);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 var(--inner-shadow) inset, var(--shadow-md);
+}
+
+header {
+  background: var(--surface);
+}
+
+.brand h1,
+.v-headline,
+.n,
+.s-head h2 {
+  letter-spacing: 0;
+}
+
+.diffline,
+footer {
+  background: var(--surface-2s);
+}
+
+.callout p {
+  color: var(--ink-2);
+}
+
+.skipped span {
+  background: var(--surface);
+}
+
+thead th {
+  background: var(--surface-2s);
+  padding-top: 10px;
+}
 """
 
 
