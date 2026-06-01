@@ -16,11 +16,17 @@ from mr_guardian.core.manual_review import (
     manual_review_payload_schema,
     store_manual_review_payload,
 )
+from mr_guardian.core.review_deletion import ReviewNotFoundError, delete_stored_review
 from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
+from mr_guardian.models.history import review_run_record_schema
 from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
-from mr_guardian.summarizer_ai import create_llm_review_summary_runner, create_llm_rule_runner
+from mr_guardian.summarizer_ai import (
+    create_llm_developer_profile_runner,
+    create_llm_review_summary_runner,
+    create_llm_rule_runner,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,12 @@ async def healthz() -> dict[str, str]:
 async def manual_review_schema() -> dict[str, Any]:
     """Return the manual review submission JSON schema."""
     return manual_review_payload_schema()
+
+
+@app.get("/reviews/schema")
+async def review_schema() -> dict[str, Any]:
+    """Return the stored review run JSON schema."""
+    return review_run_record_schema()
 
 
 @app.post("/reviews/manual", status_code=201)
@@ -71,6 +83,32 @@ async def submit_manual_review(request: Request) -> dict[str, Any]:
         "score": record.review_score,
         "ticket_key": record.ticket_key,
     }
+
+
+@app.delete("/reviews/{review_id}")
+async def delete_review(
+    review_id: int,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Delete one stored review from history."""
+    settings = get_settings()
+    if settings.admin_token and not compare_digest(
+        x_mr_guardian_admin_token or "",
+        settings.admin_token,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid MR Guardian admin token.")
+
+    try:
+        deleted_review_id = delete_stored_review(
+            review_id=review_id,
+            database_path=settings.history_db_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ReviewNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {"status": "deleted", "review_id": deleted_review_id}
 
 
 @app.post("/webhooks/gitlab", status_code=202)
@@ -155,6 +193,16 @@ def _run_gitlab_review_job(job_id: str, mr: GitLabMergeRequestWebhook) -> None:
                     openai_max_retries=settings.openai_max_retries,
                 ),
                 llm_summary_max_chars=settings.llm_summary_max_chars,
+                developer_profile_runner=create_llm_developer_profile_runner(
+                    enabled=settings.developer_profile_enabled,
+                    provider=settings.llm_provider,
+                    openai_api_key=settings.openai_api_key,
+                    openai_model=settings.openai_model,
+                    openai_timeout_seconds=settings.openai_timeout_seconds,
+                    openai_max_retries=settings.openai_max_retries,
+                ),
+                developer_profile_lookback_days=settings.developer_profile_lookback_days,
+                developer_profile_max_chars=settings.developer_profile_max_chars,
                 review_commenter=_review_commenter(settings),
             )
         except GitLabRepositorySyncError:

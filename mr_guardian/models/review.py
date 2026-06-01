@@ -65,6 +65,24 @@ class LlmReviewSummary(BaseModel):
     model: str
     duration_ms: int
     text: str | None = None
+    score: int | None = Field(default=None, ge=0, le=100)
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    error_message: str | None = None
+
+
+class LlmDeveloperProfile(BaseModel):
+    """Optional LLM-generated developer profile snapshot for one review run."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: LlmSummaryStatus
+    provider: str
+    model: str
+    duration_ms: int
+    lookback_days: int = Field(ge=0)
+    text: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None

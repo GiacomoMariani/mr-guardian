@@ -3,7 +3,7 @@ from pathlib import Path
 
 from mr_guardian.core.dashboard import load_dashboard_data, prepare_dashboard_data
 from mr_guardian.models.history import ReviewRunCreate, TriggeredRuleStat
-from mr_guardian.models.review import RiskLevel
+from mr_guardian.models.review import LlmDeveloperProfile, LlmReviewSummary, RiskLevel
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -14,6 +14,8 @@ def make_review_run(
     timestamp: datetime | None = None,
     developer_id: str = "Test User",
     ticket_key: str | None = None,
+    developer_profile: LlmDeveloperProfile | None = None,
+    llm_summary: LlmReviewSummary | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
@@ -32,6 +34,8 @@ def make_review_run(
         triggered_rule_ids=rule_ids,
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
+        developer_profile=developer_profile,
+        llm_summary=llm_summary,
     )
 
 
@@ -177,6 +181,71 @@ def test_recent_reviews_empty_state_uses_standalone_style() -> None:
     assert "No review history has been stored yet." in html
 
 
+def test_dashboard_declares_clickable_tab_labels() -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert streamlit_app._dashboard_tab_labels() == (
+        "Project Health",
+        "Delivery Health",
+        "Lead Review",
+        "Trends",
+        "Triggered Rules",
+        "Recent Reviews",
+        "Stored Report",
+    )
+
+
+def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "st.tabs(list(_dashboard_tab_labels()))" in source
+    assert "render_section_nav" not in source
+    assert "NavItem" not in source
+    assert "st.sidebar" not in source
+
+
+def test_latest_llm_review_panel_renders_summary() -> None:
+    import app.streamlit_app as streamlit_app
+
+    store = ReviewHistoryStore(":memory:")
+    old_record = store.store_review_run(make_review_run())
+    latest_record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            llm_summary=LlmReviewSummary(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=820,
+                text="This MR is ready after metadata cleanup.",
+                score=82,
+                input_tokens=10,
+                output_tokens=20,
+                total_tokens=30,
+            ),
+        )
+    )
+    store.close()
+
+    selected_run = streamlit_app._latest_llm_summary_run([latest_record, old_record])
+    html = streamlit_app._llm_review_summary_panel(selected_run)
+
+    assert selected_run == latest_record
+    assert "Latest LLM Review" in html
+    assert "This MR is ready after metadata cleanup." in html
+    assert "Score 82" in html
+    assert "gpt-4.1-mini" in html
+
+
+def test_latest_llm_review_panel_renders_empty_state() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._llm_review_summary_panel(None)
+
+    assert "No LLM review summary has been generated yet." in html
+
+
 def test_lead_developers_render_name_as_link_without_extra_open_column() -> None:
     import app.streamlit_app as streamlit_app
     from mr_guardian.core.lead_dashboard import prepare_lead_dashboard_summary
@@ -244,6 +313,49 @@ def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:
     assert "mg-chip" in reviews_html
 
 
+def test_developer_profile_panel_renders_latest_profile_snapshot() -> None:
+    import app.streamlit_app as streamlit_app
+
+    store = ReviewHistoryStore(":memory:")
+    old_record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            timestamp=datetime(2026, 5, 28, tzinfo=timezone.utc),
+        )
+    )
+    latest_record = store.store_review_run(
+        make_review_run(
+            developer_id="Jane",
+            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            developer_profile=LlmDeveloperProfile(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=1234,
+                lookback_days=30,
+                text="Jane is improving <fast>.",
+                input_tokens=10,
+                output_tokens=20,
+                total_tokens=30,
+            ),
+        )
+    )
+    store.close()
+
+    selected_run = streamlit_app._latest_developer_profile_run(
+        [latest_record, old_record]
+    )
+    html = streamlit_app._developer_profile_panel(selected_run)
+
+    assert selected_run == latest_record
+    assert "Latest LLM Developer Profile" in html
+    assert "Jane is improving &lt;fast&gt;." in html
+    assert "Succeeded" in html
+    assert "30 day window" in html
+    assert "gpt-4.1-mini" in html
+    assert "input 10" in html
+
+
 def test_developer_view_query_param_is_detected() -> None:
     import app.streamlit_app as streamlit_app
 
@@ -266,6 +378,11 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
     assert "Hanken Grotesk" in light_css
     assert "JetBrains Mono" in dark_css
     assert "mg-app-hero" in light_css
+    assert "[data-testid=\"stTextInput\"] input" in light_css
+    assert "-webkit-text-fill-color: var(--ink)" in light_css
+    assert "[data-baseweb=\"tab-list\"]" in light_css
+    assert "[data-testid=\"stSidebar\"]" in light_css
+    assert "display: none;" in light_css
     assert "stMetric" in dark_css
 
 

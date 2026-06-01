@@ -6,6 +6,7 @@ from mr_guardian.models.history import ReviewPolicySummary, ReviewRunCreate
 from mr_guardian.models.review import (
     Finding,
     FindingCounts,
+    LlmDeveloperProfile,
     LlmReviewSummary,
     LlmRuleMetric,
     ReviewEvaluation,
@@ -22,6 +23,7 @@ def make_review_run(
     triggered_rule_ids: list[str] | None = None,
     llm_metrics: list[LlmRuleMetric] | None = None,
     llm_summary: LlmReviewSummary | None = None,
+    developer_profile: LlmDeveloperProfile | None = None,
     evaluations: list[ReviewEvaluation] | None = None,
     findings: list[Finding] | None = None,
     policy_summaries: list[ReviewPolicySummary] | None = None,
@@ -62,6 +64,7 @@ def make_review_run(
         ],
         llm_metrics=llm_metrics or [],
         llm_summary=llm_summary,
+        developer_profile=developer_profile,
         policy_summaries=policy_summaries or [],
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
@@ -132,6 +135,7 @@ def test_stores_review_run(tmp_path: Path) -> None:
     assert record.evaluations[0].risk == "warning"
     assert record.evaluations[0].triggered_rule_ids == ["PYTHON-PRINT-001"]
     assert record.llm_summary is None
+    assert record.developer_profile is None
     assert record.generated_review_report == "## MR Guardian Review\n"
 
 
@@ -255,6 +259,7 @@ def test_migrates_existing_rows_with_review_score(tmp_path: Path) -> None:
     assert migrated_run.ticket_key is None
     assert migrated_run.review_score == 37
     assert migrated_run.llm_summary is None
+    assert migrated_run.developer_profile is None
 
 
 def test_stores_triggered_rule_ids(tmp_path: Path) -> None:
@@ -387,6 +392,7 @@ def test_stores_llm_review_summary(tmp_path: Path) -> None:
                 model="gpt-4.1-mini",
                 duration_ms=820,
                 text="Review summary.",
+                score=78,
                 input_tokens=300,
                 output_tokens=40,
                 total_tokens=340,
@@ -403,6 +409,7 @@ def test_stores_llm_review_summary(tmp_path: Path) -> None:
     assert found_run.llm_summary.model == "gpt-4.1-mini"
     assert found_run.llm_summary.duration_ms == 820
     assert found_run.llm_summary.text == "Review summary."
+    assert found_run.llm_summary.score == 78
     assert found_run.llm_summary.input_tokens == 300
     assert found_run.llm_summary.output_tokens == 40
     assert found_run.llm_summary.total_tokens == 340
@@ -429,7 +436,67 @@ def test_stores_failed_llm_review_summary(tmp_path: Path) -> None:
     assert found_run.llm_summary is not None
     assert found_run.llm_summary.status == "failed"
     assert found_run.llm_summary.text is None
+    assert found_run.llm_summary.score is None
     assert found_run.llm_summary.error_message == "provider unavailable"
+
+
+def test_stores_developer_profile_snapshot(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            developer_profile=LlmDeveloperProfile(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=950,
+                lookback_days=30,
+                text="Jane is improving review readiness across recent tickets.",
+                input_tokens=500,
+                output_tokens=60,
+                total_tokens=560,
+            )
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert found_run.developer_profile is not None
+    assert found_run.developer_profile.status == "succeeded"
+    assert found_run.developer_profile.provider == "openai"
+    assert found_run.developer_profile.model == "gpt-4.1-mini"
+    assert found_run.developer_profile.duration_ms == 950
+    assert found_run.developer_profile.lookback_days == 30
+    assert (
+        found_run.developer_profile.text
+        == "Jane is improving review readiness across recent tickets."
+    )
+    assert found_run.developer_profile.total_tokens == 560
+
+
+def test_updates_developer_profile_snapshot(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    record = store.store_review_run(make_review_run())
+
+    updated = store.update_developer_profile(
+        review_id=record.review_id,
+        developer_profile=LlmDeveloperProfile(
+            status="failed",
+            provider="openai",
+            model="gpt-4.1-mini",
+            duration_ms=100,
+            lookback_days=14,
+            error_message="provider unavailable",
+        ),
+    )
+    store.close()
+
+    assert updated.developer_profile is not None
+    assert updated.developer_profile.status == "failed"
+    assert updated.developer_profile.text is None
+    assert updated.developer_profile.lookback_days == 14
+    assert updated.developer_profile.error_message == "provider unavailable"
 
 
 def test_stores_evaluation_summaries(tmp_path: Path) -> None:
@@ -565,6 +632,84 @@ def test_reads_review_run_by_id(tmp_path: Path) -> None:
     assert found_run.review_id == stored_run.review_id
     assert found_run.generated_review_report == "## MR Guardian Review\n"
     assert missing_run is None
+
+
+def test_deletes_one_review_run_and_dependent_rows(tmp_path: Path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    store = ReviewHistoryStore(database_path)
+    first = store.store_review_run(
+        make_review_run(
+            triggered_rule_ids=["PYTHON-PRINT-001"],
+            findings=[
+                Finding(
+                    rule_id="PYTHON-PRINT-001",
+                    severity="warning",
+                    message="print calls should be replaced with logging.",
+                    source="python-policy.yml#PYTHON-PRINT-001",
+                    evaluation="coding",
+                    rule_type="deterministic",
+                )
+            ],
+            policy_summaries=[
+                ReviewPolicySummary(
+                    policy_path="sources/yaml/python-policy.yml",
+                    policy_version=1,
+                    enabled_rule_count=2,
+                    disabled_rule_count=0,
+                )
+            ],
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="PYTHON-DESIGN-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=100,
+                )
+            ],
+        )
+    )
+    second = store.store_review_run(
+        make_review_run(triggered_rule_ids=["CSHARP-DEBUG-001"])
+    )
+
+    deleted = store.delete_review_run(first.review_id)
+    missing_deleted = store.review_run(first.review_id)
+    remaining = store.review_run(second.review_id)
+    stats = store.most_triggered_rules()
+    store.close()
+
+    assert deleted is True
+    assert missing_deleted is None
+    assert remaining is not None
+    assert remaining.review_id == second.review_id
+    assert [(stat.rule_id, stat.trigger_count) for stat in stats] == [
+        ("CSHARP-DEBUG-001", 1)
+    ]
+
+    with sqlite3.connect(database_path) as connection:
+        for table_name in (
+            "triggered_rules",
+            "review_findings",
+            "review_policies",
+            "review_llm_rule_metrics",
+            "review_evaluations",
+        ):
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM {table_name} WHERE review_id = ?",
+                (first.review_id,),
+            ).fetchone()
+            assert row is not None
+            assert row[0] == 0
+
+
+def test_delete_missing_review_run_returns_false(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    deleted = store.delete_review_run(999)
+    store.close()
+
+    assert deleted is False
 
 
 def test_reads_most_triggered_rules(tmp_path: Path) -> None:

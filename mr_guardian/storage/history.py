@@ -18,6 +18,7 @@ from mr_guardian.models.policy import EvaluationDimension, RuleType, Severity
 from mr_guardian.models.review import (
     Finding,
     FindingCounts,
+    LlmDeveloperProfile,
     LlmReviewSummary,
     LlmRuleMetric,
     LlmSummaryStatus,
@@ -44,6 +45,7 @@ CREATE TABLE IF NOT EXISTS review_runs (
     changed_line_count INTEGER NOT NULL,
     review_score INTEGER NOT NULL DEFAULT 100,
     llm_summary TEXT,
+    llm_summary_score INTEGER,
     llm_summary_status TEXT,
     llm_summary_provider TEXT,
     llm_summary_model TEXT,
@@ -52,6 +54,16 @@ CREATE TABLE IF NOT EXISTS review_runs (
     llm_summary_output_tokens INTEGER,
     llm_summary_total_tokens INTEGER,
     llm_summary_error_message TEXT,
+    developer_profile TEXT,
+    developer_profile_status TEXT,
+    developer_profile_provider TEXT,
+    developer_profile_model TEXT,
+    developer_profile_duration_ms INTEGER,
+    developer_profile_input_tokens INTEGER,
+    developer_profile_output_tokens INTEGER,
+    developer_profile_total_tokens INTEGER,
+    developer_profile_error_message TEXT,
+    developer_profile_lookback_days INTEGER,
     generated_review_report TEXT NOT NULL
 );
 
@@ -188,6 +200,7 @@ class ReviewHistoryStore:
             "changed_line_count",
             "review_score",
             "llm_summary",
+            "llm_summary_score",
             "llm_summary_status",
             "llm_summary_provider",
             "llm_summary_model",
@@ -196,9 +209,20 @@ class ReviewHistoryStore:
             "llm_summary_output_tokens",
             "llm_summary_total_tokens",
             "llm_summary_error_message",
+            "developer_profile",
+            "developer_profile_status",
+            "developer_profile_provider",
+            "developer_profile_model",
+            "developer_profile_duration_ms",
+            "developer_profile_input_tokens",
+            "developer_profile_output_tokens",
+            "developer_profile_total_tokens",
+            "developer_profile_error_message",
+            "developer_profile_lookback_days",
             "generated_review_report",
         ]
         llm_summary = run.llm_summary
+        developer_profile = run.developer_profile
         values = [
             timestamp.isoformat(),
             run.review_scope,
@@ -217,6 +241,7 @@ class ReviewHistoryStore:
             run.changed_line_count,
             review_score,
             llm_summary.text if llm_summary is not None else None,
+            llm_summary.score if llm_summary is not None else None,
             llm_summary.status if llm_summary is not None else None,
             llm_summary.provider if llm_summary is not None else None,
             llm_summary.model if llm_summary is not None else None,
@@ -225,6 +250,16 @@ class ReviewHistoryStore:
             llm_summary.output_tokens if llm_summary is not None else None,
             llm_summary.total_tokens if llm_summary is not None else None,
             llm_summary.error_message if llm_summary is not None else None,
+            developer_profile.text if developer_profile is not None else None,
+            developer_profile.status if developer_profile is not None else None,
+            developer_profile.provider if developer_profile is not None else None,
+            developer_profile.model if developer_profile is not None else None,
+            developer_profile.duration_ms if developer_profile is not None else None,
+            developer_profile.input_tokens if developer_profile is not None else None,
+            developer_profile.output_tokens if developer_profile is not None else None,
+            developer_profile.total_tokens if developer_profile is not None else None,
+            developer_profile.error_message if developer_profile is not None else None,
+            developer_profile.lookback_days if developer_profile is not None else None,
             run.generated_review_report,
         ]
         if "project_name" in columns:
@@ -279,6 +314,59 @@ class ReviewHistoryStore:
         if row is None:
             return None
         return self._record_from_row(row)
+
+    def update_developer_profile(
+        self,
+        *,
+        review_id: int,
+        developer_profile: LlmDeveloperProfile,
+    ) -> ReviewRunRecord:
+        """Attach an LLM developer profile snapshot to a stored review run."""
+        self.initialize_schema()
+        self._connection.execute(
+            """
+            UPDATE review_runs
+            SET developer_profile = ?,
+                developer_profile_status = ?,
+                developer_profile_provider = ?,
+                developer_profile_model = ?,
+                developer_profile_duration_ms = ?,
+                developer_profile_input_tokens = ?,
+                developer_profile_output_tokens = ?,
+                developer_profile_total_tokens = ?,
+                developer_profile_error_message = ?,
+                developer_profile_lookback_days = ?
+            WHERE review_id = ?
+            """,
+            (
+                developer_profile.text,
+                developer_profile.status,
+                developer_profile.provider,
+                developer_profile.model,
+                developer_profile.duration_ms,
+                developer_profile.input_tokens,
+                developer_profile.output_tokens,
+                developer_profile.total_tokens,
+                developer_profile.error_message,
+                developer_profile.lookback_days,
+                review_id,
+            ),
+        )
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def delete_review_run(self, review_id: int) -> bool:
+        """Delete one review run and return whether a row was removed."""
+        self.initialize_schema()
+        cursor = self._connection.execute(
+            """
+            DELETE FROM review_runs
+            WHERE review_id = ?
+            """,
+            (review_id,),
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
 
     def review_runs_between(
         self,
@@ -591,6 +679,7 @@ class ReviewHistoryStore:
             evaluations=self._evaluations(review_id),
             llm_metrics=self._llm_metrics(review_id),
             llm_summary=_llm_summary_from_row(row),
+            developer_profile=_developer_profile_from_row(row),
             policy_summaries=self._policy_summaries(review_id),
             generated_review_report=str(row["generated_review_report"]),
         )
@@ -767,6 +856,10 @@ class ReviewHistoryStore:
             )
         if "llm_summary" not in columns:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary TEXT")
+        if "llm_summary_score" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_score INTEGER"
+            )
         if "llm_summary_status" not in columns:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_status TEXT")
         if "llm_summary_provider" not in columns:
@@ -792,6 +885,46 @@ class ReviewHistoryStore:
         if "llm_summary_error_message" not in columns:
             self._connection.execute(
                 "ALTER TABLE review_runs ADD COLUMN llm_summary_error_message TEXT"
+            )
+        if "developer_profile" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile TEXT"
+            )
+        if "developer_profile_status" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_status TEXT"
+            )
+        if "developer_profile_provider" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_provider TEXT"
+            )
+        if "developer_profile_model" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_model TEXT"
+            )
+        if "developer_profile_duration_ms" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_duration_ms INTEGER"
+            )
+        if "developer_profile_input_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_input_tokens INTEGER"
+            )
+        if "developer_profile_output_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_output_tokens INTEGER"
+            )
+        if "developer_profile_total_tokens" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_total_tokens INTEGER"
+            )
+        if "developer_profile_error_message" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_error_message TEXT"
+            )
+        if "developer_profile_lookback_days" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_lookback_days INTEGER"
             )
 
     def _ensure_schema_indexes(self) -> None:
@@ -849,10 +982,29 @@ def _llm_summary_from_row(row: sqlite3.Row) -> LlmReviewSummary | None:
         model=_optional_str(row["llm_summary_model"]) or "unknown",
         duration_ms=_optional_int(row["llm_summary_duration_ms"]) or 0,
         text=_optional_str(row["llm_summary"]),
+        score=_optional_int(row["llm_summary_score"]),
         input_tokens=_optional_int(row["llm_summary_input_tokens"]),
         output_tokens=_optional_int(row["llm_summary_output_tokens"]),
         total_tokens=_optional_int(row["llm_summary_total_tokens"]),
         error_message=_optional_str(row["llm_summary_error_message"]),
+    )
+
+
+def _developer_profile_from_row(row: sqlite3.Row) -> LlmDeveloperProfile | None:
+    status = _optional_str(row["developer_profile_status"])
+    if status is None:
+        return None
+    return LlmDeveloperProfile(
+        status=cast(LlmSummaryStatus, status),
+        provider=_optional_str(row["developer_profile_provider"]) or "unknown",
+        model=_optional_str(row["developer_profile_model"]) or "unknown",
+        duration_ms=_optional_int(row["developer_profile_duration_ms"]) or 0,
+        lookback_days=_optional_int(row["developer_profile_lookback_days"]) or 0,
+        text=_optional_str(row["developer_profile"]),
+        input_tokens=_optional_int(row["developer_profile_input_tokens"]),
+        output_tokens=_optional_int(row["developer_profile_output_tokens"]),
+        total_tokens=_optional_int(row["developer_profile_total_tokens"]),
+        error_message=_optional_str(row["developer_profile_error_message"]),
     )
 
 

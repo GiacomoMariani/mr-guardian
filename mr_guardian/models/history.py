@@ -1,11 +1,13 @@
 """Typed review history models."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from mr_guardian.models.review import (
     Finding,
+    LlmDeveloperProfile,
     LlmReviewSummary,
     LlmRuleMetric,
     ReviewEvaluation,
@@ -36,6 +38,7 @@ class ReviewRunCreate(BaseModel):
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     llm_summary: LlmReviewSummary | None = None
+    developer_profile: LlmDeveloperProfile | None = None
     policy_summaries: list["ReviewPolicySummary"] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
@@ -68,6 +71,7 @@ class ReviewRunRecord(BaseModel):
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
     llm_metrics: list[LlmRuleMetric] = Field(default_factory=list)
     llm_summary: LlmReviewSummary | None = None
+    developer_profile: LlmDeveloperProfile | None = None
     policy_summaries: list["ReviewPolicySummary"] = Field(default_factory=list)
     generated_review_report: str
     mr_id: str | None = None
@@ -92,3 +96,66 @@ class ReviewPolicySummary(BaseModel):
     policy_version: int
     enabled_rule_count: int
     disabled_rule_count: int
+
+
+def review_run_record_schema() -> dict[str, Any]:
+    """Return the JSON schema for stored review run records."""
+    schema = ReviewRunRecord.model_json_schema()
+    schema["x-sqlite-columns"] = [
+        "review_id",
+        "timestamp",
+        "review_scope",
+        "branch_name",
+        "developer_id",
+        "ticket_key",
+        "mr_id",
+        "commit_sha",
+        "policy_version",
+        "risk",
+        "blocking_count",
+        "high_count",
+        "warning_count",
+        "info_count",
+        "changed_file_count",
+        "changed_line_count",
+        "review_score",
+        "llm_summary",
+        "llm_summary_score",
+        "llm_summary_status",
+        "llm_summary_provider",
+        "llm_summary_model",
+        "llm_summary_duration_ms",
+        "llm_summary_input_tokens",
+        "llm_summary_output_tokens",
+        "llm_summary_total_tokens",
+        "llm_summary_error_message",
+        "developer_profile",
+        "developer_profile_status",
+        "developer_profile_provider",
+        "developer_profile_model",
+        "developer_profile_duration_ms",
+        "developer_profile_input_tokens",
+        "developer_profile_output_tokens",
+        "developer_profile_total_tokens",
+        "developer_profile_error_message",
+        "developer_profile_lookback_days",
+        "generated_review_report",
+    ]
+    schema["x-storage-notes"] = {
+        "project_name": (
+            "Legacy SQLite column from older history databases. Current typed records "
+            "use review_scope; migrations copy project_name into review_scope."
+        ),
+        "nested_values": (
+            "SQLite stores findings, policies, evaluations, triggered rules, and LLM "
+            "metrics across related tables. Application code exposes them as typed "
+            "nested objects on ReviewRunRecord."
+        ),
+        "llm_summary_score": (
+            "Stored as a SQLite column and exposed as llm_summary.score on typed records."
+        ),
+        "developer_profile": (
+            "Stored as SQLite columns and exposed as developer_profile on typed records."
+        ),
+    }
+    return schema

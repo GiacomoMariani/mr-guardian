@@ -52,3 +52,31 @@ def test_settings_load_llm_summary_options(
 
     assert settings.llm_summary_enabled is True
     assert settings.llm_summary_max_chars == 512
+
+
+def test_settings_load_developer_profile_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MR_GUARDIAN_DEVELOPER_PROFILE_ENABLED", "true")
+    monkeypatch.setenv("MR_GUARDIAN_DEVELOPER_PROFILE_LOOKBACK_DAYS", "45")
+    monkeypatch.setenv("MR_GUARDIAN_DEVELOPER_PROFILE_MAX_CHARS", "600")
+
+    settings = Settings()
+
+    assert settings.developer_profile_enabled is True
+    assert settings.developer_profile_lookback_days == 45
+    assert settings.developer_profile_max_chars == 600
+
+
+def test_settings_load_admin_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "private-token")
+
+    settings = Settings()
+
+    assert settings.admin_token == "private-token"

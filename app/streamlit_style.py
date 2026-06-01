@@ -36,12 +36,11 @@ def dashboard_css(theme: DashboardTheme) -> str:
 }}
 
 [data-testid="stSidebar"] {{
-  background: var(--mg-card);
-  border-right: 1px solid var(--mg-line);
+  display: none;
 }}
 
-[data-testid="stSidebar"] * {{
-  color: var(--mg-ink);
+[data-testid="collapsedControl"] {{
+  display: none;
 }}
 
 .block-container {{
@@ -351,6 +350,54 @@ a {{
   padding: 18px 20px;
 }}
 
+.mg-profile-card {{
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 20px 22px;
+}}
+
+.mg-profile-card-head {{
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}}
+
+.mg-profile-card-title {{
+  color: var(--ink);
+  font-family: var(--mg-display);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+  margin: 0 0 4px;
+}}
+
+.mg-profile-card-meta,
+.mg-profile-card-foot {{
+  color: var(--ink-3);
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  line-height: 1.8;
+}}
+
+.mg-profile-card-body {{
+  border-left: 3px solid var(--accent);
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.65;
+  margin: 0 0 14px;
+  padding-left: 14px;
+}}
+
+.mg-profile-card-foot {{
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-top: 12px;
+}}
+
 .mg-raw-md {{
   background: var(--surface);
   border: 1px solid var(--line);
@@ -412,27 +459,67 @@ a {{
   border: 1px solid var(--mg-line);
 }}
 
+[data-testid="stTextInput"] label,
+[data-testid="stNumberInput"] label,
+[data-testid="stSelectbox"] label {{
+  color: var(--ink);
+  font-family: var(--mg-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}}
+
 [data-baseweb="input"],
 [data-baseweb="select"] > div,
 [data-baseweb="textarea"] {{
-  background: var(--mg-card-soft);
-  border-color: var(--mg-line);
-  color: var(--mg-ink);
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}}
+
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-baseweb="input"] input,
+[data-baseweb="select"] input,
+[data-baseweb="select"] span,
+[data-baseweb="textarea"] textarea {{
+  background: var(--surface);
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+}}
+
+[data-baseweb="select"] svg,
+[data-testid="stNumberInput"] button svg {{
+  color: var(--ink-2);
+  fill: currentColor;
+}}
+
+[data-testid="stNumberInput"] button {{
+  background: var(--surface-2s);
+  border-color: var(--line);
+  color: var(--ink);
 }}
 
 [data-baseweb="tab-list"] {{
-  border-bottom: 1px solid var(--mg-line);
-  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  gap: 18px;
+  margin: 16px 0 20px;
 }}
 
 [data-baseweb="tab"] {{
-  color: var(--mg-ink-soft);
+  border-bottom: 2px solid transparent;
+  color: var(--ink-3);
   font-family: var(--mg-mono);
   font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  padding-bottom: 12px;
 }}
 
 [aria-selected="true"][data-baseweb="tab"] {{
-  color: var(--mg-block);
+  border-bottom-color: var(--accent);
+  color: var(--ink);
 }}
 
 hr {{

@@ -6,7 +6,7 @@ from mr_guardian.core.review import ReviewRequest, review_merge_request
 from mr_guardian.models.policy import Policy
 from mr_guardian.models.review import EngineReviewResult, Finding, FindingCounts
 from mr_guardian.models.review_input import ReviewInput
-from mr_guardian.summarizer_ai import ReviewSummaryInput
+from mr_guardian.summarizer_ai import LlmReviewSummaryOutput, ReviewSummaryInput
 
 
 def test_review_merge_request_passes_metadata_to_engine(
@@ -181,11 +181,16 @@ def test_review_merge_request_attaches_llm_summary_without_changing_review_resul
         def last_token_usage(self):
             return None
 
-        def summarize(self, *, review: ReviewSummaryInput, max_chars: int) -> str:
+        def summarize(
+            self,
+            *,
+            review: ReviewSummaryInput,
+            max_chars: int,
+        ) -> LlmReviewSummaryOutput:
             nonlocal captured_summary_input
             captured_summary_input = review
             assert max_chars == 200
-            return "Review summary."
+            return LlmReviewSummaryOutput(summary="Review summary.", score=84)
 
     def fake_run_review(
         *,
@@ -223,6 +228,7 @@ def test_review_merge_request_attaches_llm_summary_without_changing_review_resul
     assert result.llm_summary is not None
     assert result.llm_summary.status == "succeeded"
     assert result.llm_summary.text == "Review summary."
+    assert result.llm_summary.score == 84
     assert result.llm_summary.provider == "test-provider"
     assert captured_summary_input is not None
     assert captured_summary_input.risk == "warning"
@@ -257,7 +263,12 @@ def test_review_merge_request_records_llm_summary_failure(
         def last_token_usage(self):
             return None
 
-        def summarize(self, *, review: ReviewSummaryInput, max_chars: int) -> str:
+        def summarize(
+            self,
+            *,
+            review: ReviewSummaryInput,
+            max_chars: int,
+        ) -> LlmReviewSummaryOutput:
             raise RuntimeError("summary failed")
 
     def fake_run_review(

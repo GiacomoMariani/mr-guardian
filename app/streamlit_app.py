@@ -78,6 +78,16 @@ from mr_guardian.models.review import RiskLevel  # noqa: E402
 from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
 
+DASHBOARD_TAB_LABELS = (
+    "Project Health",
+    "Delivery Health",
+    "Lead Review",
+    "Trends",
+    "Triggered Rules",
+    "Recent Reviews",
+    "Stored Report",
+)
+
 
 def main() -> None:
     """Render the Streamlit dashboard."""
@@ -85,25 +95,31 @@ def main() -> None:
 
     settings = get_settings()
     st.set_page_config(page_title="MR Guardian", layout="wide")
-    theme_label = st.sidebar.selectbox("Theme", list(THEME_LABELS), index=0)
-    theme = theme_from_label(str(theme_label))
-    st.markdown(dashboard_css(theme), unsafe_allow_html=True)
-
-    database_path = Path(
-        st.sidebar.text_input("History database", str(settings.history_db_path))
-    )
     if _is_developer_view(st):
-        _render_developer_detail_page(st, database_path, theme)
+        theme, database_path, developer_lookback_days = _render_developer_top_controls(
+            st,
+            settings,
+        )
+        st.markdown(dashboard_css(theme), unsafe_allow_html=True)
+        _render_developer_detail_page(
+            st,
+            database_path,
+            theme,
+            lookback_days=developer_lookback_days,
+        )
         return
 
-    recent_limit = st.sidebar.number_input(
-        "Recent review limit",
-        min_value=1,
-        max_value=500,
-        value=50,
-        step=10,
+    (
+        theme,
+        database_path,
+        recent_limit,
+        pm_lookback_days,
+        lead_lookback_days,
+    ) = _render_dashboard_top_controls(
+        st,
+        settings,
     )
-
+    st.markdown(dashboard_css(theme), unsafe_allow_html=True)
     data = load_dashboard_data(database_path, recent_limit=int(recent_limit))
     _render_page_heading(
         st,
@@ -119,11 +135,110 @@ def main() -> None:
             ("Mode", "Dashboard"),
         ),
     )
-    _render_metrics(st, data)
-    _render_pm_dashboard(st, database_path)
-    _render_lead_dashboard(st, database_path)
-    _render_recent_reviews(st, data)
-    _render_selected_report(st, database_path, data, theme)
+    _render_latest_llm_review(st, data.recent_reviews)
+    _render_dashboard_tabs(
+        st,
+        data=data,
+        database_path=database_path,
+        theme=theme,
+        pm_lookback_days=pm_lookback_days,
+        lead_lookback_days=lead_lookback_days,
+    )
+
+
+def _render_dashboard_top_controls(st, settings) -> tuple[DashboardTheme, Path, int, int, int]:
+    columns = st.columns([1, 2.2, 1, 1, 1])
+    with columns[0]:
+        theme_label = st.selectbox("Theme", list(THEME_LABELS), index=0)
+    with columns[1]:
+        database_path = Path(st.text_input("History database", str(settings.history_db_path)))
+    with columns[2]:
+        recent_limit = st.number_input(
+            "Recent review limit",
+            min_value=1,
+            max_value=500,
+            value=50,
+            step=10,
+        )
+    with columns[3]:
+        pm_lookback_days = st.number_input(
+            "PM lookback days",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1,
+        )
+    with columns[4]:
+        lead_lookback_days = st.number_input(
+            "Lead lookback days",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1,
+        )
+    return (
+        theme_from_label(str(theme_label)),
+        database_path,
+        int(recent_limit),
+        int(pm_lookback_days),
+        int(lead_lookback_days),
+    )
+
+
+def _render_developer_top_controls(st, settings) -> tuple[DashboardTheme, Path, int]:
+    columns = st.columns([1, 2.2, 1])
+    with columns[0]:
+        theme_label = st.selectbox("Theme", list(THEME_LABELS), index=0)
+    with columns[1]:
+        database_path = Path(st.text_input("History database", str(settings.history_db_path)))
+    with columns[2]:
+        lookback_days = st.number_input(
+            "Developer detail lookback days",
+            min_value=1,
+            max_value=365,
+            value=30,
+            step=1,
+        )
+    return theme_from_label(str(theme_label)), database_path, int(lookback_days)
+
+
+def _dashboard_tab_labels() -> tuple[str, ...]:
+    return DASHBOARD_TAB_LABELS
+
+
+def _render_dashboard_tabs(
+    st,
+    *,
+    data: DashboardData,
+    database_path: Path,
+    theme: DashboardTheme,
+    pm_lookback_days: int,
+    lead_lookback_days: int,
+) -> None:
+    (
+        project_health_tab,
+        delivery_health_tab,
+        lead_review_tab,
+        trends_tab,
+        triggered_rules_tab,
+        recent_reviews_tab,
+        stored_report_tab,
+    ) = st.tabs(list(_dashboard_tab_labels()))
+
+    with project_health_tab:
+        _render_project_health(st, data)
+    with delivery_health_tab:
+        _render_pm_dashboard(st, database_path, lookback_days=pm_lookback_days)
+    with lead_review_tab:
+        _render_lead_dashboard(st, database_path, lookback_days=lead_lookback_days)
+    with trends_tab:
+        _render_trends(st, data)
+    with triggered_rules_tab:
+        _render_triggered_rules(st, data)
+    with recent_reviews_tab:
+        _render_recent_reviews(st, data)
+    with stored_report_tab:
+        _render_selected_report(st, database_path, data, theme)
 
 
 def _render_page_heading(
@@ -149,14 +264,27 @@ def _render_html(st, html: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
-def _render_metrics(st, data: DashboardData) -> None:
+def _render_latest_llm_review(st, runs: list[ReviewRunRecord]) -> None:
+    _render_html(
+        st,
+        render_section(
+            index=0,
+            title="Latest LLM Review",
+            eyebrow="AI review note",
+            body_html=_llm_review_summary_panel(_latest_llm_summary_run(runs)),
+        ),
+    )
+
+
+def _render_project_health(st, data: DashboardData) -> None:
     risk_counts = {risk_count.risk: risk_count.count for risk_count in data.risk_counts}
     _render_html(
         st,
         render_section(
             index=1,
-            title="Overview",
+            title="Project Health",
             eyebrow="Recent review window",
+            anchor_id="project-health",
             body_html=render_metric_grid(
                 [
                     MetricCard(
@@ -189,20 +317,25 @@ def _render_metrics(st, data: DashboardData) -> None:
         ),
     )
 
+def _render_triggered_rules(st, data: DashboardData) -> None:
     _render_html(
         st,
         render_section(
-            index=2,
+            index=5,
             title="Most Triggered Rules",
+            anchor_id="triggered-rules",
             body_html=_triggered_rules_table(data.most_triggered_rules),
         ),
     )
 
+
+def _render_trends(st, data: DashboardData) -> None:
     _render_html(
         st,
         render_section(
-            index=3,
+            index=4,
             title="Risk Trends",
+            anchor_id="trends",
             body_html=_trend_table(data),
         ),
     )
@@ -225,32 +358,27 @@ def _render_recent_reviews(st, data: DashboardData) -> None:
     _render_html(
         st,
         render_section(
-            index=8,
+            index=6,
             title="Recent Reviews",
+            anchor_id="recent-reviews",
             body_html=_recent_reviews_table(data.recent_reviews),
         ),
     )
 
 
-def _render_pm_dashboard(st, database_path: Path) -> None:
-    lookback_days = st.number_input(
-        "PM lookback days",
-        min_value=1,
-        max_value=365,
-        value=30,
-        step=1,
-    )
+def _render_pm_dashboard(st, database_path: Path, *, lookback_days: int) -> None:
     summary = load_pm_dashboard_summary(
         database_path,
-        days=int(lookback_days),
+        days=lookback_days,
     )
 
     _render_html(
         st,
         render_section(
-            index=4,
-            title="PM Delivery View",
+            index=2,
+            title="Delivery Health",
             eyebrow=f"{lookback_days} days",
+            anchor_id="delivery-health",
             body_html=(
                 render_metric_grid(
                     [
@@ -278,31 +406,25 @@ def _render_pm_dashboard(st, database_path: Path) -> None:
     _render_html(
         st,
         render_section(
-            index=5,
+            index=2,
             title="Recurring Blockers",
             body_html=_pm_blockers_table(summary.recurring_blockers),
         ),
     )
 
 
-def _render_lead_dashboard(st, database_path: Path) -> None:
-    lookback_days = st.number_input(
-        "Lead lookback days",
-        min_value=1,
-        max_value=365,
-        value=30,
-        step=1,
-    )
+def _render_lead_dashboard(st, database_path: Path, *, lookback_days: int) -> None:
     summary = load_lead_dashboard_summary(
         database_path,
-        days=int(lookback_days),
+        days=lookback_days,
     )
     if not summary.developers:
         _render_html(
             st,
             render_section(
-                index=6,
+                index=3,
                 title="Lead Review View",
+                anchor_id="lead-review",
                 eyebrow=f"{lookback_days} days",
                 body_html=render_table(
                     ["Developer"],
@@ -325,8 +447,9 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
     _render_html(
         st,
         render_section(
-            index=6,
+            index=3,
             title="Lead Review View",
+            anchor_id="lead-review",
             eyebrow=f"{lookback_days} days",
             body_html=_lead_developers_table(visible_developers),
         ),
@@ -347,7 +470,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
     _render_html(
         st,
         render_section(
-            index=7,
+            index=3,
             title=f"Selected Developer: {selected_developer}",
             body_html=(
                 render_metric_grid(
@@ -387,6 +510,8 @@ def _render_developer_detail_page(
     st,
     database_path: Path,
     theme: DashboardTheme,
+    *,
+    lookback_days: int,
 ) -> None:
     developer_id = _query_param(st, "developer")
     if not developer_id:
@@ -408,17 +533,10 @@ def _render_developer_detail_page(
         ),
         meta_items=(("Developer", developer_id), ("Database", database_path.name)),
     )
-    lookback_days = st.sidebar.number_input(
-        "Developer detail lookback days",
-        min_value=1,
-        max_value=365,
-        value=30,
-        step=1,
-    )
     detail = load_lead_developer_detail(
         database_path,
         developer_id=developer_id,
-        days=int(lookback_days),
+        days=lookback_days,
     )
     if detail is None:
         _render_html(
@@ -474,6 +592,17 @@ def _render_developer_detail_page(
         st,
         render_section(
             index=2,
+            title="Latest Developer Profile",
+            body_html=_developer_profile_panel(
+                _latest_developer_profile_run(detail.review_runs)
+            ),
+        ),
+    )
+
+    _render_html(
+        st,
+        render_section(
+            index=3,
             title="Tickets",
             body_html=_lead_tickets_table(developer),
         ),
@@ -482,7 +611,7 @@ def _render_developer_detail_page(
     _render_html(
         st,
         render_section(
-            index=3,
+            index=4,
             title="Repeated Rules",
             body_html=_lead_repeated_rules_table(developer),
         ),
@@ -491,7 +620,7 @@ def _render_developer_detail_page(
     _render_html(
         st,
         render_section(
-            index=4,
+            index=5,
             title="Coding vs MR Structure",
             body_html=_lead_evaluations_table(developer),
         ),
@@ -500,7 +629,7 @@ def _render_developer_detail_page(
     _render_html(
         st,
         render_section(
-            index=5,
+            index=6,
             title="Developer Reviews",
             body_html=_developer_reviews_table(detail.review_runs),
         ),
@@ -536,8 +665,9 @@ def _render_selected_report(
         _render_html(
             st,
             render_section(
-                index=9,
+                index=7,
                 title="Stored Report",
+                anchor_id="stored-report",
                 body_html=render_empty_state("Run a review first, then select it here."),
             ),
         )
@@ -546,8 +676,9 @@ def _render_selected_report(
     _render_html(
         st,
         render_section(
-            index=9,
+            index=7,
             title="Stored Report",
+            anchor_id="stored-report",
             body_html=render_empty_state("Choose a stored review to inspect."),
         ),
     )
@@ -563,7 +694,7 @@ def _render_selected_report(
         _render_html(
             st,
             render_section(
-                index=10,
+                index=7,
                 title="Selected Review",
                 body_html=render_empty_state("Selected review could not be loaded."),
             ),
@@ -831,6 +962,128 @@ def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
     )
 
 
+def _latest_llm_summary_run(runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
+    for run in runs:
+        if run.llm_summary is not None:
+            return run
+    return None
+
+
+def _llm_review_summary_panel(run: ReviewRunRecord | None) -> str:
+    if run is None or run.llm_summary is None:
+        return render_empty_state("No LLM review summary has been generated yet.")
+
+    summary = run.llm_summary
+    summary_text = (
+        summary.text
+        or summary.error_message
+        or "LLM review summary did not return text."
+    )
+    usage_parts = [
+        _token_count("input", summary.input_tokens),
+        _token_count("output", summary.output_tokens),
+        _token_count("total", summary.total_tokens),
+    ]
+    usage = " · ".join(part for part in usage_parts if part)
+    if not usage:
+        usage = "token usage unavailable"
+
+    score = _score(summary.score)
+    body = _html(summary_text).replace("\n", "<br>")
+    return "\n".join(
+        [
+            '<div class="mg-profile-card mg-llm-review-card">',
+            '<div class="mg-profile-card-head">',
+            "<div>",
+            '<div class="mg-profile-card-title">Latest LLM Review</div>',
+            (
+                '<div class="mg-profile-card-meta">'
+                f"Review {_html(str(run.review_id))} · "
+                f"{_html(_format_datetime(run.timestamp))} · "
+                f"Developer {_html(run.developer_id)} · "
+                f"Score {_html(score)}"
+                "</div>"
+            ),
+            "</div>",
+            _llm_status_pill(summary.status).html,
+            "</div>",
+            f'<div class="mg-profile-card-body">{body}</div>',
+            '<div class="mg-profile-card-foot">',
+            f"<span>Provider <b>{_html(summary.provider)}</b></span>",
+            f"<span>Model <b>{_html(summary.model)}</b></span>",
+            f"<span>Duration <b>{summary.duration_ms}ms</b></span>",
+            f"<span>{_html(usage)}</span>",
+            "</div>",
+            "</div>",
+        ]
+    )
+
+
+def _latest_developer_profile_run(
+    runs: list[ReviewRunRecord],
+) -> ReviewRunRecord | None:
+    for run in runs:
+        if run.developer_profile is not None:
+            return run
+    return None
+
+
+def _developer_profile_panel(run: ReviewRunRecord | None) -> str:
+    if run is None or run.developer_profile is None:
+        return render_empty_state(
+            "No developer profile snapshot has been generated for this developer yet."
+        )
+
+    profile = run.developer_profile
+    profile_text = (
+        profile.text
+        or profile.error_message
+        or "Developer profile generation did not return profile text."
+    )
+    usage_parts = [
+        _token_count("input", profile.input_tokens),
+        _token_count("output", profile.output_tokens),
+        _token_count("total", profile.total_tokens),
+    ]
+    usage = " · ".join(part for part in usage_parts if part)
+    if not usage:
+        usage = "token usage unavailable"
+
+    body = _html(profile_text).replace("\n", "<br>")
+    return "\n".join(
+        [
+            '<div class="mg-profile-card">',
+            '<div class="mg-profile-card-head">',
+            "<div>",
+            '<div class="mg-profile-card-title">Latest LLM Developer Profile</div>',
+            (
+                '<div class="mg-profile-card-meta">'
+                f"Review {_html(str(run.review_id))} · "
+                f"{_html(_format_datetime(run.timestamp))} · "
+                f"{_html(str(profile.lookback_days))} day window"
+                "</div>"
+            ),
+            "</div>",
+            _llm_status_pill(profile.status).html,
+            "</div>",
+            f'<div class="mg-profile-card-body">{body}</div>',
+            '<div class="mg-profile-card-foot">',
+            f"<span>Provider <b>{_html(profile.provider)}</b></span>",
+            f"<span>Model <b>{_html(profile.model)}</b></span>",
+            f"<span>Duration <b>{profile.duration_ms}ms</b></span>",
+            f"<span>{_html(usage)}</span>",
+            "</div>",
+            "</div>",
+        ]
+    )
+
+
+def _token_count(label: str, value: int | None) -> str:
+    if value is None:
+        return ""
+    return f"{label} {value}"
+
+
 def _rule_chips(rule_ids: list[str], *, limit: int = 4) -> TableCell:
     visible_rules = rule_ids[:limit]
     if len(rule_ids) > limit:
@@ -848,6 +1101,14 @@ def _status_pill(status: str) -> TableCell:
     if status == "pass_with_warnings":
         return cell_pill("Warnings", "warning")
     return cell_pill("Pass", "pass")
+
+
+def _llm_status_pill(status: str) -> TableCell:
+    if status == "succeeded":
+        return cell_pill("Succeeded", "pass")
+    if status == "rate_limited":
+        return cell_pill("Rate Limited", "warning")
+    return cell_pill(status.replace("_", " ").title(), "blocking")
 
 
 def _trend_pill(trend: str) -> TableCell:

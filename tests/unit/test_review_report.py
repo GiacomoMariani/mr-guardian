@@ -285,6 +285,7 @@ def test_renders_llm_review_summary() -> None:
                 model="gpt-4.1-mini",
                 duration_ms=420,
                 text="This MR needs reviewer attention on metadata.",
+                score=71,
                 input_tokens=100,
                 output_tokens=20,
                 total_tokens=120,
@@ -293,6 +294,7 @@ def test_renders_llm_review_summary() -> None:
     )
 
     assert "## LLM Summary" in report
+    assert "**LLM score:** 71/100" in report
     assert "This MR needs reviewer attention on metadata." in report
 
 

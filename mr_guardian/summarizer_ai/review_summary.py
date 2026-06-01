@@ -5,15 +5,11 @@ from collections.abc import Iterable
 from importlib import import_module
 from typing import Any, Protocol, cast
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mr_guardian.models.review import Finding, FindingCounts, ReviewEvaluation, RiskLevel
 from mr_guardian.models.review_input import DiffLine, ReviewInput
 from mr_guardian.summarizer_ai.llm_rules import LlmTokenUsage
-
-MAX_PROMPT_FINDINGS = 8
-MAX_PROMPT_CHANGED_FILES = 12
-MAX_PROMPT_DIFF_LINES = 80
 
 
 class LlmSummaryError(Exception):
@@ -48,13 +44,19 @@ class LlmReviewSummaryOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     summary: str
+    score: int = Field(ge=0, le=100)
 
 
 class LlmReviewSummaryRunner(Protocol):
     """Interface for optional LLM review summary generation."""
 
-    def summarize(self, *, review: ReviewSummaryInput, max_chars: int) -> str:
-        """Generate a concise summary for a completed review."""
+    def summarize(
+        self,
+        *,
+        review: ReviewSummaryInput,
+        max_chars: int,
+    ) -> LlmReviewSummaryOutput:
+        """Generate a concise evaluation for a completed review."""
 
     @property
     def provider_name(self) -> str:
@@ -101,11 +103,18 @@ class OpenAiLlmReviewSummaryRunner:
         """Return token usage from the latest completed call, when available."""
         return self._last_token_usage
 
-    def summarize(self, *, review: ReviewSummaryInput, max_chars: int) -> str:
-        """Generate and normalize one LLM review summary."""
+    def summarize(
+        self,
+        *,
+        review: ReviewSummaryInput,
+        max_chars: int,
+    ) -> LlmReviewSummaryOutput:
+        """Generate and normalize one LLM review evaluation."""
         self._last_token_usage = None
         output = self._call_model(prompt=_build_summary_prompt(review, max_chars=max_chars))
-        return _truncate_summary(output.summary.strip(), max_chars)
+        return output.model_copy(
+            update={"summary": _truncate_summary(output.summary.strip(), max_chars)}
+        )
 
     def _call_model(self, *, prompt: str) -> LlmReviewSummaryOutput:
         try:
@@ -185,10 +194,12 @@ def parse_llm_review_summary_output(raw_output: str) -> LlmReviewSummaryOutput:
 
 def _build_summary_prompt(review: ReviewSummaryInput, *, max_chars: int) -> str:
     sections = [
-        "You are MR Guardian. Write a concise merge request review summary.",
+        "You are MR Guardian. Write a concise merge request review evaluation.",
         f"Maximum summary length: {max_chars} characters.",
+        "Return a score from 0 to 100 where higher means healthier and easier to review.",
         "Do not create new findings, new risks, or new blocking decisions.",
         "Explain only the completed review result.",
+        "Use all provided review, finding, file, and diff context.",
         "Return JSON that matches this schema:",
         json.dumps(LlmReviewSummaryOutput.model_json_schema(), indent=2),
         "",
@@ -232,59 +243,36 @@ def _finding_lines(findings: list[Finding]) -> Iterable[str]:
     if not findings:
         yield "- none"
         return
-    for finding in findings[:MAX_PROMPT_FINDINGS]:
+    for finding in findings:
         location = _format_location(finding)
         location_text = f" at {location}" if location else ""
         yield (
             f"- [{finding.severity}] {finding.rule_id}{location_text}: "
             f"{finding.message}"
         )
-    omitted_count = len(findings) - MAX_PROMPT_FINDINGS
-    if omitted_count > 0:
-        yield f"- {omitted_count} additional finding(s) omitted from prompt."
 
 
 def _changed_file_lines(review_input: ReviewInput) -> Iterable[str]:
     if not review_input.changed_files:
         yield "- none"
         return
-    for changed_file in review_input.changed_files[:MAX_PROMPT_CHANGED_FILES]:
+    for changed_file in review_input.changed_files:
         yield f"- {changed_file.path.as_posix()} ({changed_file.status})"
-    omitted_count = len(review_input.changed_files) - MAX_PROMPT_CHANGED_FILES
-    if omitted_count > 0:
-        yield f"- {omitted_count} additional changed file(s) omitted from prompt."
 
 
 def _diff_context(review_input: ReviewInput) -> Iterable[str]:
     emitted = 0
     for changed_file in review_input.changed_files:
-        if emitted >= MAX_PROMPT_DIFF_LINES:
-            break
         yield f"File: {changed_file.path.as_posix()} ({changed_file.status})"
         emitted += 1
         for hunk in changed_file.hunks:
-            if emitted >= MAX_PROMPT_DIFF_LINES:
-                break
             yield f"@@ -{hunk.old_start},{hunk.old_count} +{hunk.new_start},{hunk.new_count} @@"
             emitted += 1
             for diff_line in hunk.lines:
-                if emitted >= MAX_PROMPT_DIFF_LINES:
-                    break
                 yield _format_diff_line(diff_line)
                 emitted += 1
     if emitted == 0:
         yield "No diff context."
-    elif _has_more_diff_lines(review_input, emitted):
-        yield "Additional diff lines omitted from prompt."
-
-
-def _has_more_diff_lines(review_input: ReviewInput, emitted: int) -> bool:
-    available = sum(
-        2 + len(hunk.lines)
-        for changed_file in review_input.changed_files
-        for hunk in changed_file.hunks
-    )
-    return available > emitted
 
 
 def _format_diff_line(diff_line: DiffLine) -> str:

@@ -18,7 +18,11 @@ from mr_guardian.core.review_history import store_review_result
 from mr_guardian.reporting.history import render_clear_history_result, render_review_history
 from mr_guardian.reporting.report import render_review_report
 from mr_guardian.storage import ReviewHistoryStore
-from mr_guardian.summarizer_ai import create_llm_review_summary_runner, create_llm_rule_runner
+from mr_guardian.summarizer_ai import (
+    create_llm_developer_profile_runner,
+    create_llm_review_summary_runner,
+    create_llm_rule_runner,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -92,6 +96,16 @@ def review(
             report=report,
             database_path=settings.history_db_path,
             review_scope="local-all-policies",
+            developer_profile_runner=create_llm_developer_profile_runner(
+                enabled=settings.developer_profile_enabled,
+                provider=settings.llm_provider,
+                openai_api_key=settings.openai_api_key,
+                openai_model=settings.openai_model,
+                openai_timeout_seconds=settings.openai_timeout_seconds,
+                openai_max_retries=settings.openai_max_retries,
+            ),
+            developer_profile_lookback_days=settings.developer_profile_lookback_days,
+            developer_profile_max_chars=settings.developer_profile_max_chars,
         )
     typer.echo(report)
 

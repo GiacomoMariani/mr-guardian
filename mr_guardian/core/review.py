@@ -181,7 +181,7 @@ def _with_llm_summary(
 ) -> ReviewResult:
     started_at = perf_counter()
     try:
-        summary_text = llm_summary_runner.summarize(
+        summary_output = llm_summary_runner.summarize(
             review=ReviewSummaryInput(
                 base_ref=result.base_ref,
                 developer_id=result.developer_id,
@@ -215,7 +215,8 @@ def _with_llm_summary(
             status="succeeded",
             runner=llm_summary_runner,
             started_at=started_at,
-            text=summary_text,
+            text=summary_output.summary,
+            score=summary_output.score,
             error_message=None,
         )
     return result.model_copy(update={"llm_summary": summary})
@@ -228,6 +229,7 @@ def _llm_summary_result(
     started_at: float,
     text: str | None,
     error_message: str | None,
+    score: int | None = None,
 ) -> LlmReviewSummary:
     usage = runner.last_token_usage
     return LlmReviewSummary(
@@ -236,6 +238,7 @@ def _llm_summary_result(
         model=runner.model_name,
         duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
         text=text,
+        score=score,
         input_tokens=usage.input_tokens if usage is not None else None,
         output_tokens=usage.output_tokens if usage is not None else None,
         total_tokens=usage.total_tokens if usage is not None else None,

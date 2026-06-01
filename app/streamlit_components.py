@@ -68,6 +68,7 @@ def render_section(
     body_html: str,
     eyebrow: str | None = None,
     action_html: str | None = None,
+    anchor_id: str | None = None,
 ) -> str:
     """Render one dashboard panel."""
     eyebrow_html = (
@@ -76,9 +77,10 @@ def render_section(
         else ""
     )
     action = action_html or ""
+    section_id = f' id="{_html(anchor_id)}"' if anchor_id else ""
     return "\n".join(
         [
-            '<section class="mg-dashboard-panel">',
+            f'<section class="mg-dashboard-panel"{section_id}>',
             '<div class="mg-panel-head">',
             "<div>",
             f'<span class="mg-panel-num">{index:02}</span>',

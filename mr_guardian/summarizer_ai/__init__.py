@@ -1,5 +1,14 @@
 """LLM-backed advisory rule execution."""
 
+from mr_guardian.summarizer_ai.developer_profile import (
+    LlmDeveloperProfileError,
+    LlmDeveloperProfileExecutionError,
+    LlmDeveloperProfileOutput,
+    LlmDeveloperProfileRateLimitError,
+    LlmDeveloperProfileRunner,
+    OpenAiLlmDeveloperProfileRunner,
+    create_llm_developer_profile_runner,
+)
 from mr_guardian.summarizer_ai.llm_rules import (
     DisabledLlmRuleRunner,
     LlmRuleConfigurationError,
@@ -12,6 +21,7 @@ from mr_guardian.summarizer_ai.llm_rules import (
     create_llm_rule_runner,
 )
 from mr_guardian.summarizer_ai.review_summary import (
+    LlmReviewSummaryOutput,
     LlmReviewSummaryRunner,
     LlmSummaryError,
     LlmSummaryExecutionError,
@@ -23,6 +33,12 @@ from mr_guardian.summarizer_ai.review_summary import (
 
 __all__ = [
     "DisabledLlmRuleRunner",
+    "LlmDeveloperProfileError",
+    "LlmDeveloperProfileExecutionError",
+    "LlmDeveloperProfileOutput",
+    "LlmDeveloperProfileRateLimitError",
+    "LlmDeveloperProfileRunner",
+    "LlmReviewSummaryOutput",
     "LlmReviewSummaryRunner",
     "LlmRuleConfigurationError",
     "LlmRuleError",
@@ -33,9 +49,11 @@ __all__ = [
     "LlmSummaryExecutionError",
     "LlmSummaryRateLimitError",
     "LlmTokenUsage",
+    "OpenAiLlmDeveloperProfileRunner",
     "OpenAiLlmReviewSummaryRunner",
     "OpenAiLlmRuleRunner",
     "ReviewSummaryInput",
+    "create_llm_developer_profile_runner",
     "create_llm_review_summary_runner",
     "create_llm_rule_runner",
 ]

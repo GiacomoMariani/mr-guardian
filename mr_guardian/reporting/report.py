@@ -120,7 +120,12 @@ def _count_cell(count: int) -> str:
 
 def _render_llm_summary(summary: LlmReviewSummary) -> list[str]:
     if summary.status == "succeeded" and summary.text:
-        return [summary.text]
+        lines: list[str] = []
+        if summary.score is not None:
+            lines.append(f"**LLM score:** {summary.score}/100")
+            lines.append("")
+        lines.append(summary.text)
+        return lines
 
     status = summary.status.replace("_", " ")
     if summary.error_message:

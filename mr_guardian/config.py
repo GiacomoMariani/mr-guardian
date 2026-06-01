@@ -18,6 +18,7 @@ class Settings:
             os.getenv("MR_GUARDIAN_HISTORY_DB_PATH", ".mr-guardian/history.sqlite")
         )
         self.reports_dir = Path(os.getenv("MR_GUARDIAN_REPORTS_DIR", "examples/reports"))
+        self.admin_token = os.getenv("MR_GUARDIAN_ADMIN_TOKEN", "")
         self.llm_provider = os.getenv("MR_GUARDIAN_LLM_PROVIDER", "disabled")
         self.openai_api_key = os.getenv("MR_GUARDIAN_OPENAI_API_KEY", "")
         self.openai_model = os.getenv("MR_GUARDIAN_OPENAI_MODEL", "gpt-4.1-mini")
@@ -25,6 +26,18 @@ class Settings:
         self.openai_max_retries = _int_env("MR_GUARDIAN_OPENAI_MAX_RETRIES", 2)
         self.llm_summary_enabled = _bool_env("MR_GUARDIAN_LLM_SUMMARY_ENABLED", False)
         self.llm_summary_max_chars = _int_env("MR_GUARDIAN_LLM_SUMMARY_MAX_CHARS", 700)
+        self.developer_profile_enabled = _bool_env(
+            "MR_GUARDIAN_DEVELOPER_PROFILE_ENABLED",
+            False,
+        )
+        self.developer_profile_lookback_days = _int_env(
+            "MR_GUARDIAN_DEVELOPER_PROFILE_LOOKBACK_DAYS",
+            30,
+        )
+        self.developer_profile_max_chars = _int_env(
+            "MR_GUARDIAN_DEVELOPER_PROFILE_MAX_CHARS",
+            900,
+        )
         self.gitlab_webhook_secret = os.getenv("GITLAB_WEBHOOK_SECRET", "")
         self.gitlab_token = os.getenv("GITLAB_TOKEN", "")
         self.gitlab_base_url = os.getenv("GITLAB_BASE_URL", "https://gitlab.com")

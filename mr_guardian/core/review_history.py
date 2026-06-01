@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from mr_guardian.core.developer_profile import maybe_update_developer_profile_snapshot
 from mr_guardian.core.review import ReviewResult
 from mr_guardian.core.review_score import calculate_review_score_from_counts
 from mr_guardian.core.ticket_keys import extract_ticket_key_from_title
@@ -12,6 +13,7 @@ from mr_guardian.models.history import (
 )
 from mr_guardian.models.review import summarize_review_evaluations
 from mr_guardian.storage import ReviewHistoryStore
+from mr_guardian.summarizer_ai import LlmDeveloperProfileRunner
 
 
 def store_review_result(
@@ -23,12 +25,15 @@ def store_review_result(
     mr_id: str | None = None,
     commit_sha: str | None = None,
     developer_id: str | None = None,
+    developer_profile_runner: LlmDeveloperProfileRunner | None = None,
+    developer_profile_lookback_days: int = 30,
+    developer_profile_max_chars: int = 900,
 ) -> ReviewRunRecord:
     """Store a completed review result and generated report."""
     counts = result.engine_result.counts
     store = ReviewHistoryStore(database_path)
     try:
-        return store.store_review_run(
+        record = store.store_review_run(
             ReviewRunCreate(
                 review_scope=review_scope,
                 branch_name=result.base_ref,
@@ -65,6 +70,13 @@ def store_review_result(
                 ],
                 generated_review_report=report,
             )
+        )
+        return maybe_update_developer_profile_snapshot(
+            store=store,
+            record=record,
+            developer_profile_runner=developer_profile_runner,
+            lookback_days=developer_profile_lookback_days,
+            max_chars=developer_profile_max_chars,
         )
     finally:
         store.close()

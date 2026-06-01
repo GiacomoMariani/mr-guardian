@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -93,6 +94,17 @@ def test_api_returns_manual_review_schema() -> None:
     assert "findings" in body["properties"]
 
 
+def test_api_returns_stored_review_schema() -> None:
+    response = client().get("/reviews/schema")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "ReviewRunRecord"
+    assert "llm_summary" in body["properties"]
+    assert "developer_profile" in body["properties"]
+    assert "llm_summary_score" in body["x-sqlite-columns"]
+
+
 def test_api_stores_valid_manual_review(monkeypatch, tmp_path) -> None:
     database_path = tmp_path / "history.sqlite"
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
@@ -117,6 +129,90 @@ def test_api_stores_valid_manual_review(monkeypatch, tmp_path) -> None:
     assert record.developer_id == "API Reviewer"
     assert record.ticket_key == "TK-234"
     assert record.findings[0].rule_id == "MANUAL-001"
+
+
+def test_api_deletes_existing_review(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    stored_response = client().post("/reviews/manual", json=manual_review_payload())
+    review_id = stored_response.json()["review_id"]
+
+    response = client().delete(f"/reviews/{review_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "review_id": review_id}
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    assert record is None
+
+
+def test_api_reports_missing_review_delete(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().delete("/reviews/999")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Review 999 was not found."}
+
+
+def test_api_rejects_invalid_review_delete_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().delete("/reviews/0")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Review ID must be a positive integer."}
+
+
+def test_api_rejects_invalid_admin_token_for_review_delete(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().delete(
+        "/reviews/1",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_accepts_valid_admin_token_for_review_delete(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    stored_response = client().post("/reviews/manual", json=manual_review_payload())
+    review_id = stored_response.json()["review_id"]
+    response = client().delete(
+        f"/reviews/{review_id}",
+        headers={"x-mr-guardian-admin-token": "expected-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "review_id": review_id}
+
+
+def test_streamlit_has_no_review_delete_ui() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "delete_review" not in source
+    assert "DELETE /reviews" not in source
 
 
 def test_api_rejects_invalid_manual_review_payload(monkeypatch, tmp_path) -> None:
