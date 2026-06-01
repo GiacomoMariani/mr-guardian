@@ -19,7 +19,7 @@ Developers spend less time on routine checks and more attention where human judg
 MR Guardian generates a clear review report for every MR, showing each triggered rule alongside its severity.   
 It also uses an LLM to produce a short summary of the key context behind the changes, so reviewers know *why* before they dig into *what*.
 
-[SCREENSHOT HERE]
+![MR Guardian dashboard in dark mode](Docs/assets/mr-guardian-dark.png)
 
 ## Rules
 

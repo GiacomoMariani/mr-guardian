@@ -204,6 +204,16 @@ def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
     assert "st.sidebar" not in source
 
 
+def test_dashboard_exposes_best_practices_link() -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert streamlit_app.BEST_PRACTICES_URL == (
+        "https://github.com/GiacomoMariani/UnityBestPractices"
+    )
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+    assert "Best practices applied" in source
+
+
 def test_latest_llm_review_panel_renders_summary() -> None:
     import app.streamlit_app as streamlit_app
 
@@ -378,6 +388,7 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
     assert "Hanken Grotesk" in light_css
     assert "JetBrains Mono" in dark_css
     assert "mg-app-hero" in light_css
+    assert "mg-link-bar" in light_css
     assert "[data-testid=\"stTextInput\"] input" in light_css
     assert "-webkit-text-fill-color: var(--ink)" in light_css
     assert "[data-baseweb=\"tab-list\"]" in light_css

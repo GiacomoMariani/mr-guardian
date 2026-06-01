@@ -87,6 +87,7 @@ DASHBOARD_TAB_LABELS = (
     "Recent Reviews",
     "Stored Report",
 )
+BEST_PRACTICES_URL = "https://github.com/GiacomoMariani/UnityBestPractices"
 
 
 def main() -> None:
@@ -135,6 +136,7 @@ def main() -> None:
             ("Mode", "Dashboard"),
         ),
     )
+    _render_best_practices_link(st)
     _render_latest_llm_review(st, data.recent_reviews)
     _render_dashboard_tabs(
         st,
@@ -262,6 +264,18 @@ def _render_page_heading(
 
 def _render_html(st, html: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_best_practices_link(st) -> None:
+    _render_html(
+        st,
+        (
+            '<div class="mg-link-bar">'
+            f'<a href="{BEST_PRACTICES_URL}" target="_blank" rel="noreferrer">'
+            "Best practices applied</a>"
+            "</div>"
+        ),
+    )
 
 
 def _render_latest_llm_review(st, runs: list[ReviewRunRecord]) -> None:

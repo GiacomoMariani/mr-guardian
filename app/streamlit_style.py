@@ -149,6 +149,33 @@ a {{
   font-weight: 600;
 }}
 
+.mg-link-bar {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 22px;
+}}
+
+.mg-link-bar a {{
+  background: var(--surface-2s);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--accent);
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: 6px 10px;
+  text-decoration: none;
+  text-transform: uppercase;
+}}
+
+.mg-link-bar a:hover {{
+  background: var(--accent-bg);
+  color: var(--ink);
+  text-decoration: none;
+}}
+
 .mg-dashboard-panel {{
   background: var(--surface);
   border: 1px solid var(--line);
