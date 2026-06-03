@@ -88,6 +88,11 @@ DASHBOARD_TAB_LABELS = (
     "Stored Report",
 )
 BEST_PRACTICES_URL = "https://github.com/GiacomoMariani/UnityBestPractices"
+DEFAULT_THEME_LABEL = "Dark"
+DEFAULT_RECENT_REVIEW_LIMIT = 50
+DEFAULT_PM_LOOKBACK_DAYS = 30
+DEFAULT_LEAD_LOOKBACK_DAYS = 30
+DEFAULT_DEVELOPER_LOOKBACK_DAYS = 30
 
 
 def main() -> None:
@@ -97,7 +102,7 @@ def main() -> None:
     settings = get_settings()
     st.set_page_config(page_title="MR Guardian", layout="wide")
     if _is_developer_view(st):
-        theme, database_path, developer_lookback_days = _render_developer_top_controls(
+        theme, database_path = _render_developer_top_controls(
             st,
             settings,
         )
@@ -106,22 +111,18 @@ def main() -> None:
             st,
             database_path,
             theme,
-            lookback_days=developer_lookback_days,
         )
         return
 
-    (
-        theme,
-        database_path,
-        recent_limit,
-        pm_lookback_days,
-        lead_lookback_days,
-    ) = _render_dashboard_top_controls(
+    theme, database_path = _render_dashboard_top_controls(
         st,
         settings,
     )
     st.markdown(dashboard_css(theme), unsafe_allow_html=True)
-    data = load_dashboard_data(database_path, recent_limit=int(recent_limit))
+    data = load_dashboard_data(
+        database_path,
+        recent_limit=DEFAULT_RECENT_REVIEW_LIMIT,
+    )
     _render_page_heading(
         st,
         title="MR Guardian",
@@ -143,65 +144,51 @@ def main() -> None:
         data=data,
         database_path=database_path,
         theme=theme,
-        pm_lookback_days=pm_lookback_days,
-        lead_lookback_days=lead_lookback_days,
     )
 
 
-def _render_dashboard_top_controls(st, settings) -> tuple[DashboardTheme, Path, int, int, int]:
-    columns = st.columns([1, 2.2, 1, 1, 1])
+def _render_dashboard_top_controls(st, settings) -> tuple[DashboardTheme, Path]:
+    columns = st.columns([1, 2.5])
     with columns[0]:
-        theme_label = st.selectbox("Theme", list(THEME_LABELS), index=0)
+        theme_label = st.selectbox(
+            "Theme",
+            list(THEME_LABELS),
+            index=_default_theme_index(),
+        )
     with columns[1]:
-        database_path = Path(st.text_input("History database", str(settings.history_db_path)))
-    with columns[2]:
-        recent_limit = st.number_input(
-            "Recent review limit",
-            min_value=1,
-            max_value=500,
-            value=50,
-            step=10,
+        database_path = Path(settings.history_db_path)
+        _render_readonly_database_path(st, database_path)
+    return theme_from_label(str(theme_label)), database_path
+
+
+def _render_developer_top_controls(st, settings) -> tuple[DashboardTheme, Path]:
+    columns = st.columns([1, 2.5])
+    with columns[0]:
+        theme_label = st.selectbox(
+            "Theme",
+            list(THEME_LABELS),
+            index=_default_theme_index(),
         )
-    with columns[3]:
-        pm_lookback_days = st.number_input(
-            "PM lookback days",
-            min_value=1,
-            max_value=365,
-            value=30,
-            step=1,
-        )
-    with columns[4]:
-        lead_lookback_days = st.number_input(
-            "Lead lookback days",
-            min_value=1,
-            max_value=365,
-            value=30,
-            step=1,
-        )
-    return (
-        theme_from_label(str(theme_label)),
-        database_path,
-        int(recent_limit),
-        int(pm_lookback_days),
-        int(lead_lookback_days),
+    with columns[1]:
+        database_path = Path(settings.history_db_path)
+        _render_readonly_database_path(st, database_path)
+    return theme_from_label(str(theme_label)), database_path
+
+
+def _default_theme_index() -> int:
+    return list(THEME_LABELS).index(DEFAULT_THEME_LABEL)
+
+
+def _render_readonly_database_path(st, database_path: Path) -> None:
+    _render_html(
+        st,
+        (
+            '<div class="mg-readonly-control">'
+            '<div class="mg-readonly-label">History database</div>'
+            f'<div class="mg-readonly-value">{_html(str(database_path))}</div>'
+            "</div>"
+        ),
     )
-
-
-def _render_developer_top_controls(st, settings) -> tuple[DashboardTheme, Path, int]:
-    columns = st.columns([1, 2.2, 1])
-    with columns[0]:
-        theme_label = st.selectbox("Theme", list(THEME_LABELS), index=0)
-    with columns[1]:
-        database_path = Path(st.text_input("History database", str(settings.history_db_path)))
-    with columns[2]:
-        lookback_days = st.number_input(
-            "Developer detail lookback days",
-            min_value=1,
-            max_value=365,
-            value=30,
-            step=1,
-        )
-    return theme_from_label(str(theme_label)), database_path, int(lookback_days)
 
 
 def _dashboard_tab_labels() -> tuple[str, ...]:
@@ -214,8 +201,6 @@ def _render_dashboard_tabs(
     data: DashboardData,
     database_path: Path,
     theme: DashboardTheme,
-    pm_lookback_days: int,
-    lead_lookback_days: int,
 ) -> None:
     (
         project_health_tab,
@@ -230,15 +215,15 @@ def _render_dashboard_tabs(
     with project_health_tab:
         _render_project_health(st, data)
     with delivery_health_tab:
-        _render_pm_dashboard(st, database_path, lookback_days=pm_lookback_days)
+        _render_pm_dashboard(st, database_path)
     with lead_review_tab:
-        _render_lead_dashboard(st, database_path, lookback_days=lead_lookback_days)
+        _render_lead_dashboard(st, database_path)
     with trends_tab:
         _render_trends(st, data)
     with triggered_rules_tab:
         _render_triggered_rules(st, data)
     with recent_reviews_tab:
-        _render_recent_reviews(st, data)
+        _render_recent_reviews(st, database_path)
     with stored_report_tab:
         _render_selected_report(st, database_path, data, theme)
 
@@ -368,7 +353,16 @@ def _render_trends(st, data: DashboardData) -> None:
         )
 
 
-def _render_recent_reviews(st, data: DashboardData) -> None:
+def _render_recent_reviews(st, database_path: Path) -> None:
+    recent_limit = st.number_input(
+        "Recent review limit",
+        min_value=1,
+        max_value=500,
+        value=DEFAULT_RECENT_REVIEW_LIMIT,
+        step=10,
+        key="recent_reviews_limit",
+    )
+    data = load_dashboard_data(database_path, recent_limit=int(recent_limit))
     _render_html(
         st,
         render_section(
@@ -380,10 +374,18 @@ def _render_recent_reviews(st, data: DashboardData) -> None:
     )
 
 
-def _render_pm_dashboard(st, database_path: Path, *, lookback_days: int) -> None:
+def _render_pm_dashboard(st, database_path: Path) -> None:
+    lookback_days = st.number_input(
+        "PM lookback days",
+        min_value=1,
+        max_value=365,
+        value=DEFAULT_PM_LOOKBACK_DAYS,
+        step=1,
+        key="pm_lookback_days",
+    )
     summary = load_pm_dashboard_summary(
         database_path,
-        days=lookback_days,
+        days=int(lookback_days),
     )
 
     _render_html(
@@ -391,7 +393,7 @@ def _render_pm_dashboard(st, database_path: Path, *, lookback_days: int) -> None
         render_section(
             index=2,
             title="Delivery Health",
-            eyebrow=f"{lookback_days} days",
+            eyebrow=f"{int(lookback_days)} days",
             anchor_id="delivery-health",
             body_html=(
                 render_metric_grid(
@@ -427,10 +429,18 @@ def _render_pm_dashboard(st, database_path: Path, *, lookback_days: int) -> None
     )
 
 
-def _render_lead_dashboard(st, database_path: Path, *, lookback_days: int) -> None:
+def _render_lead_dashboard(st, database_path: Path) -> None:
+    lookback_days = st.number_input(
+        "Lead lookback days",
+        min_value=1,
+        max_value=365,
+        value=DEFAULT_LEAD_LOOKBACK_DAYS,
+        step=1,
+        key="lead_lookback_days",
+    )
     summary = load_lead_dashboard_summary(
         database_path,
-        days=lookback_days,
+        days=int(lookback_days),
     )
     if not summary.developers:
         _render_html(
@@ -439,7 +449,7 @@ def _render_lead_dashboard(st, database_path: Path, *, lookback_days: int) -> No
                 index=3,
                 title="Lead Review View",
                 anchor_id="lead-review",
-                eyebrow=f"{lookback_days} days",
+                eyebrow=f"{int(lookback_days)} days",
                 body_html=render_table(
                     ["Developer"],
                     [],
@@ -464,7 +474,7 @@ def _render_lead_dashboard(st, database_path: Path, *, lookback_days: int) -> No
             index=3,
             title="Lead Review View",
             anchor_id="lead-review",
-            eyebrow=f"{lookback_days} days",
+            eyebrow=f"{int(lookback_days)} days",
             body_html=_lead_developers_table(visible_developers),
         ),
     )
@@ -524,8 +534,6 @@ def _render_developer_detail_page(
     st,
     database_path: Path,
     theme: DashboardTheme,
-    *,
-    lookback_days: int,
 ) -> None:
     developer_id = _query_param(st, "developer")
     if not developer_id:
@@ -547,10 +555,18 @@ def _render_developer_detail_page(
         ),
         meta_items=(("Developer", developer_id), ("Database", database_path.name)),
     )
+    lookback_days = st.number_input(
+        "Developer detail lookback days",
+        min_value=1,
+        max_value=365,
+        value=DEFAULT_DEVELOPER_LOOKBACK_DAYS,
+        step=1,
+        key="developer_detail_lookback_days",
+    )
     detail = load_lead_developer_detail(
         database_path,
         developer_id=developer_id,
-        days=lookback_days,
+        days=int(lookback_days),
     )
     if detail is None:
         _render_html(
@@ -577,7 +593,7 @@ def _render_developer_detail_page(
         render_section(
             index=1,
             title="Developer Metrics",
-            eyebrow=f"{lookback_days} days",
+            eyebrow=f"{int(lookback_days)} days",
             body_html=render_metric_grid(
                 [
                     MetricCard("Review Requests", developer.review_request_count, "accent"),
@@ -1002,7 +1018,8 @@ def _llm_review_summary_panel(run: ReviewRunRecord | None) -> str:
     if not usage:
         usage = "token usage unavailable"
 
-    score = _score(summary.score)
+    summary_score = getattr(summary, "score", None)
+    score = _score(summary_score if summary_score is not None else run.review_score)
     body = _html(summary_text).replace("\n", "<br>")
     return "\n".join(
         [

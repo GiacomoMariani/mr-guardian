@@ -195,6 +195,13 @@ def test_dashboard_declares_clickable_tab_labels() -> None:
     )
 
 
+def test_dashboard_defaults_to_dark_theme() -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert streamlit_app.DEFAULT_THEME_LABEL == "Dark"
+    assert streamlit_app._default_theme_index() == 1
+
+
 def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
@@ -202,6 +209,17 @@ def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
     assert "render_section_nav" not in source
     assert "NavItem" not in source
     assert "st.sidebar" not in source
+
+
+def test_dashboard_database_path_is_readonly_and_window_controls_are_scoped() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "st.text_input" not in source
+    assert "mg-readonly-value" in source
+    assert 'key="recent_reviews_limit"' in source
+    assert 'key="pm_lookback_days"' in source
+    assert 'key="lead_lookback_days"' in source
+    assert 'key="developer_detail_lookback_days"' in source
 
 
 def test_dashboard_exposes_best_practices_link() -> None:
@@ -246,6 +264,33 @@ def test_latest_llm_review_panel_renders_summary() -> None:
     assert "This MR is ready after metadata cleanup." in html
     assert "Score 82" in html
     assert "gpt-4.1-mini" in html
+
+
+def test_latest_llm_review_panel_handles_legacy_summary_without_score() -> None:
+    import app.streamlit_app as streamlit_app
+
+    class LegacySummary:
+        status = "succeeded"
+        provider = "openai"
+        model = "gpt-4.1-mini"
+        duration_ms = 820
+        text = "Legacy summary still renders."
+        input_tokens = 10
+        output_tokens = 20
+        total_tokens = 30
+        error_message = None
+
+    class LegacyRun:
+        review_id = 1
+        timestamp = datetime(2026, 5, 29, tzinfo=timezone.utc)
+        developer_id = "Jane"
+        review_score = 91
+        llm_summary = LegacySummary()
+
+    html = streamlit_app._llm_review_summary_panel(LegacyRun())
+
+    assert "Legacy summary still renders." in html
+    assert "Score 91" in html
 
 
 def test_latest_llm_review_panel_renders_empty_state() -> None:
@@ -394,6 +439,8 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
     assert "[data-baseweb=\"tab-list\"]" in light_css
     assert "[data-testid=\"stSidebar\"]" in light_css
     assert "display: none;" in light_css
+    assert ".mg-readonly-value" in light_css
+    assert "pointer-events: none;" in light_css
     assert "stMetric" in dark_css
 
 

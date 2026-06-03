@@ -176,6 +176,33 @@ a {{
   text-decoration: none;
 }}
 
+.mg-readonly-control {{
+  margin-top: 1px;
+}}
+
+.mg-readonly-label {{
+  color: var(--ink);
+  font-family: var(--mg-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}}
+
+.mg-readonly-value {{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font-family: var(--mg-sans);
+  font-size: 14px;
+  min-height: 42px;
+  padding: 10px 12px;
+  pointer-events: none;
+  user-select: text;
+}}
+
 .mg-dashboard-panel {{
   background: var(--surface);
   border: 1px solid var(--line);
