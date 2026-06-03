@@ -86,6 +86,7 @@ def _ticket_summary(
     sorted_runs = sorted(review_runs, key=lambda run: (run.timestamp, run.review_id))
     first_request_at = sorted_runs[0].timestamp
     last_request_at = sorted_runs[-1].timestamp
+    final_run = _final_run(sorted_runs)
     return TicketPerformanceSummary(
         ticket_key=ticket_key,
         mr_request_count=len(sorted_runs),
@@ -93,7 +94,30 @@ def _ticket_summary(
         last_request_at=last_request_at,
         total_review_days=_days_between(first_request_at, last_request_at),
         assumed_deployed_at=last_request_at,
+        is_approved=final_run is not None,
+        approved_at=final_run.timestamp if final_run is not None else None,
+        attempts_to_approval=_attempts_to_approval(sorted_runs, final_run),
         average_score=_average_score(sorted_runs) or 0.0,
+    )
+
+
+def _final_run(review_runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
+    final_runs = [run for run in review_runs if run.is_final]
+    if not final_runs:
+        return None
+    return max(final_runs, key=lambda run: (run.timestamp, run.review_id))
+
+
+def _attempts_to_approval(
+    review_runs: list[ReviewRunRecord],
+    final_run: ReviewRunRecord | None,
+) -> int | None:
+    if final_run is None:
+        return None
+    return sum(
+        1
+        for run in review_runs
+        if (run.timestamp, run.review_id) <= (final_run.timestamp, final_run.review_id)
     )
 
 

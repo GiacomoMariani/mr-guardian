@@ -149,6 +149,8 @@ def _developer_summary(
         review_request_count=len(sorted_runs),
         ticket_count=len(tickets),
         average_attempts_per_ticket=_average_attempts_per_ticket(tickets),
+        approved_ticket_count=sum(1 for ticket in tickets if ticket.is_approved),
+        average_attempts_to_approval=_average_attempts_to_approval(tickets),
         average_score=_average_score(sorted_runs),
         latest_review_at=sorted_runs[-1].timestamp,
         trend_direction=_trend_direction(sorted_runs),
@@ -185,12 +187,16 @@ def _ticket_attempt(
 ) -> LeadTicketAttemptSummary:
     sorted_runs = sorted(review_runs, key=lambda run: (run.timestamp, run.review_id))
     latest_run = sorted_runs[-1]
+    final_run = _final_run(sorted_runs)
     return LeadTicketAttemptSummary(
         ticket_key=ticket_key,
         review_attempt_count=len(sorted_runs),
         first_review_at=sorted_runs[0].timestamp,
         latest_review_at=latest_run.timestamp,
         assumed_deployed_at=latest_run.timestamp,
+        is_approved=final_run is not None,
+        approved_at=final_run.timestamp if final_run is not None else None,
+        attempts_to_approval=_attempts_to_approval(sorted_runs, final_run),
         average_score=_average_score(sorted_runs) or 0.0,
         latest_risk=latest_run.risk,
     )
@@ -202,6 +208,39 @@ def _average_attempts_per_ticket(tickets: list[LeadTicketAttemptSummary]) -> flo
     return round(
         sum(ticket.review_attempt_count for ticket in tickets) / len(tickets),
         2,
+    )
+
+
+def _average_attempts_to_approval(
+    tickets: list[LeadTicketAttemptSummary],
+) -> float | None:
+    approved_attempts = [
+        ticket.attempts_to_approval
+        for ticket in tickets
+        if ticket.attempts_to_approval is not None
+    ]
+    if not approved_attempts:
+        return None
+    return round(sum(approved_attempts) / len(approved_attempts), 2)
+
+
+def _final_run(review_runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
+    final_runs = [run for run in review_runs if run.is_final]
+    if not final_runs:
+        return None
+    return max(final_runs, key=lambda run: (run.timestamp, run.review_id))
+
+
+def _attempts_to_approval(
+    review_runs: list[ReviewRunRecord],
+    final_run: ReviewRunRecord | None,
+) -> int | None:
+    if final_run is None:
+        return None
+    return sum(
+        1
+        for run in review_runs
+        if (run.timestamp, run.review_id) <= (final_run.timestamp, final_run.review_id)
     )
 
 

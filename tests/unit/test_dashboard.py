@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from mr_guardian.core.dashboard import load_dashboard_data, prepare_dashboard_data
-from mr_guardian.models.history import ReviewRunCreate, TriggeredRuleStat
+from mr_guardian.models.history import DashboardEtaNote, ReviewRunCreate, TriggeredRuleStat
 from mr_guardian.models.review import LlmDeveloperProfile, LlmReviewSummary, RiskLevel
 from mr_guardian.storage import ReviewHistoryStore
 
@@ -16,6 +16,7 @@ def make_review_run(
     ticket_key: str | None = None,
     developer_profile: LlmDeveloperProfile | None = None,
     llm_summary: LlmReviewSummary | None = None,
+    is_final: bool = False,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
@@ -23,6 +24,7 @@ def make_review_run(
         branch_name="main",
         developer_id=developer_id,
         ticket_key=ticket_key,
+        is_final=is_final,
         policy_version=1,
         risk=risk,
         blocking_count=1 if risk == "blocking" else 0,
@@ -159,6 +161,7 @@ def test_recent_reviews_render_custom_table_with_clickable_developer() -> None:
             developer_id="Jane <Lead>",
             ticket_key="TK-234",
             timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
+            is_final=True,
         )
     )
     store.close()
@@ -170,6 +173,8 @@ def test_recent_reviews_render_custom_table_with_clickable_developer() -> None:
     assert "Jane &lt;Lead&gt;" in html
     assert "?view=developer&amp;developer=Jane%20%3CLead%3E#Jane" in html
     assert "TK-234" in html
+    assert "<th>Final</th>" in html
+    assert "Approved" in html
 
 
 def test_recent_reviews_empty_state_uses_standalone_style() -> None:
@@ -230,6 +235,39 @@ def test_dashboard_exposes_best_practices_link() -> None:
     )
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
     assert "Best practices applied" in source
+
+
+def test_eta_note_panel_renders_empty_state_with_disclaimer() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._eta_note_panel(None)
+
+    assert "No delivery ETA note has been set yet." in html
+    assert "Based on AI evaluation" in html
+
+
+def test_eta_note_panel_renders_note_with_target_and_updated_timestamp() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._eta_note_panel(
+        DashboardEtaNote(
+            message="Milestone looks merge-ready by Friday.",
+            target_date=date(2026, 6, 5),
+            updated_at=datetime(2026, 6, 3, 10, 30, tzinfo=timezone.utc),
+        )
+    )
+
+    assert "Milestone looks merge-ready by Friday." in html
+    assert "2026-06-05" in html
+    assert "2026-06-03T10:30:00+00:00" in html
+    assert "Based on AI evaluation" in html
+
+
+def test_dashboard_loads_eta_note_through_core() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "load_dashboard_eta_note" in source
+    assert "set_dashboard_eta_note" not in source
 
 
 def test_latest_llm_review_panel_renders_summary() -> None:
@@ -326,6 +364,8 @@ def test_lead_developers_render_name_as_link_without_extra_open_column() -> None
     assert "Developer Page" not in html
     assert "<th>Developer</th>" in html
     assert "<th>Review Requests</th>" in html
+    assert "<th>Approved Tickets</th>" in html
+    assert "<th>Avg Approval Attempts</th>" in html
 
 
 def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:
@@ -363,8 +403,11 @@ def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:
     reviews_html = streamlit_app._developer_reviews_table([second_record])
 
     assert "TK-234" in tickets_html
+    assert "Observed" in tickets_html
+    assert "Attempts To Approval" in tickets_html
     assert "MR-META-001" in repeated_rules_html
     assert "PYTHON-PRINT-001" in reviews_html
+    assert "<th>Final</th>" in reviews_html
     assert "mg-chip" in reviews_html
 
 

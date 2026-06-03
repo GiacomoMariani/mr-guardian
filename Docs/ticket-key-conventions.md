@@ -15,17 +15,22 @@ PM dashboard views use ticket keys to show:
 - pass/fail status
 - blocker status
 - latest review state
-- assumed deployed date
+- approved or observed delivery state
+- approved date when a final review exists
 
 Lead dashboard views use ticket keys to show:
 
 - review attempts per ticket
+- attempts to approval
 - developer review trends
 - recurring rule patterns
 - coding versus MR-structure risk over time
 
 Without a ticket key, a review is still stored, but it becomes an unlinked
 review and cannot contribute to ticket-level delivery analytics.
+
+Unlinked reviews can still be marked final at the review level, but they do not
+approve any ticket because there is no ticket key to group by.
 
 ## Enforcement
 

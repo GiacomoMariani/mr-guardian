@@ -210,6 +210,11 @@ def _build_developer_profile_prompt(
         f"Ticket count: {summary.ticket_count}",
         f"Average review score: {_format_optional_score(summary.average_score)}",
         f"Average attempts per ticket: {summary.average_attempts_per_ticket}",
+        f"Approved ticket count: {summary.approved_ticket_count}",
+        (
+            "Average attempts to approval: "
+            f"{_format_optional_number(summary.average_attempts_to_approval)}"
+        ),
         f"Latest review: {summary.latest_review_at.isoformat()}",
         f"Trend direction: {summary.trend_direction}",
         f"Multi-attempt tickets: {summary.multi_attempt_ticket_count}",
@@ -233,11 +238,19 @@ def _ticket_lines(tickets: list[LeadTicketAttemptSummary]) -> Iterable[str]:
         yield "- none"
         return
     for ticket in tickets:
+        approved_at = (
+            ticket.approved_at.isoformat()
+            if ticket.approved_at is not None
+            else "none"
+        )
         yield (
             f"- {ticket.ticket_key}: attempts={ticket.review_attempt_count}, "
+            f"state={'approved' if ticket.is_approved else 'observed'}, "
+            f"attempts_to_approval={ticket.attempts_to_approval or 'none'}, "
             f"first={ticket.first_review_at.isoformat()}, "
             f"latest={ticket.latest_review_at.isoformat()}, "
             f"assumed_deployed={ticket.assumed_deployed_at.isoformat()}, "
+            f"approved_at={approved_at}, "
             f"average_score={ticket.average_score:.1f}, "
             f"latest_risk={ticket.latest_risk}"
         )
@@ -289,6 +302,12 @@ def _format_optional_score(score: float | None) -> str:
     if score is None:
         return "none"
     return f"{score:.1f}"
+
+
+def _format_optional_number(value: float | None) -> str:
+    if value is None:
+        return "none"
+    return f"{value:.2f}"
 
 
 def _truncate_profile(value: str, max_chars: int) -> str:

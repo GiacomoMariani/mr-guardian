@@ -43,6 +43,9 @@ class LeadTicketAttemptSummary(BaseModel):
     first_review_at: datetime
     latest_review_at: datetime
     assumed_deployed_at: datetime
+    is_approved: bool = False
+    approved_at: datetime | None = None
+    attempts_to_approval: int | None = Field(default=None, ge=0)
     average_score: float
     latest_risk: RiskLevel
 
@@ -56,6 +59,8 @@ class LeadDeveloperSummary(BaseModel):
     review_request_count: int = Field(ge=0)
     ticket_count: int = Field(ge=0)
     average_attempts_per_ticket: float = Field(ge=0)
+    approved_ticket_count: int = Field(ge=0)
+    average_attempts_to_approval: float | None = None
     average_score: float | None = None
     latest_review_at: datetime
     trend_direction: TrendDirection

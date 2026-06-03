@@ -18,10 +18,21 @@ ticket pass/fail totals.
 Pass rate is the percentage of ticket-linked tickets that are not currently
 failing: `pass` plus `pass_with_warnings`.
 
-## Delivery Approximation
+## Approved Or Observed
 
-Until GitLab merge or deployment events are persisted, the dashboard uses the
-latest review timestamp as the assumed deployed date for a ticket.
+Each ticket also has a delivery state:
+
+- `Approved`: one stored review for that ticket has been marked final.
+- `Observed`: no final review has been marked yet.
+
+Approved/Observed is separate from pass/fail risk. A ticket can still display a
+failing latest risk if the latest review is blocking or high-risk. Marking a
+review final is intentionally API-only; the dashboard reads the state but does
+not mutate it.
+
+For approved tickets, the displayed date is the final review timestamp. For
+observed tickets, the displayed date remains the latest review timestamp as a
+local approximation until explicit deployment or merge events are persisted.
 
 ## Blockers
 

@@ -14,6 +14,7 @@ SQLite may store nested values across related tables or columns, while applicati
   "branch_name": "main",
   "developer_id": "Jane Developer",
   "ticket_key": "TK-234",
+  "is_final": true,
   "policy_version": 1,
   "risk": "blocking",
   "blocking_count": 1,
@@ -113,6 +114,7 @@ SQLite may store nested values across related tables or columns, while applicati
 | `commit_sha` | string | yes | supplied | Commit SHA when available. |
 | `developer_id` | string | no | supplied | Developer identity associated with the review. GitLab reviews use MR author data. |
 | `ticket_key` | string | yes | derived | Ticket key extracted from title, for example `TK-234`. |
+| `is_final` | boolean | no | supplied or API-updated | Whether this stored review is the final review for its ticket. At most one ticket-linked review per ticket should be final. |
 | `policy_version` | integer | no | supplied | Policy version from the evaluated YAML policy set. |
 | `risk` | enum | no | derived or validated | Overall review risk: `none`, `info`, `warning`, `high`, or `blocking`. |
 | `review_score` | integer | no | derived | Deterministic score from review counts, constrained to `0..100`. |
@@ -136,7 +138,7 @@ SQLite may store nested values across related tables or columns, while applicati
 
 The typed model is the integration contract. SQLite storage uses tables and columns optimized for querying:
 
-- `review_runs` stores scalar review fields, generated report text, LLM summary columns, and developer profile columns.
+- `review_runs` stores scalar review fields, the `is_final` marker, generated report text, LLM summary columns, and developer profile columns.
 - `triggered_rules` stores top-level triggered rule IDs.
 - `review_findings` stores structured findings.
 - `review_policies` stores evaluated policy summaries.

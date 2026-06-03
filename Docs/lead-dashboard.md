@@ -22,6 +22,21 @@ Attempts are grouped by:
 Reviews without a ticket key are excluded from per-ticket attempt averages and
 reported separately as unlinked reviews.
 
+## Approval Model
+
+A ticket is `Approved` when one stored review for that ticket has been marked
+final through the API. Otherwise it remains `Observed`.
+
+For approved tickets, the lead view reports:
+
+- approved ticket count
+- approved timestamp
+- attempts to approval
+- average attempts to approval across approved tickets
+
+Attempts to approval counts the attempts with timestamps at or before the final
+review. Observed tickets do not contribute to average attempts to approval.
+
 ## Trend Model
 
 Trend direction is conservative:

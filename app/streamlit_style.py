@@ -404,6 +404,50 @@ a {{
   padding: 18px 20px;
 }}
 
+.mg-eta-note {{
+  background: var(--surface);
+  color: var(--ink-2);
+  padding: 18px 20px;
+}}
+
+.mg-eta-message {{
+  border-left: 3px solid var(--accent);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.6;
+  padding-left: 14px;
+}}
+
+.mg-eta-note.empty .mg-eta-message {{
+  color: var(--ink-2);
+}}
+
+.mg-eta-meta {{
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  gap: 8px 16px;
+  margin-top: 14px;
+  padding-top: 12px;
+}}
+
+.mg-eta-meta b {{
+  color: var(--ink);
+  font-weight: 700;
+}}
+
+.mg-eta-disclaimer {{
+  color: var(--ink-3);
+  font-family: var(--mg-mono);
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  margin-top: 12px;
+  text-transform: uppercase;
+}}
+
 .mg-profile-card {{
   background: var(--surface);
   color: var(--ink-2);

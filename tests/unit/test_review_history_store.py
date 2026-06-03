@@ -1,6 +1,8 @@
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from mr_guardian.models.history import ReviewPolicySummary, ReviewRunCreate
 from mr_guardian.models.review import (
@@ -28,6 +30,7 @@ def make_review_run(
     findings: list[Finding] | None = None,
     policy_summaries: list[ReviewPolicySummary] | None = None,
     timestamp: datetime | None = None,
+    is_final: bool = False,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or ["PYTHON-PRINT-001"]
     return ReviewRunCreate(
@@ -35,6 +38,7 @@ def make_review_run(
         branch_name=branch_name,
         developer_id=developer_id,
         ticket_key=ticket_key,
+        is_final=is_final,
         mr_id="42",
         commit_sha="abc123",
         policy_version=1,
@@ -108,6 +112,7 @@ def test_initializes_schema(tmp_path: Path) -> None:
         "review_llm_rule_metrics",
         "review_evaluations",
         "review_evaluation_triggered_rules",
+        "dashboard_eta_note",
     }.issubset(table_names(database_path))
 
 
@@ -340,6 +345,93 @@ def test_stores_ticket_key_and_review_score(tmp_path: Path) -> None:
 
     assert record.ticket_key == "TK-234"
     assert record.review_score == 90
+
+
+def test_stores_review_finality_flag(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    stored = store.store_review_run(
+        make_review_run(ticket_key="TK-234", is_final=True)
+    )
+    found = store.review_run(stored.review_id)
+    store.close()
+
+    assert stored.is_final is True
+    assert found is not None
+    assert found.is_final is True
+
+
+def test_sets_review_finality_and_clears_other_final_ticket_reviews(
+    tmp_path: Path,
+) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    first = store.store_review_run(make_review_run(ticket_key="TK-234", is_final=True))
+    second = store.store_review_run(make_review_run(ticket_key="TK-234"))
+    other_ticket = store.store_review_run(
+        make_review_run(ticket_key="TK-999", is_final=True)
+    )
+
+    updated, cleared_review_ids = store.set_review_finality(
+        review_id=second.review_id,
+        is_final=True,
+    )
+    first_after = store.review_run(first.review_id)
+    other_after = store.review_run(other_ticket.review_id)
+    store.close()
+
+    assert updated.review_id == second.review_id
+    assert updated.is_final is True
+    assert cleared_review_ids == [first.review_id]
+    assert first_after is not None
+    assert first_after.is_final is False
+    assert other_after is not None
+    assert other_after.is_final is True
+
+
+def test_sets_review_finality_for_unlinked_review_without_clearing_other_reviews(
+    tmp_path: Path,
+) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    first = store.store_review_run(make_review_run(ticket_key=None, is_final=True))
+    second = store.store_review_run(make_review_run(ticket_key=None))
+
+    updated, cleared_review_ids = store.set_review_finality(
+        review_id=second.review_id,
+        is_final=True,
+    )
+    first_after = store.review_run(first.review_id)
+    store.close()
+
+    assert updated.is_final is True
+    assert cleared_review_ids == []
+    assert first_after is not None
+    assert first_after.is_final is True
+
+
+def test_unsets_review_finality(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    stored = store.store_review_run(make_review_run(ticket_key="TK-234", is_final=True))
+
+    updated, cleared_review_ids = store.set_review_finality(
+        review_id=stored.review_id,
+        is_final=False,
+    )
+    store.close()
+
+    assert updated.is_final is False
+    assert cleared_review_ids == []
+
+
+def test_setting_review_finality_for_missing_review_raises_key_error(
+    tmp_path: Path,
+) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    try:
+        with pytest.raises(KeyError, match="Review 999 was not found."):
+            store.set_review_finality(review_id=999, is_final=True)
+    finally:
+        store.close()
 
 
 def test_stores_llm_rule_metrics(tmp_path: Path) -> None:
@@ -764,3 +856,72 @@ def test_clears_review_history() -> None:
     assert removed_run_count == 2
     assert recent_runs == []
     assert stats == []
+
+
+def test_reads_empty_eta_note() -> None:
+    store = ReviewHistoryStore(":memory:")
+
+    note = store.get_eta_note()
+    store.close()
+
+    assert note is None
+
+
+def test_sets_and_reads_eta_note(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    stored = store.set_eta_note(
+        message="Team expects the milestone to be merge-ready this Friday.",
+        target_date=date(2026, 6, 5),
+    )
+    found = store.get_eta_note()
+    store.close()
+
+    assert stored.message == "Team expects the milestone to be merge-ready this Friday."
+    assert stored.target_date == date(2026, 6, 5)
+    assert found == stored
+
+
+def test_eta_note_target_date_is_optional() -> None:
+    store = ReviewHistoryStore(":memory:")
+
+    note = store.set_eta_note(message="No date is committed yet.")
+    found = store.get_eta_note()
+    store.close()
+
+    assert note.target_date is None
+    assert found is not None
+    assert found.target_date is None
+
+
+def test_eta_note_overwrites_singleton_row(tmp_path: Path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    store = ReviewHistoryStore(database_path)
+
+    first = store.set_eta_note(
+        message="First ETA.",
+        target_date=date(2026, 6, 5),
+    )
+    second = store.set_eta_note(message="Second ETA.")
+    found = store.get_eta_note()
+    store.close()
+
+    assert first.updated_at <= second.updated_at
+    assert found == second
+    assert second.message == "Second ETA."
+    assert second.target_date is None
+
+    with sqlite3.connect(database_path) as connection:
+        row = connection.execute("SELECT COUNT(*) FROM dashboard_eta_note").fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+def test_eta_note_rejects_empty_message() -> None:
+    store = ReviewHistoryStore(":memory:")
+
+    try:
+        with pytest.raises(ValueError, match="ETA note message must not be empty."):
+            store.set_eta_note(message="   ")
+    finally:
+        store.close()

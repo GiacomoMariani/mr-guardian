@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mr_guardian.models.review import RiskLevel
 
 PmTicketStatusValue = Literal["fail", "pass_with_warnings", "pass"]
+PmDeliveryState = Literal["approved", "observed"]
 
 
 class PmTicketStatus(BaseModel):
@@ -19,6 +20,8 @@ class PmTicketStatus(BaseModel):
     status: PmTicketStatusValue
     latest_review_at: datetime
     assumed_deployed_at: datetime
+    delivery_state: PmDeliveryState
+    approved_at: datetime | None = None
     latest_risk: RiskLevel
     review_request_count: int = Field(ge=0)
     average_score: float

@@ -100,9 +100,135 @@ def test_api_returns_stored_review_schema() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["title"] == "ReviewRunRecord"
+    assert "is_final" in body["properties"]
     assert "llm_summary" in body["properties"]
     assert "developer_profile" in body["properties"]
     assert "llm_summary_score" in body["x-sqlite-columns"]
+    assert "is_final" in body["x-sqlite-columns"]
+
+
+def test_api_returns_eta_note_schema() -> None:
+    response = client().get("/dashboard/eta-note/schema")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "DashboardEtaNotePayload"
+    assert "message" in body["properties"]
+    assert "target_date" in body["properties"]
+
+
+def test_api_returns_empty_eta_note(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+
+    response = client().get("/dashboard/eta-note")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_api_stores_and_returns_eta_note(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post(
+        "/dashboard/eta-note",
+        json={
+            "message": "  Milestone looks merge-ready by Friday.  ",
+            "target_date": "2026-06-05",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "Milestone looks merge-ready by Friday."
+    assert body["target_date"] == "2026-06-05"
+    assert body["updated_at"]
+
+    get_response = client().get("/dashboard/eta-note")
+    assert get_response.status_code == 200
+    assert get_response.json()["message"] == "Milestone looks merge-ready by Friday."
+
+
+def test_api_eta_note_post_overwrites_previous_note(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    client().post(
+        "/dashboard/eta-note",
+        json={"message": "First ETA.", "target_date": "2026-06-05"},
+    )
+    response = client().post(
+        "/dashboard/eta-note",
+        json={"message": "Second ETA."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "Second ETA."
+    assert body["target_date"] is None
+
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    try:
+        note = store.get_eta_note()
+    finally:
+        store.close()
+
+    assert note is not None
+    assert note.message == "Second ETA."
+
+
+def test_api_eta_note_admin_token_is_enforced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/dashboard/eta-note",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json={"message": "Delivery ETA."},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_eta_note_accepts_valid_admin_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/dashboard/eta-note",
+        headers={"x-mr-guardian-admin-token": "expected-token"},
+        json={"message": "Delivery ETA."},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Delivery ETA."
+
+
+def test_api_eta_note_rejects_invalid_payloads(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    invalid_json_response = client().post(
+        "/dashboard/eta-note",
+        content="{",
+        headers={"content-type": "application/json"},
+    )
+    non_object_response = client().post("/dashboard/eta-note", json=[])
+    empty_response = client().post("/dashboard/eta-note", json={"message": "   "})
+    bad_date_response = client().post(
+        "/dashboard/eta-note",
+        json={"message": "Delivery ETA.", "target_date": "not-a-date"},
+    )
+
+    assert invalid_json_response.status_code == 400
+    assert invalid_json_response.json() == {"detail": "Invalid JSON payload."}
+    assert non_object_response.status_code == 400
+    assert non_object_response.json() == {"detail": "Expected JSON object payload."}
+    assert empty_response.status_code == 400
+    assert "Invalid ETA note structure" in empty_response.json()["detail"]
+    assert bad_date_response.status_code == 400
+    assert "Invalid ETA note structure" in bad_date_response.json()["detail"]
 
 
 def test_api_stores_valid_manual_review(monkeypatch, tmp_path) -> None:
@@ -206,6 +332,159 @@ def test_api_accepts_valid_admin_token_for_review_delete(
 
     assert response.status_code == 200
     assert response.json() == {"status": "deleted", "review_id": review_id}
+
+
+def test_api_sets_review_finality_and_clears_previous_final_review(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    first_review_id = client().post(
+        "/reviews/manual",
+        json=manual_review_payload(),
+    ).json()["review_id"]
+    second_review_id = client().post(
+        "/reviews/manual",
+        json=manual_review_payload(),
+    ).json()["review_id"]
+    first_response = client().post(
+        f"/reviews/{first_review_id}/finality",
+        json={"final": True},
+    )
+    second_response = client().post(
+        f"/reviews/{second_review_id}/finality",
+        json={"final": True},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["is_final"] is True
+    assert first_response.json()["cleared_review_ids"] == []
+    assert second_response.status_code == 200
+    assert second_response.json() == {
+        "status": "updated",
+        "review_id": second_review_id,
+        "is_final": True,
+        "ticket_key": "TK-234",
+        "cleared_review_ids": [first_review_id],
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        first = store.review_run(first_review_id)
+        second = store.review_run(second_review_id)
+    finally:
+        store.close()
+
+    assert first is not None
+    assert first.is_final is False
+    assert second is not None
+    assert second.is_final is True
+
+
+def test_api_unsets_review_finality(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()[
+        "review_id"
+    ]
+    client().post(f"/reviews/{review_id}/finality", json={"final": True})
+    response = client().post(f"/reviews/{review_id}/finality", json={"final": False})
+
+    assert response.status_code == 200
+    assert response.json()["is_final"] is False
+    assert response.json()["cleared_review_ids"] == []
+
+
+def test_api_reports_missing_review_finality_update(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post("/reviews/999/finality", json={"final": True})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Review 999 was not found."}
+
+
+def test_api_rejects_invalid_review_finality_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post("/reviews/0/finality", json={"final": True})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Review ID must be a positive integer."}
+
+
+def test_api_rejects_invalid_admin_token_for_review_finality(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/reviews/1/finality",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json={"final": True},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_accepts_valid_admin_token_for_review_finality(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()[
+        "review_id"
+    ]
+    response = client().post(
+        f"/reviews/{review_id}/finality",
+        headers={"x-mr-guardian-admin-token": "expected-token"},
+        json={"final": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_final"] is True
+
+
+def test_api_rejects_invalid_review_finality_payloads(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    invalid_json_response = client().post(
+        "/reviews/1/finality",
+        content="{",
+        headers={"content-type": "application/json"},
+    )
+    non_object_response = client().post("/reviews/1/finality", json=[])
+    missing_final_response = client().post("/reviews/1/finality", json={})
+    non_boolean_response = client().post(
+        "/reviews/1/finality",
+        json={"final": "true"},
+    )
+
+    assert invalid_json_response.status_code == 400
+    assert invalid_json_response.json() == {"detail": "Invalid JSON payload."}
+    assert non_object_response.status_code == 400
+    assert non_object_response.json() == {"detail": "Expected JSON object payload."}
+    assert missing_final_response.status_code == 400
+    assert "Invalid review finality structure" in missing_final_response.json()["detail"]
+    assert non_boolean_response.status_code == 400
+    assert "Invalid review finality structure" in non_boolean_response.json()["detail"]
 
 
 def test_streamlit_has_no_review_delete_ui() -> None:

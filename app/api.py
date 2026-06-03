@@ -8,6 +8,12 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from pydantic import ValidationError
 
 from mr_guardian.config import Settings, get_settings
+from mr_guardian.core.dashboard_eta import (
+    DashboardEtaNotePayload,
+    dashboard_eta_note_payload_schema,
+    load_dashboard_eta_note,
+    set_dashboard_eta_note,
+)
 from mr_guardian.core.gitlab_reviews import review_gitlab_merge_request
 from mr_guardian.core.gitlab_webhooks import process_gitlab_webhook
 from mr_guardian.core.manual_review import (
@@ -17,6 +23,11 @@ from mr_guardian.core.manual_review import (
     store_manual_review_payload,
 )
 from mr_guardian.core.review_deletion import ReviewNotFoundError, delete_stored_review
+from mr_guardian.core.review_finality import (
+    ReviewFinalityNotFoundError,
+    ReviewFinalityPayload,
+    set_stored_review_finality,
+)
 from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.models.history import review_run_record_schema
@@ -49,6 +60,50 @@ async def manual_review_schema() -> dict[str, Any]:
 async def review_schema() -> dict[str, Any]:
     """Return the stored review run JSON schema."""
     return review_run_record_schema()
+
+
+@app.get("/dashboard/eta-note/schema")
+async def eta_note_schema() -> dict[str, Any]:
+    """Return the dashboard ETA note submission JSON schema."""
+    return dashboard_eta_note_payload_schema()
+
+
+@app.get("/dashboard/eta-note")
+async def get_eta_note() -> Any:
+    """Return the current dashboard ETA note."""
+    return load_dashboard_eta_note(database_path=get_settings().history_db_path)
+
+
+@app.post("/dashboard/eta-note")
+async def post_eta_note(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> Any:
+    """Overwrite the dashboard ETA note."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+
+    try:
+        payload = DashboardEtaNotePayload.model_validate(raw_payload)
+        return set_dashboard_eta_note(
+            payload,
+            database_path=settings.history_db_path,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid ETA note structure: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/reviews/manual", status_code=201)
@@ -92,11 +147,7 @@ async def delete_review(
 ) -> dict[str, Any]:
     """Delete one stored review from history."""
     settings = get_settings()
-    if settings.admin_token and not compare_digest(
-        x_mr_guardian_admin_token or "",
-        settings.admin_token,
-    ):
-        raise HTTPException(status_code=401, detail="Invalid MR Guardian admin token.")
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
 
     try:
         deleted_review_id = delete_stored_review(
@@ -109,6 +160,42 @@ async def delete_review(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return {"status": "deleted", "review_id": deleted_review_id}
+
+
+@app.post("/reviews/{review_id}/finality")
+async def set_review_finality(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> Any:
+    """Set one stored review's finality flag."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+
+    try:
+        payload = ReviewFinalityPayload.model_validate(raw_payload)
+        return set_stored_review_finality(
+            review_id=review_id,
+            is_final=payload.final,
+            database_path=settings.history_db_path,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid review finality structure: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ReviewFinalityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/webhooks/gitlab", status_code=202)
@@ -225,3 +312,11 @@ def _review_commenter(settings: Settings) -> GitLabMergeRequestCommenter | None:
         token=settings.gitlab_token,
         timeout_seconds=settings.gitlab_api_timeout_seconds,
     )
+
+
+def _verify_admin_token(settings: Settings, supplied_token: str | None) -> None:
+    if settings.admin_token and not compare_digest(
+        supplied_token or "",
+        settings.admin_token,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid MR Guardian admin token.")

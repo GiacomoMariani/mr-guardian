@@ -27,6 +27,9 @@ class TicketPerformanceSummary(BaseModel):
     last_request_at: datetime
     total_review_days: float = Field(ge=0)
     assumed_deployed_at: datetime
+    is_approved: bool = False
+    approved_at: datetime | None = None
+    attempts_to_approval: int | None = Field(default=None, ge=0)
     average_score: float
 
 

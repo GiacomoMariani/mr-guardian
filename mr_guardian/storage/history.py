@@ -2,12 +2,13 @@
 
 import sqlite3
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import cast
 
 from mr_guardian.core.review_score import calculate_review_score
 from mr_guardian.models.history import (
+    DashboardEtaNote,
     ReviewPolicySummary,
     ReviewRunCreate,
     ReviewRunRecord,
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS review_runs (
     branch_name TEXT NOT NULL,
     developer_id TEXT NOT NULL DEFAULT 'unknown',
     ticket_key TEXT,
+    is_final INTEGER NOT NULL DEFAULT 0,
     mr_id TEXT,
     commit_sha TEXT,
     policy_version INTEGER NOT NULL,
@@ -152,6 +154,13 @@ ON review_evaluations(review_id);
 
 CREATE INDEX IF NOT EXISTS idx_review_evaluation_triggered_rules_rule_id
 ON review_evaluation_triggered_rules(rule_id);
+
+CREATE TABLE IF NOT EXISTS dashboard_eta_note (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    message TEXT NOT NULL,
+    target_date TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -188,6 +197,7 @@ class ReviewHistoryStore:
             "branch_name",
             "developer_id",
             "ticket_key",
+            "is_final",
             "mr_id",
             "commit_sha",
             "policy_version",
@@ -229,6 +239,7 @@ class ReviewHistoryStore:
             run.branch_name,
             run.developer_id,
             run.ticket_key,
+            1 if run.is_final else 0,
             run.mr_id,
             run.commit_sha,
             run.policy_version,
@@ -367,6 +378,124 @@ class ReviewHistoryStore:
         )
         self._connection.commit()
         return cursor.rowcount > 0
+
+    def get_eta_note(self) -> DashboardEtaNote | None:
+        """Return the singleton dashboard ETA note, if one has been stored."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT message, target_date, updated_at
+            FROM dashboard_eta_note
+            WHERE id = 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return DashboardEtaNote(
+            message=str(row["message"]),
+            target_date=_optional_date(row["target_date"]),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+        )
+
+    def set_eta_note(
+        self,
+        *,
+        message: str,
+        target_date: date | None = None,
+    ) -> DashboardEtaNote:
+        """Overwrite the singleton dashboard ETA note."""
+        self.initialize_schema()
+        clean_message = message.strip()
+        if not clean_message:
+            msg = "ETA note message must not be empty."
+            raise ValueError(msg)
+
+        updated_at = datetime.now(timezone.utc)
+        self._connection.execute(
+            """
+            INSERT INTO dashboard_eta_note (
+                id,
+                message,
+                target_date,
+                updated_at
+            )
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                message = excluded.message,
+                target_date = excluded.target_date,
+                updated_at = excluded.updated_at
+            """,
+            (
+                clean_message,
+                target_date.isoformat() if target_date is not None else None,
+                updated_at.isoformat(),
+            ),
+        )
+        self._connection.commit()
+        return DashboardEtaNote(
+            message=clean_message,
+            target_date=target_date,
+            updated_at=updated_at,
+        )
+
+    def set_review_finality(
+        self,
+        *,
+        review_id: int,
+        is_final: bool,
+    ) -> tuple[ReviewRunRecord, list[int]]:
+        """Set one review's finality flag and clear prior finals for the ticket."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT review_id, ticket_key
+            FROM review_runs
+            WHERE review_id = ?
+            """,
+            (review_id,),
+        ).fetchone()
+        if row is None:
+            msg = f"Review {review_id} was not found."
+            raise KeyError(msg)
+
+        cleared_review_ids: list[int] = []
+        ticket_key = _optional_str(row["ticket_key"])
+        if is_final and ticket_key is not None:
+            cleared_rows = self._connection.execute(
+                """
+                SELECT review_id
+                FROM review_runs
+                WHERE ticket_key = ?
+                  AND review_id != ?
+                  AND is_final = 1
+                ORDER BY review_id ASC
+                """,
+                (ticket_key, review_id),
+            ).fetchall()
+            cleared_review_ids = [
+                int(cleared_row["review_id"])
+                for cleared_row in cleared_rows
+            ]
+            self._connection.execute(
+                """
+                UPDATE review_runs
+                SET is_final = 0
+                WHERE ticket_key = ?
+                  AND review_id != ?
+                """,
+                (ticket_key, review_id),
+            )
+
+        self._connection.execute(
+            """
+            UPDATE review_runs
+            SET is_final = ?
+            WHERE review_id = ?
+            """,
+            (1 if is_final else 0, review_id),
+        )
+        self._connection.commit()
+        return self._record_for_review_id(review_id), cleared_review_ids
 
     def review_runs_between(
         self,
@@ -663,6 +792,7 @@ class ReviewHistoryStore:
             branch_name=str(row["branch_name"]),
             developer_id=str(row["developer_id"]),
             ticket_key=_optional_str(row["ticket_key"]),
+            is_final=bool(int(row["is_final"])),
             mr_id=_optional_str(row["mr_id"]),
             commit_sha=_optional_str(row["commit_sha"]),
             policy_version=int(row["policy_version"]),
@@ -821,6 +951,11 @@ class ReviewHistoryStore:
                 )
         if "ticket_key" not in columns:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN ticket_key TEXT")
+        if "is_final" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs "
+                "ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0"
+            )
         if "review_score" not in columns:
             self._connection.execute(
                 "ALTER TABLE review_runs "
@@ -962,6 +1097,17 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, str):
         return int(value)
     msg = f"Expected integer-compatible SQLite value, got {type(value).__name__}."
+    raise TypeError(msg)
+
+
+def _optional_date(value: object) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    msg = f"Expected date-compatible SQLite value, got {type(value).__name__}."
     raise TypeError(msg)
 
 

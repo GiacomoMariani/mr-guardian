@@ -63,13 +63,21 @@ from app.streamlit_style import (  # noqa: E402
 )
 from mr_guardian.config import get_settings  # noqa: E402
 from mr_guardian.core.dashboard import DashboardData, load_dashboard_data  # noqa: E402
+from mr_guardian.core.dashboard_eta import load_dashboard_eta_note  # noqa: E402
 from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_dashboard_summary,
     load_lead_developer_detail,
 )
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
-from mr_guardian.models.history import ReviewRunRecord, TriggeredRuleStat  # noqa: E402
-from mr_guardian.models.lead_dashboard import LeadDeveloperSummary  # noqa: E402
+from mr_guardian.models.history import (  # noqa: E402
+    DashboardEtaNote,
+    ReviewRunRecord,
+    TriggeredRuleStat,
+)
+from mr_guardian.models.lead_dashboard import (  # noqa: E402
+    LeadDeveloperSummary,
+    LeadTicketAttemptSummary,
+)
 from mr_guardian.models.pm_dashboard import (  # noqa: E402
     PmRecurringBlocker,
     PmTicketStatus,
@@ -138,6 +146,7 @@ def main() -> None:
         ),
     )
     _render_best_practices_link(st)
+    _render_eta_note(st, database_path)
     _render_latest_llm_review(st, data.recent_reviews)
     _render_dashboard_tabs(
         st,
@@ -260,6 +269,46 @@ def _render_best_practices_link(st) -> None:
             "Best practices applied</a>"
             "</div>"
         ),
+    )
+
+
+def _render_eta_note(st, database_path: Path) -> None:
+    note = load_dashboard_eta_note(database_path)
+    _render_html(
+        st,
+        render_section(
+            index=0,
+            title="Delivery ETA",
+            eyebrow="Based on AI evaluation",
+            body_html=_eta_note_panel(note),
+        ),
+    )
+
+
+def _eta_note_panel(note: DashboardEtaNote | None) -> str:
+    disclaimer = "Based on AI evaluation. Confirm dates and delivery risk with the team."
+    if note is None:
+        return "\n".join(
+            [
+                '<div class="mg-eta-note empty">',
+                '<div class="mg-eta-message">No delivery ETA note has been set yet.</div>',
+                f'<div class="mg-eta-disclaimer">{_html(disclaimer)}</div>',
+                "</div>",
+            ]
+        )
+
+    target_date = note.target_date.isoformat() if note.target_date is not None else "-"
+    return "\n".join(
+        [
+            '<div class="mg-eta-note">',
+            f'<div class="mg-eta-message">{_html(note.message)}</div>',
+            '<div class="mg-eta-meta">',
+            f"<span>Target <b>{_html(target_date)}</b></span>",
+            f"<span>Updated <b>{_html(_format_datetime(note.updated_at))}</b></span>",
+            "</div>",
+            f'<div class="mg-eta-disclaimer">{_html(disclaimer)}</div>',
+            "</div>",
+        ]
     )
 
 
@@ -513,6 +562,16 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
                             "Avg Attempts",
                             developer_summary.average_attempts_per_ticket,
                         ),
+                        MetricCard(
+                            "Approved Tickets",
+                            developer_summary.approved_ticket_count,
+                            "pass",
+                        ),
+                        MetricCard(
+                            "Avg Approval Attempts",
+                            _score(developer_summary.average_attempts_to_approval),
+                            "pass",
+                        ),
                         MetricCard("Coding Score", _score(coding_score), "info"),
                         MetricCard(
                             "MR Structure Score",
@@ -599,6 +658,12 @@ def _render_developer_detail_page(
                     MetricCard("Review Requests", developer.review_request_count, "accent"),
                     MetricCard("Tickets", developer.ticket_count, "accent"),
                     MetricCard("Avg Attempts", developer.average_attempts_per_ticket),
+                    MetricCard("Approved Tickets", developer.approved_ticket_count, "pass"),
+                    MetricCard(
+                        "Avg Approval Attempts",
+                        _score(developer.average_attempts_to_approval),
+                        "pass",
+                    ),
                     MetricCard("Average Score", _score(developer.average_score), "pass"),
                     MetricCard("Trend", developer.trend_direction),
                     MetricCard("Coding Score", _score(coding_score), "info"),
@@ -782,6 +847,7 @@ def _recent_reviews_table(runs: list[ReviewRunRecord]) -> str:
             "Timestamp",
             "Developer",
             "Ticket",
+            "Final",
             "Score",
             "Risk",
             "Findings",
@@ -793,6 +859,7 @@ def _recent_reviews_table(runs: list[ReviewRunRecord]) -> str:
                 cell_text(_format_datetime(run.timestamp), mono=True),
                 cell_link(run.developer_id, _developer_link(run.developer_id)),
                 cell_text(run.ticket_key or "-", mono=True),
+                _review_final_pill(run.is_final),
                 cell_text(run.review_score, align="right"),
                 _risk_pill(run.risk),
                 cell_text(
@@ -815,22 +882,24 @@ def _pm_tickets_table(tickets: list[PmTicketStatus]) -> str:
         [
             "Ticket",
             "Status",
+            "Delivery",
             "Risk",
             "Reviews",
             "Avg Score",
             "Latest Review",
-            "Assumed Deployed",
+            "Approved / Observed At",
             "Blocker",
         ],
         [
             [
                 cell_text(ticket.ticket_key, mono=True),
                 _status_pill(ticket.status),
+                _delivery_state_pill(ticket.delivery_state),
                 _risk_pill(ticket.latest_risk),
                 cell_text(ticket.review_request_count, align="right"),
                 cell_text(_score(ticket.average_score), align="right"),
                 cell_text(_format_datetime(ticket.latest_review_at), mono=True),
-                cell_text(_format_datetime(ticket.assumed_deployed_at), mono=True),
+                cell_text(_pm_delivery_date(ticket), mono=True),
                 cell_text(ticket.blocker_reason or "-"),
             ]
             for ticket in tickets
@@ -862,6 +931,8 @@ def _lead_developers_table(developers: list[LeadDeveloperSummary]) -> str:
             "Review Requests",
             "Tickets",
             "Avg Attempts",
+            "Approved Tickets",
+            "Avg Approval Attempts",
             "Avg Score",
             "Latest Review",
             "Trend",
@@ -874,6 +945,11 @@ def _lead_developers_table(developers: list[LeadDeveloperSummary]) -> str:
                 cell_text(developer.review_request_count, align="right"),
                 cell_text(developer.ticket_count, align="right"),
                 cell_text(developer.average_attempts_per_ticket, align="right"),
+                cell_text(developer.approved_ticket_count, align="right"),
+                cell_text(
+                    _score(developer.average_attempts_to_approval),
+                    align="right",
+                ),
                 cell_text(_score(developer.average_score), align="right"),
                 cell_text(_format_datetime(developer.latest_review_at), mono=True),
                 _trend_pill(developer.trend_direction),
@@ -890,20 +966,24 @@ def _lead_tickets_table(developer: LeadDeveloperSummary) -> str:
     return render_table(
         [
             "Ticket",
+            "State",
             "Attempts",
+            "Attempts To Approval",
             "First Review",
             "Latest Review",
-            "Assumed Deployed",
+            "Approved / Observed At",
             "Avg Score",
             "Latest Risk",
         ],
         [
             [
                 cell_text(ticket.ticket_key, mono=True),
+                _ticket_approval_pill(ticket.is_approved),
                 cell_text(ticket.review_attempt_count, align="right"),
+                cell_text(_approval_attempts(ticket.attempts_to_approval), align="right"),
                 cell_text(_format_datetime(ticket.first_review_at), mono=True),
                 cell_text(_format_datetime(ticket.latest_review_at), mono=True),
-                cell_text(_format_datetime(ticket.assumed_deployed_at), mono=True),
+                cell_text(_lead_ticket_delivery_date(ticket), mono=True),
                 cell_text(_score(ticket.average_score), align="right"),
                 _risk_pill(ticket.latest_risk),
             ]
@@ -961,6 +1041,7 @@ def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
             "ID",
             "Timestamp",
             "Ticket",
+            "Final",
             "Score",
             "Risk",
             "Blocking",
@@ -976,6 +1057,7 @@ def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
                 cell_text(run.review_id, align="right"),
                 cell_text(_format_datetime(run.timestamp), mono=True),
                 cell_text(run.ticket_key or "-", mono=True),
+                _review_final_pill(run.is_final),
                 cell_text(run.review_score, align="right"),
                 _risk_pill(run.risk),
                 cell_text(run.blocking_count, align="right"),
@@ -1132,6 +1214,42 @@ def _status_pill(status: str) -> TableCell:
     if status == "pass_with_warnings":
         return cell_pill("Warnings", "warning")
     return cell_pill("Pass", "pass")
+
+
+def _delivery_state_pill(state: str) -> TableCell:
+    if state == "approved":
+        return cell_pill("Approved", "pass")
+    return cell_pill("Observed", "neutral")
+
+
+def _ticket_approval_pill(is_approved: bool) -> TableCell:
+    if is_approved:
+        return cell_pill("Approved", "pass")
+    return cell_pill("Observed", "neutral")
+
+
+def _review_final_pill(is_final: bool) -> TableCell:
+    if is_final:
+        return cell_pill("Approved", "pass")
+    return cell_pill("Observed", "neutral")
+
+
+def _pm_delivery_date(ticket: PmTicketStatus) -> str:
+    if ticket.approved_at is not None:
+        return _format_datetime(ticket.approved_at)
+    return _format_datetime(ticket.assumed_deployed_at)
+
+
+def _lead_ticket_delivery_date(ticket: LeadTicketAttemptSummary) -> str:
+    if ticket.approved_at is not None:
+        return _format_datetime(ticket.approved_at)
+    return _format_datetime(ticket.assumed_deployed_at)
+
+
+def _approval_attempts(value: int | None) -> str:
+    if value is None:
+        return "-"
+    return str(value)
 
 
 def _llm_status_pill(status: str) -> TableCell:

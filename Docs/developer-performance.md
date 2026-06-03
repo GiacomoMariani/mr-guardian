@@ -17,6 +17,7 @@ Every stored review run includes:
 
 - `developer_id`
 - `ticket_key`, when the MR title contains a supported ticket key
+- `is_final`, when a review has been marked as the final review for that ticket
 - `review_score`
 
 The review score is calculated when the review is stored:
@@ -38,8 +39,12 @@ For each ticket, the summary reports:
 - first request timestamp
 - last request timestamp
 - elapsed days between first and last request
-- assumed deployed date, currently the last request timestamp
+- approval state: `Approved` or `Observed`
+- approved timestamp, when a final review exists
+- attempts to approval, when a final review exists
+- observed timestamp, currently the last request timestamp
 - average review score for that ticket
 
-The assumed deployed date is a local approximation until GitLab merge or
-deployment events are persisted.
+Approved tickets use the final review timestamp as the approved date. Observed
+tickets use the latest review timestamp as a local approximation until GitLab
+merge or deployment events are persisted.

@@ -21,6 +21,7 @@ def make_review_run(
     review_score: int,
     triggered_rule_ids: list[str] | None = None,
     evaluations: list[ReviewEvaluation] | None = None,
+    is_final: bool = False,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or (["RULE-001"] if risk != "none" else [])
     return ReviewRunCreate(
@@ -28,6 +29,7 @@ def make_review_run(
         branch_name="refs/remotes/origin/main",
         developer_id=developer_id,
         ticket_key=ticket_key,
+        is_final=is_final,
         mr_id="42",
         policy_version=1,
         risk=risk,
@@ -99,11 +101,76 @@ def test_lead_summary_groups_reviews_by_developer_and_ticket() -> None:
     assert jane.ticket_count == 2
     assert jane.average_attempts_per_ticket == 1.5
     assert jane.average_score == 93.75
+    assert jane.approved_ticket_count == 0
+    assert jane.average_attempts_to_approval is None
     assert jane.multi_attempt_ticket_count == 1
     assert jane.unlinked_review_count == 1
     assert ticket_by_key["TK-100"].review_attempt_count == 2
     assert ticket_by_key["TK-100"].latest_risk == "none"
+    assert ticket_by_key["TK-100"].is_approved is False
+    assert ticket_by_key["TK-100"].approved_at is None
+    assert ticket_by_key["TK-100"].attempts_to_approval is None
     assert ticket_by_key["TK-100"].assumed_deployed_at == start + timedelta(hours=1)
+
+
+def test_lead_summary_tracks_approved_tickets_and_attempts_to_approval() -> None:
+    start = datetime(2026, 5, 20, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-100",
+            timestamp=start,
+            risk="warning",
+            review_score=95,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-100",
+            timestamp=start + timedelta(hours=1),
+            risk="none",
+            review_score=100,
+            is_final=True,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-100",
+            timestamp=start + timedelta(hours=2),
+            risk="warning",
+            review_score=95,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-200",
+            timestamp=start + timedelta(hours=3),
+            risk="none",
+            review_score=100,
+            is_final=True,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-300",
+            timestamp=start + timedelta(hours=4),
+            risk="high",
+            review_score=85,
+        ),
+    )
+
+    summary = prepare_lead_dashboard_summary(
+        review_runs=review_runs,
+        start_at=start - timedelta(days=1),
+        end_at=start + timedelta(days=1),
+    )
+
+    jane = summary.developers[0]
+    tickets = {ticket.ticket_key: ticket for ticket in jane.tickets}
+    assert jane.approved_ticket_count == 2
+    assert jane.average_attempts_to_approval == 1.5
+    assert tickets["TK-100"].is_approved is True
+    assert tickets["TK-100"].approved_at == start + timedelta(hours=1)
+    assert tickets["TK-100"].attempts_to_approval == 2
+    assert tickets["TK-200"].attempts_to_approval == 1
+    assert tickets["TK-300"].is_approved is False
+    assert tickets["TK-300"].attempts_to_approval is None
 
 
 def test_lead_summary_sorts_developers_by_latest_review() -> None:

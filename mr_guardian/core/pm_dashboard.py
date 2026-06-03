@@ -108,17 +108,27 @@ def _ticket_status(
     review_runs: list[ReviewRunRecord],
 ) -> PmTicketStatus:
     latest_run = max(review_runs, key=lambda run: (run.timestamp, run.review_id))
+    final_run = _final_run(review_runs)
     status = classify_pm_ticket_status(latest_run.risk)
     return PmTicketStatus(
         ticket_key=ticket_key,
         status=status,
         latest_review_at=latest_run.timestamp,
         assumed_deployed_at=latest_run.timestamp,
+        delivery_state="approved" if final_run is not None else "observed",
+        approved_at=final_run.timestamp if final_run is not None else None,
         latest_risk=latest_run.risk,
         review_request_count=len(review_runs),
         average_score=_average_score(review_runs),
         blocker_reason=_blocker_reason(latest_run) if status == "fail" else None,
     )
+
+
+def _final_run(review_runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
+    final_runs = [run for run in review_runs if run.is_final]
+    if not final_runs:
+        return None
+    return max(final_runs, key=lambda run: (run.timestamp, run.review_id))
 
 
 def _status_counts(tickets: list[PmTicketStatus]) -> dict[PmTicketStatusValue, int]:

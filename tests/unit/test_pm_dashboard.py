@@ -17,6 +17,7 @@ def make_review_run(
     timestamp: datetime,
     risk: RiskLevel,
     triggered_rule_ids: list[str] | None = None,
+    is_final: bool = False,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or (["RULE-001"] if risk != "none" else [])
     return ReviewRunCreate(
@@ -24,6 +25,7 @@ def make_review_run(
         branch_name="refs/remotes/origin/main",
         developer_id="Test Developer",
         ticket_key=ticket_key,
+        is_final=is_final,
         mr_id="42",
         policy_version=1,
         risk=risk,
@@ -105,9 +107,42 @@ def test_pm_summary_groups_by_ticket_and_uses_latest_review_status() -> None:
     assert ticket_by_key["TK-100"].latest_risk == "high"
     assert ticket_by_key["TK-100"].review_request_count == 2
     assert ticket_by_key["TK-100"].assumed_deployed_at == base_time + timedelta(days=1)
+    assert ticket_by_key["TK-100"].delivery_state == "observed"
+    assert ticket_by_key["TK-100"].approved_at is None
     assert ticket_by_key["TK-100"].blocker_reason == (
         "High-risk review risk from MR-META-001."
     )
+
+
+def test_pm_summary_marks_ticket_approved_from_final_review() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            ticket_key="TK-100",
+            timestamp=base_time,
+            risk="none",
+            is_final=True,
+        ),
+        make_review_run(
+            ticket_key="TK-100",
+            timestamp=base_time + timedelta(hours=1),
+            risk="high",
+            triggered_rule_ids=["MR-META-001"],
+        ),
+    )
+
+    summary = prepare_pm_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+
+    ticket = summary.tickets[0]
+    assert ticket.ticket_key == "TK-100"
+    assert ticket.status == "fail"
+    assert ticket.latest_risk == "high"
+    assert ticket.delivery_state == "approved"
+    assert ticket.approved_at == base_time
 
 
 def test_pm_summary_detects_recurring_blockers_across_tickets() -> None:

@@ -16,12 +16,14 @@ def make_review_run(
     ticket_key: str | None = "TK-234",
     timestamp: datetime,
     risk: RiskLevel = "warning",
+    is_final: bool = False,
 ) -> ReviewRunCreate:
     return ReviewRunCreate(
         review_scope="gitlab-webhook",
         branch_name="refs/remotes/origin/main",
         developer_id=developer_id,
         ticket_key=ticket_key,
+        is_final=is_final,
         mr_id="42",
         policy_version=1,
         risk=risk,
@@ -46,7 +48,12 @@ def test_summarizes_developer_performance_by_ticket() -> None:
         make_review_run(ticket_key="TK-234", timestamp=first_request, risk="warning")
     )
     second_record = store.store_review_run(
-        make_review_run(ticket_key="TK-234", timestamp=second_request, risk="high")
+        make_review_run(
+            ticket_key="TK-234",
+            timestamp=second_request,
+            risk="high",
+            is_final=True,
+        )
     )
     third_record = store.store_review_run(
         make_review_run(ticket_key="TK-999", timestamp=third_request, risk="none")
@@ -67,8 +74,18 @@ def test_summarizes_developer_performance_by_ticket() -> None:
     assert ticket.first_request_at == first_request
     assert ticket.last_request_at == second_request
     assert ticket.assumed_deployed_at == second_request
+    assert ticket.is_approved is True
+    assert ticket.approved_at == second_request
+    assert ticket.attempts_to_approval == 2
     assert ticket.total_review_days == 2.5
     assert ticket.average_score == 90
+
+    unapproved_ticket = next(
+        item for item in summary.tickets if item.ticket_key == "TK-999"
+    )
+    assert unapproved_ticket.is_approved is False
+    assert unapproved_ticket.approved_at is None
+    assert unapproved_ticket.attempts_to_approval is None
 
 
 def test_load_developer_performance_summary_filters_by_developer_and_days(

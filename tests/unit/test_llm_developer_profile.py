@@ -34,6 +34,8 @@ def make_profile_input() -> DeveloperProfileInput:
             review_request_count=2,
             ticket_count=1,
             average_attempts_per_ticket=2.0,
+            approved_ticket_count=1,
+            average_attempts_to_approval=2.0,
             average_score=84.5,
             latest_review_at=timestamp,
             trend_direction="insufficient_data",
@@ -47,6 +49,9 @@ def make_profile_input() -> DeveloperProfileInput:
                     first_review_at=timestamp,
                     latest_review_at=timestamp,
                     assumed_deployed_at=timestamp,
+                    is_approved=True,
+                    approved_at=timestamp,
+                    attempts_to_approval=2,
                     average_score=84.5,
                     latest_risk="warning",
                 )
@@ -192,6 +197,8 @@ def test_openai_developer_profile_runner_captures_usage_and_truncates(
     assert "TK-234" in prompt
     assert "MR-META-001" in prompt
     assert "coding" in prompt
+    assert "Approved ticket count: 1" in prompt
+    assert "attempts_to_approval=2" in prompt
     assert runner.last_token_usage is not None
     assert runner.last_token_usage.total_tokens == 230
 

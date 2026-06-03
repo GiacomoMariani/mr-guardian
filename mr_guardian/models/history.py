@@ -1,6 +1,6 @@
 """Typed review history models."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,6 +24,7 @@ class ReviewRunCreate(BaseModel):
     branch_name: str
     developer_id: str = "unknown"
     ticket_key: str | None = None
+    is_final: bool = False
     policy_version: int
     risk: RiskLevel
     blocking_count: int
@@ -57,6 +58,7 @@ class ReviewRunRecord(BaseModel):
     branch_name: str
     developer_id: str = "unknown"
     ticket_key: str | None = None
+    is_final: bool = False
     policy_version: int
     risk: RiskLevel
     blocking_count: int
@@ -98,6 +100,16 @@ class ReviewPolicySummary(BaseModel):
     disabled_rule_count: int
 
 
+class DashboardEtaNote(BaseModel):
+    """The singleton delivery ETA note shown on the dashboard."""
+
+    model_config = ConfigDict(frozen=True)
+
+    message: str
+    target_date: date | None = None
+    updated_at: datetime
+
+
 def review_run_record_schema() -> dict[str, Any]:
     """Return the JSON schema for stored review run records."""
     schema = ReviewRunRecord.model_json_schema()
@@ -108,6 +120,7 @@ def review_run_record_schema() -> dict[str, Any]:
         "branch_name",
         "developer_id",
         "ticket_key",
+        "is_final",
         "mr_id",
         "commit_sha",
         "policy_version",
