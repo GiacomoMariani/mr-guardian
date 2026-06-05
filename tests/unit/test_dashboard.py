@@ -214,7 +214,8 @@ def test_agent_review_tab_is_second_and_opens_by_default() -> None:
     assert "st.radio(" in source
     assert "index=DEFAULT_DASHBOARD_TAB_INDEX" in source
     assert "_render_default_tab_script" not in source
-    assert "mg-section-caption" in source
+    assert "subtitle=AGENT_REVIEW_CAPTION" in source
+    assert "A complete review the agent produced" in source
 
 
 def test_review_pager_shows_all_ids_with_disabled_arrows_when_they_fit() -> None:
@@ -258,6 +259,73 @@ def test_review_pager_in_the_middle_enables_both_arrows() -> None:
     assert slots[0] == ("prev", False)
     assert slots[-1] == ("next", False)
     assert [value for kind, value in slots if kind == "id"] == list(range(11, 21))
+
+
+def test_dashboard_loaders_are_cached() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "@st.cache_data" in source
+    assert "_cached_dashboard_data(" in source
+    assert "_cached_review_run(" in source
+    # cache key includes the DB mtime so it refreshes when a review is written
+    assert "_db_mtime(database_path)" in source
+
+
+def test_db_mtime_returns_zero_for_missing_file(tmp_path) -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert streamlit_app._db_mtime(tmp_path / "nope.sqlite") == 0.0
+    existing = tmp_path / "db.sqlite"
+    existing.write_text("x", encoding="utf-8")
+    assert streamlit_app._db_mtime(existing) > 0
+
+
+def test_pipeline_hook_renders_three_steps() -> None:
+    import app.streamlit_app as streamlit_app
+
+    captured: list[str] = []
+
+    class FakeSt:
+        def markdown(self, html: str, unsafe_allow_html: bool = False) -> None:
+            captured.append(html)
+
+    streamlit_app._render_pipeline_hook(FakeSt())
+    html = "".join(captured)
+    assert "mg-howitworks" in html
+    assert "How it works" in html
+    assert "Merge-request diff" in html
+    assert "Deterministic policy checks + bounded LLM reasoning" in html
+    assert "Single merge verdict" in html
+    assert html.count("mg-howitworks-arrow") == 2  # two arrows between three steps
+
+
+def test_review_report_height_scales_and_clamps() -> None:
+    import app.streamlit_app as streamlit_app
+    from types import SimpleNamespace
+
+    def run(findings=None, **counts: int) -> SimpleNamespace:
+        base = {
+            "blocking_count": 0,
+            "high_count": 0,
+            "warning_count": 0,
+            "info_count": 0,
+        }
+        base.update(counts)
+        return SimpleNamespace(findings=findings, **base)
+
+    assert streamlit_app._review_report_height(run()) == 700  # ~one-page initial
+    assert streamlit_app._review_report_height(run(findings=[1] * 5)) == 700 + 50 * 5
+    assert streamlit_app._review_report_height(run(findings=[1] * 100)) == 2400  # max
+
+
+def test_trends_use_custom_chart_and_dynamic_report_height() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+
+    assert "st.line_chart(" not in source  # call replaced by the themed Altair chart
+    assert "st.altair_chart(" in source
+    assert "_render_trend_chart" in source
+    assert "height=_review_report_height(selected_run)" in source
+    assert "height=1100" not in source
 
 
 def test_render_section_omits_panel_number_when_index_is_none() -> None:

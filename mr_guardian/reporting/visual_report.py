@@ -76,9 +76,23 @@ def render_visual_review_report(
             "</main>",
             _render_footer(run, skipped_rule_ids),
             "</div>",
+            _autosize_script(),
             "</body>",
             "</html>",
         ]
+    )
+
+
+def _autosize_script() -> str:
+    """Resize the embedding Streamlit components iframe to fit the report exactly, so
+    the dashboard tab shows the whole report with no inner scrollbar. Same-origin
+    srcdoc only; a harmless no-op when the report is opened as a standalone page."""
+    return (
+        "<script>(function(){function fit(){try{var f=window.frameElement;if(!f)return;"
+        "var h=document.body.offsetHeight;f.style.height=h+'px';"
+        "if(f.parentElement){f.parentElement.style.height=h+'px';}}catch(e){}}"
+        "window.addEventListener('load',fit);window.addEventListener('resize',fit);"
+        "setTimeout(fit,60);fit();})();</script>"
     )
 
 

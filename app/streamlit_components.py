@@ -80,6 +80,7 @@ def render_section(
     index: int | None = None,
     title: str,
     body_html: str,
+    subtitle: str | None = None,
     eyebrow: str | None = None,
     action_html: str | None = None,
     anchor_id: str | None = None,
@@ -88,7 +89,7 @@ def render_section(
 
     ``index`` shows a small sequence number ("01") in the panel head; pass ``None``
     to omit it (e.g. for a single-section panel where the number has nothing to
-    sequence against).
+    sequence against). ``subtitle`` renders muted alongside the title in the head.
     """
     eyebrow_html = (
         f'<span class="mg-panel-eyebrow">{_html(eyebrow)}</span>'
@@ -100,6 +101,11 @@ def render_section(
     num_html = (
         f'<span class="mg-panel-num">{index:02}</span>' if index is not None else ""
     )
+    subtitle_html = (
+        f'<span class="mg-panel-subtitle">{_html(subtitle)}</span>'
+        if subtitle is not None
+        else ""
+    )
     return "\n".join(
         [
             f'<section class="mg-dashboard-panel"{section_id}>',
@@ -107,6 +113,7 @@ def render_section(
             "<div>",
             num_html,
             f"<h2>{_html(title)}</h2>",
+            subtitle_html,
             "</div>",
             eyebrow_html or action,
             "</div>",

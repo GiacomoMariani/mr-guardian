@@ -88,6 +88,8 @@ from mr_guardian.models.weekly_review import WeeklyLlmReviewRecord  # noqa: E402
 from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
 
+import streamlit as st  # noqa: E402  (safe here: the Pydantic check above has passed)
+
 DASHBOARD_TAB_LABELS = (
     "Delivery Health",
     "Agent Review",
@@ -99,6 +101,7 @@ DASHBOARD_TAB_LABELS = (
 BEST_PRACTICES_URL = "https://github.com/GiacomoMariani/UnityBestPractices"
 SOURCE_URL = "https://github.com/GiacomoMariani/mr-guardian"
 DEFAULT_THEME_LABEL = "Dark"
+THEME_STATE_KEY = "dashboard_theme"
 DEFAULT_RECENT_REVIEW_LIMIT = 50
 DEFAULT_PM_LOOKBACK_DAYS = 30
 DEFAULT_LEAD_LOOKBACK_DAYS = 30
@@ -113,6 +116,64 @@ AGENT_REVIEW_PAGER_STEP = 1
 AGENT_REVIEW_PAGER_ARROW_WIDTH = 0.5
 AGENT_REVIEW_SELECTED_KEY = "agent_review_selected_id"
 AGENT_REVIEW_WINDOW_KEY = "agent_review_window_start"
+AGENT_REVIEW_CAPTION = (
+    "A complete review the agent produced — deterministic policy checks fused "
+    "with bounded LLM reasoning into a single merge verdict."
+)
+
+
+def _db_mtime(database_path: Path) -> float:
+    """Modification time of the history DB; bumps the loader caches when it changes."""
+    try:
+        return database_path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+# The dashboard re-runs on every interaction, so the section loaders are cached and
+# keyed on the DB mtime: tab/section switches are instant, and the cache refreshes
+# automatically when a new review is written.
+@st.cache_data(show_spinner=False)
+def _cached_dashboard_data(database_path: Path, recent_limit: int, db_mtime: float):
+    return load_dashboard_data(database_path, recent_limit=recent_limit)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_pm_summary(database_path: Path, days: int, db_mtime: float):
+    return load_pm_dashboard_summary(database_path, days=days)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_lead_summary(database_path: Path, days: int, db_mtime: float):
+    return load_lead_dashboard_summary(database_path, days=days)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_developer_detail(
+    database_path: Path, developer_id: str, days: int, db_mtime: float
+):
+    return load_lead_developer_detail(
+        database_path, developer_id=developer_id, days=days
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _cached_weekly_review(database_path: Path, db_mtime: float):
+    return load_latest_weekly_llm_review(database_path)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_eta_note(database_path: Path, db_mtime: float):
+    return load_dashboard_eta_note(database_path)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_review_run(database_path: Path, review_id: int, db_mtime: float):
+    store = ReviewHistoryStore(database_path)
+    try:
+        return store.review_run(review_id)
+    finally:
+        store.close()
 
 
 def main() -> None:
@@ -121,27 +182,26 @@ def main() -> None:
 
     settings = get_settings()
     st.set_page_config(page_title="MR Guardian", layout="wide")
+    database_path = Path(settings.history_db_path)
+    # The theme control lives at the foot of the page, so resolve the active theme
+    # from session state to drive the CSS before any content is rendered.
+    theme = _selected_theme(st)
+    st.markdown(dashboard_css(theme), unsafe_allow_html=True)
+
     if _is_developer_view(st):
-        theme, database_path = _render_developer_top_controls(
-            st,
-            settings,
-        )
-        st.markdown(dashboard_css(theme), unsafe_allow_html=True)
         _render_developer_detail_page(
             st,
             database_path,
             theme,
         )
+        _render_pipeline_hook(st)
+        _render_bottom_controls(st, database_path)
         return
 
-    theme, database_path = _render_dashboard_top_controls(
-        st,
-        settings,
-    )
-    st.markdown(dashboard_css(theme), unsafe_allow_html=True)
-    data = load_dashboard_data(
+    data = _cached_dashboard_data(
         database_path,
-        recent_limit=DEFAULT_RECENT_REVIEW_LIMIT,
+        DEFAULT_RECENT_REVIEW_LIMIT,
+        _db_mtime(database_path),
     )
     _render_page_heading(
         st,
@@ -167,34 +227,55 @@ def main() -> None:
         database_path=database_path,
         theme=theme,
     )
+    _render_pipeline_hook(st)
+    _render_bottom_controls(st, database_path)
 
 
-def _render_dashboard_top_controls(st, settings) -> tuple[DashboardTheme, Path]:
+def _selected_theme(st) -> DashboardTheme:
+    """Resolve the active theme from session state.
+
+    The theme selector is rendered at the foot of the page, but its CSS must be
+    applied before content renders, so we read the stored selection here (falling
+    back to the default on a fresh load) and let the widget update it next run.
+    """
+    label = st.session_state.get(THEME_STATE_KEY, DEFAULT_THEME_LABEL)
+    return theme_from_label(str(label))
+
+
+def _render_bottom_controls(st, database_path: Path) -> None:
+    """Render the theme selector and read-only history-database path at the foot."""
     columns = st.columns([1, 2.5])
     with columns[0]:
-        theme_label = st.selectbox(
+        st.selectbox(
             "Theme",
             list(THEME_LABELS),
             index=_default_theme_index(),
+            key=THEME_STATE_KEY,
         )
     with columns[1]:
-        database_path = Path(settings.history_db_path)
         _render_readonly_database_path(st, database_path)
-    return theme_from_label(str(theme_label)), database_path
 
 
-def _render_developer_top_controls(st, settings) -> tuple[DashboardTheme, Path]:
-    columns = st.columns([1, 2.5])
-    with columns[0]:
-        theme_label = st.selectbox(
-            "Theme",
-            list(THEME_LABELS),
-            index=_default_theme_index(),
-        )
-    with columns[1]:
-        database_path = Path(settings.history_db_path)
-        _render_readonly_database_path(st, database_path)
-    return theme_from_label(str(theme_label)), database_path
+def _render_pipeline_hook(st) -> None:
+    """One-line 'how it works' explainer of the agentic pipeline, for the page foot."""
+    steps = [
+        ("Merge-request diff", False),
+        ("Deterministic policy checks + bounded LLM reasoning", False),
+        ("Single merge verdict", True),
+    ]
+    parts: list[str] = []
+    for position, (label, accent) in enumerate(steps):
+        if position:
+            parts.append('<span class="mg-howitworks-arrow">→</span>')
+        css_class = "mg-howitworks-step accent" if accent else "mg-howitworks-step"
+        parts.append(f'<span class="{css_class}">{_html(label)}</span>')
+    _render_html(
+        st,
+        '<div class="mg-howitworks">'
+        '<span class="mg-howitworks-label">How it works</span>'
+        f'<div class="mg-howitworks-flow">{"".join(parts)}</div>'
+        "</div>",
+    )
 
 
 def _default_theme_index() -> int:
@@ -288,7 +369,7 @@ def _render_eta_note(
     *,
     readiness_percent: float,
 ) -> None:
-    note = load_dashboard_eta_note(database_path)
+    note = _cached_eta_note(database_path, _db_mtime(database_path))
     _render_html(
         st,
         render_section(
@@ -340,7 +421,7 @@ def _readiness_badge(readiness_percent: float) -> str:
 
 
 def _render_weekly_llm_review(st, database_path: Path) -> None:
-    weekly_review = load_latest_weekly_llm_review(database_path)
+    weekly_review = _cached_weekly_review(database_path, _db_mtime(database_path))
     _render_html(
         st,
         render_section(
@@ -375,18 +456,62 @@ def _render_trends(st, data: DashboardData) -> None:
         ),
     )
     if data.trend_points:
-        st.line_chart(
-            {
-                "Blocking": {
-                    point.date: point.blocking_count
-                    for point in data.trend_points
-                },
-                "Warnings": {
-                    point.date: point.warning_count
-                    for point in data.trend_points
-                },
-            }
+        _render_trend_chart(st, data.trend_points)
+
+
+def _render_trend_chart(st, trend_points) -> None:
+    """Risk-trend line chart in design-system colours (readable on both themes),
+    replacing the stock light-on-dark ``st.line_chart``."""
+    import altair as alt
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [
+            {"Date": point.date, "Findings": count, "Severity": severity}
+            for point in trend_points
+            for severity, count in (
+                ("Blocking", point.blocking_count),
+                ("Warnings", point.warning_count),
+            )
+        ]
+    )
+    axis = "#8b929b"
+    chart = (
+        alt.Chart(frame)
+        .mark_line(point=alt.OverlayMarkDef(filled=True, size=44), strokeWidth=2)
+        .encode(
+            x=alt.X(
+                "Date:O",
+                title=None,
+                axis=alt.Axis(
+                    labelColor=axis, tickColor=axis, domainColor=axis, labelAngle=0
+                ),
+            ),
+            y=alt.Y(
+                "Findings:Q",
+                title="Findings",
+                axis=alt.Axis(
+                    labelColor=axis,
+                    titleColor=axis,
+                    tickColor=axis,
+                    domainColor=axis,
+                    gridColor="#80808026",
+                    format="d",
+                    tickMinStep=1,
+                ),
+            ),
+            color=alt.Color(
+                "Severity:N",
+                scale=alt.Scale(
+                    domain=["Blocking", "Warnings"], range=["#b3261e", "#b06b00"]
+                ),
+                legend=alt.Legend(title=None, labelColor=axis, orient="top"),
+            ),
         )
+        .properties(height=260, background="transparent")
+        .configure_view(strokeOpacity=0)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _render_recent_reviews(st, database_path: Path) -> None:
@@ -398,7 +523,9 @@ def _render_recent_reviews(st, database_path: Path) -> None:
         step=10,
         key="recent_reviews_limit",
     )
-    data = load_dashboard_data(database_path, recent_limit=int(recent_limit))
+    data = _cached_dashboard_data(
+        database_path, int(recent_limit), _db_mtime(database_path)
+    )
     _render_html(
         st,
         render_section(
@@ -412,9 +539,10 @@ def _render_recent_reviews(st, database_path: Path) -> None:
 
 def _render_pm_dashboard(st, database_path: Path) -> float:
     lookback_days = DEFAULT_PM_LOOKBACK_DAYS
-    summary = load_pm_dashboard_summary(
+    summary = _cached_pm_summary(
         database_path,
-        days=lookback_days,
+        lookback_days,
+        _db_mtime(database_path),
     )
 
     _render_html(
@@ -456,9 +584,10 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
         step=1,
         key="lead_lookback_days",
     )
-    summary = load_lead_dashboard_summary(
+    summary = _cached_lead_summary(
         database_path,
-        days=int(lookback_days),
+        int(lookback_days),
+        _db_mtime(database_path),
     )
     if not summary.developers:
         _render_html(
@@ -591,10 +720,11 @@ def _render_developer_detail_page(
         step=1,
         key="developer_detail_lookback_days",
     )
-    detail = load_lead_developer_detail(
+    detail = _cached_developer_detail(
         database_path,
-        developer_id=developer_id,
-        days=int(lookback_days),
+        developer_id,
+        int(lookback_days),
+        _db_mtime(database_path),
     )
     if detail is None:
         _render_html(
@@ -717,15 +847,6 @@ def _evaluation_average_score(
         if evaluation_summary.evaluation == evaluation:
             return evaluation_summary.average_score
     return None
-
-
-def _agent_review_caption() -> str:
-    return (
-        '<p class="mg-section-caption">'
-        "A complete review the agent produced — deterministic policy checks "
-        "fused with bounded LLM reasoning into a single merge verdict."
-        "</p>"
-    )
 
 
 def _review_pager_slots(
@@ -862,17 +983,16 @@ def _render_selected_report(
         st,
         render_section(
             title="Agent Review",
+            subtitle=AGENT_REVIEW_CAPTION,
             anchor_id="agent-review",
-            body_html=_agent_review_caption(),
+            body_html="",
         ),
     )
     review_ids = [run.review_id for run in data.recent_reviews]
     selected_review_id = _render_review_pager(st, review_ids)
-    store = ReviewHistoryStore(database_path)
-    try:
-        selected_run = store.review_run(int(selected_review_id))
-    finally:
-        store.close()
+    selected_run = _cached_review_run(
+        database_path, int(selected_review_id), _db_mtime(database_path)
+    )
 
     if selected_run is None:
         _render_html(
@@ -887,12 +1007,25 @@ def _render_selected_report(
     _render_review_report_tabs(st, selected_run, theme)
 
 
+def _review_report_height(run: ReviewRunRecord) -> int:
+    """Initial iframe height for the visual report; the report then auto-sizes itself
+    to fit exactly (see ``visual_report._autosize_script``). This content-aware
+    estimate just keeps the pre-resize flash small — roughly a findings-free report
+    plus a little per finding."""
+    findings = (
+        len(run.findings)
+        if run.findings
+        else run.blocking_count + run.high_count + run.warning_count + run.info_count
+    )
+    return max(680, min(2400, 700 + 50 * findings))
+
+
 def _render_review_report_tabs(st, selected_run, theme: DashboardTheme) -> None:
     visual_tab, raw_tab = st.tabs(["Visual Report", "Raw Markdown"])
     with visual_tab:
         st.components.v1.html(
             render_visual_review_report(selected_run, theme=theme),
-            height=1100,
+            height=_review_report_height(selected_run),
             scrolling=True,
         )
     with raw_tab:

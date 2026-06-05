@@ -212,6 +212,51 @@ a {{
   user-select: text;
 }}
 
+.mg-howitworks {{
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 28px 0 6px;
+  padding-top: 16px;
+}}
+
+.mg-howitworks-label {{
+  color: var(--ink-3);
+  font-family: var(--mg-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}}
+
+.mg-howitworks-flow {{
+  align-items: center;
+  color: var(--ink-2);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 13px;
+  gap: 8px;
+}}
+
+.mg-howitworks-step {{
+  background: var(--surface-2s);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 4px 10px;
+}}
+
+.mg-howitworks-step.accent {{
+  border-color: var(--accent);
+  color: var(--ink);
+}}
+
+.mg-howitworks-arrow {{
+  color: var(--ink-3);
+  font-family: var(--mg-mono);
+}}
+
 .mg-dashboard-panel {{
   background: var(--surface);
   border: 1px solid var(--line);
@@ -441,12 +486,31 @@ a {{
   padding: 18px 20px;
 }}
 
-.mg-section-caption {{
+.mg-panel-subtitle {{
   color: var(--ink-2);
-  font-size: 14px;
-  line-height: 1.6;
-  margin: 0;
-  padding: 18px 20px;
+  font-family: var(--mg-sans);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.5;
+}}
+
+/* Fold the Agent Review caption onto the title row: one compact bar, no body. */
+#agent-review .mg-panel-head {{
+  border-bottom: 0;
+  padding: 8px 18px;
+}}
+
+#agent-review .mg-panel-head > div {{
+  align-items: baseline;
+  column-gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 2px;
+}}
+
+/* Streamlit adds vertical padding to markdown headings; drop it so the bar is tight. */
+#agent-review .mg-panel-head h2 {{
+  padding: 0;
 }}
 
 .mg-pager-label {{
@@ -728,6 +792,17 @@ a {{
   font-weight: 700;
   letter-spacing: .07em;
   text-transform: uppercase;
+}}
+
+/* The label text renders in an inner markdown <p>; pin it to the same 10.5px as
+   the .mg-readonly-label so widget labels line up with the read-only controls. */
+[data-testid="stWidgetLabel"] [data-testid="stMarkdownContainer"] p {{
+  font-size: 10.5px;
+}}
+
+/* Match the selectbox value to the 14px .mg-readonly-value (baseweb defaults 16px). */
+[data-testid="stSelectbox"] [data-baseweb="select"] div {{
+  font-size: 14px;
 }}
 
 [data-baseweb="input"],
