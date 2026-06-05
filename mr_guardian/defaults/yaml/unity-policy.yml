@@ -489,3 +489,471 @@ rules:
       output_contract:
         max_findings: 3
         allow_blocking: false
+
+
+  # ###########################################################################
+  # NEW UNITY RULES — promoted from personal-notes/proposed-unity-rules.draft.yml
+  # 21 LLM rules (enabled) + 4 deterministic placeholders (enabled: false until
+  # implemented and registered; the engine dispatches by rule ID, not impl name).
+  # ###########################################################################
+  # =========================================================================
+  # COMMON  — fires on lots of MRs
+  # =========================================================================
+
+  - id: UNITY-FIND-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning          # was info
+    source: unity-policy.yml#UNITY-FIND-LLM-001
+    description: Flag expensive runtime object lookups.
+    prompt: |
+      Review the provided Unity C# diff for expensive object lookups such as
+      GameObject.Find, FindObjectOfType, FindGameObjectsWithTag, transform.Find,
+      and repeated Camera.main access, especially inside Update/LateUpdate/
+      FixedUpdate or other hot paths. Prefer cached references resolved in
+      Awake/Start or serialized in the inspector.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: common
+
+  - id: UNITY-LOCALIZATION-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-LOCALIZATION-LLM-001
+    description: Flag hardcoded user-facing strings.
+    prompt: |
+      Review the provided Unity diff for hardcoded user-facing text (UI labels,
+      dialogue, tooltips, button captions) assigned directly in code or set on
+      Text/TMP components instead of being routed through a localization layer
+      (string tables / keys). Ignore log messages, exception text, and editor-only
+      strings. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: common
+
+  - id: UNITY-MAGIC-NUMBERS-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-MAGIC-NUMBERS-LLM-001
+    description: Flag hardcoded gameplay constants that should be tunable.
+    prompt: |
+      Review the provided Unity diff for hardcoded gameplay/balance constants
+      (speeds, costs, cooldowns, growth times, thresholds) embedded in code that
+      designers would likely want to tune. Prefer [SerializeField] fields or
+      ScriptableObject config. Do not flag genuine constants (math, array sizes,
+      buffer lengths). Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: common
+
+  # =========================================================================
+  # UNCOMMON
+  # =========================================================================
+
+  - id: UNITY-NULLREF-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: high             # DECISION #1: requested `blocking`, but LLM rules
+                               # cannot block. See deterministic stub at bottom.
+    source: unity-policy.yml#UNITY-NULLREF-LLM-001
+    description: Flag missing-reference / null-dereference risk.
+    prompt: |
+      Review the provided Unity C# diff for null-reference risk: serialized
+      references that can ship unassigned and are used without a guard, results
+      of GetComponent/GetComponentInChildren used without a null check, and
+      TryGetComponent ignored. Call out the specific dereference that can throw.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-ALLOC-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-ALLOC-LLM-001
+    description: Flag hidden allocations in hot paths.
+    prompt: |
+      Review the provided Unity C# diff for hidden per-frame allocations beyond
+      the simple token checks in UNITY-PERF-GC-001: LINQ chains, closures that
+      capture state, boxing of structs/enums, params arrays, and enumerator
+      allocations inside Update/LateUpdate/FixedUpdate or other hot paths.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-TIME-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-TIME-LLM-001
+    description: Flag frame-rate-dependent logic / deltaTime misuse.
+    prompt: |
+      Review the provided Unity C# diff for time handling bugs: movement, growth,
+      timers, or interpolation that are not scaled by Time.deltaTime (or use it
+      where fixedDeltaTime is correct), and logic that silently assumes a fixed
+      frame rate or a particular Time.timeScale. Only report issues grounded in
+      the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-ASSET-IMPORT-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-ASSET-IMPORT-LLM-001
+    description: Flag risky texture/sprite/audio import settings.
+    prompt: |
+      Review the provided Unity diff (including .meta files) for asset import
+      risks: uncompressed or oversized textures, missing or inconsistent sprite
+      atlas membership, inconsistent pixels-per-unit, mipmaps on UI sprites, and
+      decompress-on-load / heavy audio import settings. If the diff touches no
+      asset or .meta files, return no findings. Only report issues grounded in
+      the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-EXCEPTION-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-EXCEPTION-LLM-001
+    description: Flag error-handling smells.
+    prompt: |
+      Review the provided Unity C# diff for error-handling smells: empty catch
+      blocks, catching System.Exception broadly, swallowing exceptions without
+      logging or rethrow, try/catch inside per-frame hot paths, and exceptions
+      used for normal control flow. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-ODIN-FIELD-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-ODIN-FIELD-LLM-001
+    description: Flag fields that will not show in the Odin Inspector.
+    prompt: |
+      Review the provided Unity C# diff for fields that are intended to be edited
+      in the inspector but will not appear in Sirenix Odin's inspector: private
+      or internal fields without [SerializeField] or [ShowInInspector], auto
+      properties without [ShowInInspector], and non-serializable types shown
+      without [ShowInInspector]. Assume this project uses Odin Inspector. Only
+      report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: uncommon
+
+  - id: UNITY-INPUT-001
+    type: deterministic
+    implementation: unity_raw_input_usage     # dispatched by rule ID via registry -> AddedLineTokenRule
+    evaluation: coding
+    enabled: true
+    severity: blocking         # promoted from the old LLM hygiene rule
+    source: unity-policy.yml#UNITY-INPUT-001
+    description: Block newly introduced legacy/raw input API usage.
+    # NOTE: overlaps UNITY-LEGACY-INPUT-LLM-001 (DECISION #2). This deterministic
+    # rule is the hard gate on raw-input tokens; the LLM rule keeps the judgment
+    # calls (FixedUpdate polling, no rebinding support) that tokens can't catch.
+    parameters:
+      match:
+        changed_files: ["Assets/**/*.cs"]
+        added_lines_contain:
+          - "UnityEngine.Input."
+          - "Input.GetKey"
+          - "Input.GetButton"
+          - "Input.GetAxis"
+          - "Input.GetMouseButton"
+          - "KeyCode."
+      rarity: uncommon
+
+  # =========================================================================
+  # RARE  — subsystem-specific
+  # =========================================================================
+
+  - id: UNITY-COROUTINE-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-COROUTINE-LLM-001
+    description: Flag coroutine / MEC lifecycle leaks.
+    prompt: |
+      Review the provided Unity C# diff for coroutine lifecycle risks. Cover both
+      Unity coroutines (StartCoroutine without a matching stop, coroutines owned
+      by objects that get disabled/destroyed mid-run, StartCoroutine in Update)
+      and MEC / More Effective Coroutines (Timing.RunCoroutine, IEnumerator<float>,
+      CoroutineHandle values that are never .Kill()ed or are not tied to a segment
+      or gameObject). Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-MATERIAL-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-MATERIAL-LLM-001
+    description: Flag material instancing leaks and missing MaterialPropertyBlock.
+    prompt: |
+      Review the provided Unity C# diff for renderer material risks: accessing
+      renderer.material / .materials (which clones an instance) instead of
+      sharedMaterial, instantiated materials / RenderTextures / Meshes that are
+      never destroyed, and — importantly — per-renderer property changes
+      (material.SetColor/SetFloat/SetTexture) that should go through a
+      MaterialPropertyBlock to preserve batching. Flag missing MaterialPropertyBlock
+      usage explicitly. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-LEGACY-INPUT-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-LEGACY-INPUT-LLM-001
+    description: Flag use of the legacy Input Manager over the new Input System.
+    # NOTE: overlaps the deterministic UNITY-INPUT-001 (DECISION #2). Keep only
+    # the judgment calls here if that rule is adopted.
+    prompt: |
+      Review the provided Unity C# diff for use of the legacy Input Manager
+      (UnityEngine.Input, Input.GetKey/GetAxis/GetButton, hardcoded KeyCode) when
+      the project standard is the new Input System (InputAction / PlayerInput).
+      Also flag input polled in FixedUpdate (missed presses) and input with no
+      rebinding path. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-SINGLETON-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning          # was info — warn when a new singleton is added
+    source: unity-policy.yml#UNITY-SINGLETON-LLM-001
+    description: Warn when a new singleton / global mutable state is introduced.
+    prompt: |
+      Review the provided Unity C# diff for newly introduced singletons or global
+      mutable state: a new static Instance property/field, a new MonoBehaviour
+      singleton, or new static mutable collections/state. Note hidden coupling and
+      state that may survive scene reloads unintentionally. Raise a warning when a
+      new singleton is added. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-SCENE-MGMT-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-SCENE-MGMT-LLM-001
+    description: Flag scene-loading and DontDestroyOnLoad hygiene issues.
+    prompt: |
+      Review the provided Unity C# diff for scene-management risks: synchronous
+      SceneManager.LoadScene on large scenes (frame hitch) where async is
+      appropriate, additive scene loads with unclear unload ownership, and
+      DontDestroyOnLoad objects that can be duplicated on scene reload without a
+      singleton guard. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-SHADER-PROP-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-SHADER-PROP-LLM-001
+    description: Flag shader/material property handling issues.
+    prompt: |
+      Review the provided Unity diff for shader property handling: string-based
+      material property names used repeatedly instead of cached Shader.PropertyToID
+      handles, runtime shader keyword toggles (EnableKeyword) on hot paths, and
+      missing MaterialPropertyBlock where per-instance properties break batching.
+      If the diff touches no shader/material code, return no findings. Only report
+      issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-ANIMATOR-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-ANIMATOR-LLM-001
+    description: Flag Animator usage issues.
+    prompt: |
+      Review the provided Unity C# diff for Animator usage issues: string-based
+      parameter/state names instead of cached Animator.StringToHash handles,
+      Animator.Play/SetTrigger called every frame in Update, and animation-event
+      handlers referenced by name with no matching method. If the diff touches no
+      animation code, return no findings. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-EDITOR-GUARD-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-EDITOR-GUARD-LLM-001
+    description: Flag editor-only or debug code leaking into runtime builds.
+    prompt: |
+      Review the provided Unity C# diff for editor-only or debug code that can
+      leak into player builds: UnityEditor APIs used outside an Editor assembly/
+      folder or without an #if UNITY_EDITOR guard, [MenuItem]/editor utilities in
+      runtime scripts, and debug cheats/God-mode toggles not gated behind a build
+      flag. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: rare
+
+  - id: UNITY-GEOMETRY-BUDGET-001
+    type: deterministic
+    implementation: unity_geometry_triangle_budget  # impl: UnityGeometryBudgetRule (self-extract, ticket 055)
+    evaluation: coding
+    enabled: true
+    severity: blocking         # v1: blocks at block_triangles (single severity; warn_triangles = future warning sibling)
+    source: unity-policy.yml#UNITY-GEOMETRY-BUDGET-001
+    description: Enforce the per-mesh triangle budget.
+    # v1 (ticket 055): counts triangles by parsing .obj; .fbx/.blend/.dae deferred.
+    parameters:
+      threshold:
+        warn_triangles: 20000
+        block_triangles: 50000
+      rarity: rare
+
+  # =========================================================================
+  # EPIC  — narrow, infrequent
+  # =========================================================================
+
+  - id: UNITY-ASYNC-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-ASYNC-LLM-001
+    description: Flag async/await safety issues; prefer UniTask over Task.
+    prompt: |
+      Review the provided Unity C# diff for async/await risks: async void methods,
+      awaits with no CancellationToken that can resume after the object/scene is
+      destroyed, and Unity API touched off the main thread. Additionally, flag use
+      of System.Threading.Tasks.Task / async Task in Unity gameplay code where
+      UniTask is preferred (allocation-free, PlayerLoop-integrated) and recommend
+      UniTask. Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: epic
+
+  - id: UNITY-SERIALIZE-SAFE-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-SERIALIZE-SAFE-LLM-001
+    description: Flag save/serialization safety issues.
+    prompt: |
+      Review the provided Unity C# diff for save/serialization risks: JsonUtility
+      limits (no dictionaries/polymorphism/null handling), PlayerPrefs used for
+      large or security-sensitive save data, missing save-version field or
+      migration path for changed save schemas, and brittle BinaryFormatter usage.
+      Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: epic
+
+  - id: UNITY-ASSET-MEMORY-001
+    type: deterministic
+    implementation: unity_asset_memory_delta  # impl: UnityAssetMemoryRule (self-extract, ticket 057)
+    evaluation: coding
+    enabled: true
+    severity: blocking         # v1: blocks at block_mb (single severity; warn_mb = future warning sibling)
+    source: unity-policy.yml#UNITY-ASSET-MEMORY-001
+    description: Flag asset-memory growth for the build.
+    # v1 (ticket 057): estimate texture memory from image dimensions + .meta settings.
+    parameters:
+      threshold:
+        warn_mb: 25
+        block_mb: 75
+      rarity: epic
+
+  # =========================================================================
+  # LEGENDARY  — almost never
+  # =========================================================================
+
+  - id: UNITY-DETERMINISM-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: info
+    source: unity-policy.yml#UNITY-DETERMINISM-LLM-001
+    description: Flag non-deterministic gameplay where reproducibility matters.
+    prompt: |
+      Review the provided Unity C# diff for non-determinism in simulation or
+      gameplay that is expected to be reproducible: UnityEngine.Random / System
+      Random used without a seed, iteration over unordered collections affecting
+      outcomes, and frame-order-dependent simulation (e.g. growth/economy ticks).
+      Only report issues grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: legendary
+
+  - id: UNITY-OFFLINE-TIME-LLM-001
+    type: llm
+    evaluation: coding
+    enabled: true
+    severity: warning
+    source: unity-policy.yml#UNITY-OFFLINE-TIME-LLM-001
+    description: Flag real-world clock and offline-progression risks.
+    prompt: |
+      Review the provided Unity C# diff for real-world time risks in offline /
+      idle progression: DateTime.Now/UtcNow driving save-based growth or rewards
+      (vulnerable to device clock tampering), timezone and daylight-saving bugs,
+      and elapsed-time math that can go negative or overflow. Prefer a trusted/
+      server time source where progression is rewarded. Only report issues
+      grounded in the diff.
+    parameters:
+      inputs: { include_diff: true, include_changed_files: true }
+      output_contract: { max_findings: 3, allow_blocking: false }
+      rarity: legendary

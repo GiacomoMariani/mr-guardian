@@ -1,1 +1,5 @@
 Docs/assets/*.png filter=lfs diff=lfs merge=lfs -text
+
+# Shell scripts and the Caddyfile must stay LF so they run inside Linux containers.
+*.sh text eol=lf
+Caddyfile text eol=lf

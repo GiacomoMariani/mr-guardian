@@ -33,6 +33,7 @@ def test_review_merge_request_passes_metadata_to_engine(
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         nonlocal captured_review_input
         captured_review_input = review_input
@@ -82,6 +83,7 @@ def test_review_merge_request_passes_review_scope_to_review_input(
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         assert review_input.review_scope == "gitlab-webhook"
         return EngineReviewResult(risk="none", findings=[], counts=FindingCounts())
@@ -123,6 +125,7 @@ def test_review_merge_request_combines_multiple_policy_results(
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         finding = Finding(
             rule_id=f"POLICY-{policy.version}",
@@ -198,6 +201,7 @@ def test_review_merge_request_attaches_llm_summary_without_changing_review_resul
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         finding = Finding(
             rule_id="PYTHON-PRINT-001",
@@ -277,6 +281,7 @@ def test_review_merge_request_records_llm_summary_failure(
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         return EngineReviewResult(risk="none", findings=[], counts=FindingCounts())
 
@@ -317,6 +322,7 @@ def test_review_merge_request_uses_packaged_default_policies_when_repo_defaults_
         review_input: ReviewInput,
         rule_registry,
         llm_rule_runner,
+        repo_root=None,
     ) -> EngineReviewResult:
         return EngineReviewResult(risk="none", findings=[], counts=FindingCounts())
 

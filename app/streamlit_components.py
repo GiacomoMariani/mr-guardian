@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
+from math import ceil
 from typing import Literal, TypeAlias
 
 Tone = Literal["neutral", "accent", "blocking", "high", "warning", "info", "pass"]
@@ -87,9 +88,9 @@ def render_section(
 ) -> str:
     """Render one dashboard panel.
 
-    ``index`` shows a small sequence number ("01") in the panel head; pass ``None``
-    to omit it (e.g. for a single-section panel where the number has nothing to
-    sequence against). ``subtitle`` renders muted alongside the title in the head.
+    ``index`` is retained for call-site compatibility, but dashboard panels no
+    longer render visible sequence numbers. ``subtitle`` renders muted alongside
+    the title in the head.
     """
     eyebrow_html = (
         f'<span class="mg-panel-eyebrow">{_html(eyebrow)}</span>'
@@ -98,9 +99,6 @@ def render_section(
     )
     action = action_html or ""
     section_id = f' id="{_html(anchor_id)}"' if anchor_id else ""
-    num_html = (
-        f'<span class="mg-panel-num">{index:02}</span>' if index is not None else ""
-    )
     subtitle_html = (
         f'<span class="mg-panel-subtitle">{_html(subtitle)}</span>'
         if subtitle is not None
@@ -111,7 +109,6 @@ def render_section(
             f'<section class="mg-dashboard-panel"{section_id}>',
             '<div class="mg-panel-head">',
             "<div>",
-            num_html,
             f"<h2>{_html(title)}</h2>",
             subtitle_html,
             "</div>",
@@ -166,6 +163,111 @@ def render_empty_state(message: str) -> str:
 def render_raw_markdown_block(markdown: str) -> str:
     """Render raw Markdown text inside the standalone-style report block."""
     return f'<pre class="mg-raw-md">{_html(markdown)}</pre>'
+
+
+def render_trend_chart(
+    points: Sequence[tuple[str, int, int]],
+    *,
+    empty_message: str = "No trend data is available yet.",
+) -> str:
+    """Render a responsive design-system trend chart."""
+    if not points:
+        return "\n".join(
+            [
+                '<section class="mg-trend-chart-card">',
+                '<div class="mg-trend-chart-head">',
+                "<h2>Review Risk Trend</h2>",
+                '<span class="mg-panel-eyebrow">Findings</span>',
+                "</div>",
+                render_empty_state(empty_message),
+                "</section>",
+            ]
+        )
+
+    width = 920
+    height = 290
+    margin_left = 58
+    margin_right = 24
+    margin_top = 28
+    margin_bottom = 54
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+    max_count = max(max(blocking, warning) for _, blocking, warning in points)
+    max_y = max(1, max_count)
+    ticks = _trend_ticks(max_y)
+    blocking_points = _svg_points(
+        points,
+        value_index=1,
+        max_y=max_y,
+        plot_width=plot_width,
+        plot_height=plot_height,
+        margin_left=margin_left,
+        margin_top=margin_top,
+    )
+    warning_points = _svg_points(
+        points,
+        value_index=2,
+        max_y=max_y,
+        plot_width=plot_width,
+        plot_height=plot_height,
+        margin_left=margin_left,
+        margin_top=margin_top,
+    )
+    grid_html = "\n".join(
+        _trend_grid_line(
+            tick,
+            max_y=max_y,
+            plot_width=plot_width,
+            plot_height=plot_height,
+            margin_left=margin_left,
+            margin_top=margin_top,
+        )
+        for tick in ticks
+    )
+    x_labels_html = "\n".join(
+        _trend_x_label(
+            index,
+            point[0],
+            point_count=len(points),
+            plot_width=plot_width,
+            plot_height=plot_height,
+            margin_left=margin_left,
+            margin_top=margin_top,
+        )
+        for index, point in enumerate(points)
+        if _should_show_x_label(index, len(points))
+    )
+    return "\n".join(
+        [
+            '<section class="mg-trend-chart-card">',
+            '<div class="mg-trend-chart-head">',
+            "<h2>Review Risk Trend</h2>",
+            '<div class="mg-trend-legend">',
+            '<span><i class="blocking"></i>Blocking</span>',
+            '<span><i class="warning"></i>Warnings</span>',
+            "</div>",
+            "</div>",
+            '<div class="mg-trend-chart-body">',
+            (
+                f'<svg class="mg-trend-svg" viewBox="0 0 {width} {height}" '
+                'role="img" aria-label="Blocking and warning findings over time">'
+            ),
+            grid_html,
+            _trend_polyline(blocking_points, "blocking"),
+            _trend_polyline(warning_points, "warning"),
+            _trend_circles(blocking_points, "blocking"),
+            _trend_circles(warning_points, "warning"),
+            x_labels_html,
+            (
+                f'<text class="mg-trend-axis-title" x="16" '
+                f'y="{margin_top + plot_height / 2}" transform="rotate(-90 16 '
+                f'{margin_top + plot_height / 2})">Findings</text>'
+            ),
+            "</svg>",
+            "</div>",
+            "</section>",
+        ]
+    )
 
 
 def cell_text(value: object, *, align: Alignment = "left", mono: bool = False) -> TableCell:
@@ -247,3 +349,94 @@ def _format_value(value: object) -> str:
 
 def _html(value: str) -> str:
     return escape(value, quote=True)
+
+
+def _trend_ticks(max_y: int) -> list[int]:
+    if max_y <= 4:
+        return list(range(0, max_y + 1))
+    step = ceil(max_y / 4)
+    ticks = list(range(0, max_y + 1, step))
+    return ticks if ticks[-1] == max_y else [*ticks, max_y]
+
+
+def _svg_points(
+    points: Sequence[tuple[str, int, int]],
+    *,
+    value_index: int,
+    max_y: int,
+    plot_width: int,
+    plot_height: int,
+    margin_left: int,
+    margin_top: int,
+) -> list[tuple[float, float]]:
+    denominator = max(1, len(points) - 1)
+    return [
+        (
+            margin_left + (index / denominator) * plot_width,
+            margin_top + plot_height - (point[value_index] / max_y) * plot_height,
+        )
+        for index, point in enumerate(points)
+    ]
+
+
+def _trend_grid_line(
+    tick: int,
+    *,
+    max_y: int,
+    plot_width: int,
+    plot_height: int,
+    margin_left: int,
+    margin_top: int,
+) -> str:
+    y = margin_top + plot_height - (tick / max_y) * plot_height
+    x_end = margin_left + plot_width
+    return "\n".join(
+        [
+            (
+                f'<line class="mg-trend-grid" x1="{margin_left:.2f}" y1="{y:.2f}" '
+                f'x2="{x_end:.2f}" y2="{y:.2f}" />'
+            ),
+            (
+                f'<text class="mg-trend-y-label" x="{margin_left - 14}" '
+                f'y="{y + 4:.2f}" text-anchor="end">{tick}</text>'
+            ),
+        ]
+    )
+
+
+def _trend_polyline(points: Sequence[tuple[float, float]], tone: Tone) -> str:
+    coords = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+    return f'<polyline class="mg-trend-line {tone}" points="{coords}" />'
+
+
+def _trend_circles(points: Sequence[tuple[float, float]], tone: Tone) -> str:
+    return "\n".join(
+        f'<circle class="mg-trend-point {tone}" cx="{x:.2f}" cy="{y:.2f}" r="4.2" />'
+        for x, y in points
+    )
+
+
+def _trend_x_label(
+    index: int,
+    label: str,
+    *,
+    point_count: int,
+    plot_width: int,
+    plot_height: int,
+    margin_left: int,
+    margin_top: int,
+) -> str:
+    denominator = max(1, point_count - 1)
+    x = margin_left + (index / denominator) * plot_width
+    y = margin_top + plot_height + 28
+    return (
+        f'<text class="mg-trend-x-label" x="{x:.2f}" y="{y}" '
+        f'text-anchor="middle">{_html(label)}</text>'
+    )
+
+
+def _should_show_x_label(index: int, point_count: int) -> bool:
+    if point_count <= 8:
+        return True
+    step = ceil(point_count / 8)
+    return index == 0 or index == point_count - 1 or index % step == 0

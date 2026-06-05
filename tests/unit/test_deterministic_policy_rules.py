@@ -31,6 +31,9 @@ DETERMINISTIC_RULE_IDS = {
     "CSHARP-PUBLIC-FIELDS-001",
     "AI-CODE-001",
     "PYTHON-PRINT-001",
+    "UNITY-INPUT-001",
+    "UNITY-ASSET-MEMORY-001",
+    "UNITY-GEOMETRY-BUDGET-001",
 }
 
 
@@ -104,6 +107,34 @@ def test_default_registry_contains_every_deterministic_rule() -> None:
     registry = default_rule_registry()
 
     assert all(registry.get(rule_id) is not None for rule_id in DETERMINISTIC_RULE_IDS)
+
+
+def test_unity_input_001_flags_raw_input() -> None:
+    rule = make_rule(
+        "UNITY-INPUT-001",
+        implementation="unity_raw_input_usage",
+        severity="blocking",
+        parameters={
+            "match": {
+                "changed_files": ["Assets/**/*.cs"],
+                "added_lines_contain": ["Input.GetKey", "KeyCode."],
+            }
+        },
+    )
+    review_input = ReviewInput(
+        base_ref="main",
+        changed_files=[
+            make_changed_file(
+                "Assets/Scripts/Player.cs",
+                added_lines=["if (Input.GetKey(KeyCode.Space)) Jump();\n"],
+            )
+        ],
+    )
+
+    result = review(rule, review_input)
+
+    assert result.findings[0].rule_id == "UNITY-INPUT-001"
+    assert result.findings[0].severity == "blocking"
 
 
 def test_changed_file_count_threshold_triggers() -> None:

@@ -40,6 +40,8 @@ if RUNTIME_ERROR is not None:
     )
     st.stop()
 
+import streamlit as st  # noqa: E402  (safe here: the Pydantic check above has passed)
+
 from app.streamlit_components import (  # noqa: E402
     MetricCard,
     TableCell,
@@ -54,6 +56,7 @@ from app.streamlit_components import (  # noqa: E402
     render_raw_markdown_block,
     render_section,
     render_table,
+    render_trend_chart,
 )
 from app.streamlit_style import (  # noqa: E402
     THEME_LABELS,
@@ -87,8 +90,6 @@ from mr_guardian.models.review import RiskLevel  # noqa: E402
 from mr_guardian.models.weekly_review import WeeklyLlmReviewRecord  # noqa: E402
 from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
-
-import streamlit as st  # noqa: E402  (safe here: the Pydantic check above has passed)
 
 DASHBOARD_TAB_LABELS = (
     "Delivery Health",
@@ -446,6 +447,7 @@ def _render_triggered_rules(st, data: DashboardData) -> None:
 
 
 def _render_trends(st, data: DashboardData) -> None:
+    _render_trend_chart(st, data.trend_points)
     _render_html(
         st,
         render_section(
@@ -455,63 +457,19 @@ def _render_trends(st, data: DashboardData) -> None:
             body_html=_trend_table(data),
         ),
     )
-    if data.trend_points:
-        _render_trend_chart(st, data.trend_points)
 
 
 def _render_trend_chart(st, trend_points) -> None:
-    """Risk-trend line chart in design-system colours (readable on both themes),
-    replacing the stock light-on-dark ``st.line_chart``."""
-    import altair as alt
-    import pandas as pd
-
-    frame = pd.DataFrame(
-        [
-            {"Date": point.date, "Findings": count, "Severity": severity}
-            for point in trend_points
-            for severity, count in (
-                ("Blocking", point.blocking_count),
-                ("Warnings", point.warning_count),
-            )
-        ]
+    """Render a dashboard-styled risk-trend chart."""
+    _render_html(
+        st,
+        render_trend_chart(
+            [
+                (point.date, point.blocking_count, point.warning_count)
+                for point in trend_points
+            ]
+        ),
     )
-    axis = "#8b929b"
-    chart = (
-        alt.Chart(frame)
-        .mark_line(point=alt.OverlayMarkDef(filled=True, size=44), strokeWidth=2)
-        .encode(
-            x=alt.X(
-                "Date:O",
-                title=None,
-                axis=alt.Axis(
-                    labelColor=axis, tickColor=axis, domainColor=axis, labelAngle=0
-                ),
-            ),
-            y=alt.Y(
-                "Findings:Q",
-                title="Findings",
-                axis=alt.Axis(
-                    labelColor=axis,
-                    titleColor=axis,
-                    tickColor=axis,
-                    domainColor=axis,
-                    gridColor="#80808026",
-                    format="d",
-                    tickMinStep=1,
-                ),
-            ),
-            color=alt.Color(
-                "Severity:N",
-                scale=alt.Scale(
-                    domain=["Blocking", "Warnings"], range=["#b3261e", "#b06b00"]
-                ),
-                legend=alt.Legend(title=None, labelColor=axis, orient="top"),
-            ),
-        )
-        .properties(height=260, background="transparent")
-        .configure_view(strokeOpacity=0)
-    )
-    st.altair_chart(chart, use_container_width=True)
 
 
 def _render_recent_reviews(st, database_path: Path) -> None:
@@ -930,7 +888,7 @@ def _render_review_pager(st, review_ids: list[int]) -> int:
         AGENT_REVIEW_PAGER_ARROW_WIDTH if kind in ("prev", "next") else 1.0
         for kind, _ in slots
     ]
-    for column, (kind, value) in zip(st.columns(column_widths), slots):
+    for column, (kind, value) in zip(st.columns(column_widths), slots, strict=False):
         with column:
             if kind == "id":
                 st.button(
@@ -1008,23 +966,27 @@ def _render_selected_report(
 
 
 def _review_report_height(run: ReviewRunRecord) -> int:
-    """Initial iframe height for the visual report; the report then auto-sizes itself
-    to fit exactly (see ``visual_report._autosize_script``). This content-aware
-    estimate just keeps the pre-resize flash small — roughly a findings-free report
-    plus a little per finding."""
+    """Estimate the embedded visual-report iframe height with only a small slack and
+    no inner scrollbar. The dashboard block-container caps at 1280px, so the report's
+    width — and therefore its content height — is stable on any desktop ≥1280px, which
+    lets the estimate run tight (~30px slack). Calibrated against the rendered embedded
+    reports: a passed report ≈650px, a 2-finding blocked one ≈950px; blocked reports
+    add the "why this is blocked" section. (Narrower/mobile viewports may scroll —
+    tracked in the responsive backlog.)"""
     findings = (
         len(run.findings)
         if run.findings
         else run.blocking_count + run.high_count + run.warning_count + run.info_count
     )
-    return max(680, min(2400, 700 + 50 * findings))
+    height = 680 + 46 * findings + (210 if run.blocking_count else 0)
+    return min(2800, height)
 
 
 def _render_review_report_tabs(st, selected_run, theme: DashboardTheme) -> None:
     visual_tab, raw_tab = st.tabs(["Visual Report", "Raw Markdown"])
     with visual_tab:
         st.components.v1.html(
-            render_visual_review_report(selected_run, theme=theme),
+            render_visual_review_report(selected_run, theme=theme, embedded=True),
             height=_review_report_height(selected_run),
             scrolling=True,
         )

@@ -107,6 +107,7 @@ def review_merge_request(
                 review_input=review_input,
                 rule_registry=registry,
                 llm_rule_runner=resolved_llm_rule_runner,
+                repo_root=provider.repo_path,
             )
             for policy_path in policy_paths
         ]
@@ -137,6 +138,7 @@ def _review_policy(
     review_input: ReviewInput,
     rule_registry: RuleRegistry,
     llm_rule_runner: LlmRuleRunner,
+    repo_root: Path | None = None,
 ) -> PolicyReviewResult:
     policy = load_policy(policy_path)
     return PolicyReviewResult(
@@ -149,6 +151,7 @@ def _review_policy(
             review_input=review_input,
             rule_registry=rule_registry,
             llm_rule_runner=llm_rule_runner,
+            repo_root=repo_root,
         ),
     )
 

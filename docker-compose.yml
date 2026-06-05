@@ -1,0 +1,63 @@
+# Local development stack.
+#
+#   docker compose up --build              # api (8000) + dashboard (8501), fast loop
+#   docker compose --profile combined up combined --build
+#                                          # mirrors the Render single-service build:
+#                                          # dashboard at http://localhost:9000/
+#                                          # API       at http://localhost:9000/api/...
+#
+# All services share the demo DB via a bind mount of ./.mr-guardian so the
+# dashboard shows real data. On Render this is replaced by a persistent disk.
+
+services:
+  api:
+    build: .
+    image: mr-guardian:latest
+    command: ["api"]
+    # Loads local config incl. the OpenAI key. Container paths below override the
+    # relative paths in .env so the service uses in-container locations.
+    env_file: .env
+    environment:
+      MR_GUARDIAN_HISTORY_DB_PATH: /data/history.sqlite
+      MR_GUARDIAN_REPO_PATH: /app/repository
+      MR_GUARDIAN_POLICY_DIR: /app/sources/yaml
+      GITLAB_WORKTREE_DIR: /tmp/mr-guardian-worktrees
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.mr-guardian:/data
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    image: mr-guardian:latest
+    command: ["dashboard"]
+    # Read-only display of stored reviews — no secrets required, just the DB.
+    environment:
+      MR_GUARDIAN_HISTORY_DB_PATH: /data/history.sqlite
+      PORT: "8501"
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./.mr-guardian:/data
+    restart: unless-stopped
+
+  # Exact Render artifact (Caddy + API + dashboard on one port). Off by default.
+  combined:
+    build: .
+    image: mr-guardian:latest
+    command: ["combined"]
+    profiles: ["combined"]
+    env_file: .env
+    environment:
+      MR_GUARDIAN_HISTORY_DB_PATH: /data/history.sqlite
+      MR_GUARDIAN_REPO_PATH: /app/repository
+      MR_GUARDIAN_POLICY_DIR: /app/sources/yaml
+      GITLAB_WORKTREE_DIR: /tmp/mr-guardian-worktrees
+      PORT: "9000"
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./.mr-guardian:/data
+    restart: unless-stopped

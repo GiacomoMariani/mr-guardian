@@ -1,0 +1,43 @@
+# Render Blueprint — combined MR Guardian service.
+# One web service runs Caddy on $PORT, proxying /api/* to FastAPI and / to the
+# Streamlit dashboard, both against one SQLite DB on a persistent disk.
+# Spec: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: mr-guardian
+    runtime: docker
+    plan: starter            # a persistent disk requires a paid instance type
+    region: oregon           # change to your nearest Render region
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Image CMD defaults to "combined" — no dockerCommand override needed.
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: MR_GUARDIAN_HISTORY_DB_PATH
+        value: /data/history.sqlite
+      - key: MR_GUARDIAN_POLICY_DIR
+        value: /app/sources/yaml
+      # Guards destructive + weekly-review/eta-note endpoints. Set in dashboard.
+      - key: MR_GUARDIAN_ADMIN_TOKEN
+        sync: false
+      # LLM is optional; the dashboard and manual-review POSTs do not need it.
+      # Flip to "openai" and set the key to enable LLM rules/summaries.
+      - key: MR_GUARDIAN_LLM_PROVIDER
+        value: disabled
+      - key: MR_GUARDIAN_OPENAI_API_KEY
+        sync: false
+      - key: MR_GUARDIAN_OPENAI_MODEL
+        value: gpt-4.1-mini
+      # GitLab webhook config (optional; only for live MR reviews).
+      - key: GITLAB_BASE_URL
+        value: https://gitlab.com
+      - key: GITLAB_WEBHOOK_SECRET
+        sync: false
+      - key: GITLAB_TOKEN
+        sync: false
+      - key: GITLAB_POST_REVIEW_COMMENTS
+        value: "false"
+    disk:
+      name: mr-guardian-data
+      mountPath: /data
+      sizeGB: 1

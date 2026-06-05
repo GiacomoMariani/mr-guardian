@@ -19,12 +19,14 @@ from mr_guardian.rules.size import (
     ChangedFileCountRule,
     ChangedLineCountRule,
 )
+from mr_guardian.rules.unity_asset_memory import UnityAssetMemoryRule
 from mr_guardian.rules.unity_assets import (
     ChangedFilesRequireMrSectionRule,
     ChangedFilesRequireValidationRule,
     ProductionCodeRequiresTestsOrValidationRule,
 )
 from mr_guardian.rules.unity_events import UnityEventSubscriptionRule
+from mr_guardian.rules.unity_geometry_budget import UnityGeometryBudgetRule
 from mr_guardian.rules.unity_performance import (
     UnityPerFrameAllocationRule,
     UnityRuntimeInstantiationRule,
@@ -51,6 +53,19 @@ DEFAULT_RULE_FACTORIES: dict[str, Callable[[], DeterministicRule]] = {
     "UNITY-PERF-GC-001": lambda: UnityPerFrameAllocationRule("UNITY-PERF-GC-001"),
     "UNITY-POOLING-001": lambda: UnityRuntimeInstantiationRule("UNITY-POOLING-001"),
     "UNITY-RESOURCES-001": lambda: UnityResourcesLoadRule("UNITY-RESOURCES-001"),
+    "UNITY-INPUT-001": lambda: AddedLineTokenRule(
+        "UNITY-INPUT-001",
+        (
+            "UnityEngine.Input.",
+            "Input.GetKey",
+            "Input.GetButton",
+            "Input.GetAxis",
+            "Input.GetMouseButton",
+            "KeyCode.",
+        ),
+    ),
+    "UNITY-ASSET-MEMORY-001": lambda: UnityAssetMemoryRule("UNITY-ASSET-MEMORY-001"),
+    "UNITY-GEOMETRY-BUDGET-001": lambda: UnityGeometryBudgetRule("UNITY-GEOMETRY-BUDGET-001"),
     "CSHARP-DEBUG-001": CSharpDebugLogRule,
     "CSHARP-GETCOMPONENT-001": lambda: AddedLineTokenRule(
         "CSHARP-GETCOMPONENT-001",

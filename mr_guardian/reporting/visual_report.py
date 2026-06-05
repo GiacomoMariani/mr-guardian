@@ -35,8 +35,13 @@ def render_visual_review_report(
     run: ReviewRunRecord,
     *,
     theme: VisualReportTheme = "light",
+    embedded: bool = False,
 ) -> str:
-    """Render one stored review run as a self-contained HTML report."""
+    """Render one stored review run as a self-contained HTML report.
+
+    Set ``embedded=True`` when showing the report inside the dashboard iframe: the
+    page padding is tightened and the sheet fills the available width (standalone
+    exported reports keep their centred, padded document look)."""
     verdict = _verdict(run)
     findings = sorted(run.findings, key=_finding_sort_key)
     skipped_findings = [finding for finding in findings if _is_skipped_llm_finding(finding)]
@@ -49,6 +54,24 @@ def render_visual_review_report(
         and _metadata_sections(finding)
     ]
 
+    # When the blocked section already lists the blocking findings as a table, drop
+    # them from the findings section (relabelled "Other findings") so the same rows
+    # are not shown twice. Metadata-blocked reports show a checklist instead, so the
+    # full findings table still adds value there.
+    if run.blocking_count and not metadata_findings:
+        other_findings = [f for f in findings if f.severity != "blocking"]
+        findings_section = (
+            _render_findings_section(
+                other_findings, skipped_findings, title="Other findings"
+            )
+            if other_findings or skipped_findings
+            else ""
+        )
+    else:
+        findings_section = _render_findings_section(findings, skipped_findings)
+
+    body_class = f"mg-{theme}" + (" mg-embedded" if embedded else "")
+
     return "\n".join(
         [
             "<!DOCTYPE html>",
@@ -59,7 +82,7 @@ def render_visual_review_report(
             "<title>MR Guardian Review</title>",
             f"<style>{_styles(theme)}</style>",
             "</head>",
-            f'<body class="mg-{theme}">',
+            f'<body class="{body_class}">',
             '<div class="sheet">',
             _render_header(run),
             _render_verdict(verdict),
@@ -72,27 +95,13 @@ def render_visual_review_report(
             _render_skipped_section(skipped_rule_ids, skipped_metrics)
             if skipped_rule_ids
             else "",
-            _render_findings_section(findings, skipped_findings),
+            findings_section,
             "</main>",
             _render_footer(run, skipped_rule_ids),
             "</div>",
-            _autosize_script(),
             "</body>",
             "</html>",
         ]
-    )
-
-
-def _autosize_script() -> str:
-    """Resize the embedding Streamlit components iframe to fit the report exactly, so
-    the dashboard tab shows the whole report with no inner scrollbar. Same-origin
-    srcdoc only; a harmless no-op when the report is opened as a standalone page."""
-    return (
-        "<script>(function(){function fit(){try{var f=window.frameElement;if(!f)return;"
-        "var h=document.body.offsetHeight;f.style.height=h+'px';"
-        "if(f.parentElement){f.parentElement.style.height=h+'px';}}catch(e){}}"
-        "window.addEventListener('load',fit);window.addEventListener('resize',fit);"
-        "setTimeout(fit,60);fit();})();</script>"
     )
 
 
@@ -268,6 +277,21 @@ thead th {
   background: var(--surface-2s);
   padding-top: 10px;
 }
+
+body.mg-embedded {
+  padding: 6px 10px 6px;
+}
+
+/* Embedded in the dashboard the report should read as a flush panel, not a floating
+   document. The iframe height is a fixed estimate, so let the sheet fill it: its bottom
+   edge then sits at the iframe's end instead of floating as a stray line in the slack
+   below the report (any leftover height becomes a little card padding). Drop the
+   page-style drop shadow too, so there's no halo hanging in that gap. */
+body.mg-embedded .sheet {
+  max-width: none;
+  min-height: calc(100vh - 12px);
+  box-shadow: 0 1px 0 var(--inner-shadow) inset;
+}
 """
 
 
@@ -425,12 +449,14 @@ def _render_skipped_section(
 def _render_findings_section(
     findings: list[Finding],
     skipped_findings: list[Finding],
+    *,
+    title: str = "All findings",
 ) -> str:
     return f"""
 <section>
   <div class="s-head">
     <span class="s-num">03</span>
-    <h2>All findings</h2>
+    <h2>{_html(title)}</h2>
     <span class="rule-tag">{len(findings)} total</span>
   </div>
   {_render_findings_table(findings, skipped_findings)}

@@ -219,3 +219,47 @@ def test_escapes_user_controlled_html() -> None:
 
     assert malicious not in html
     assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;" in html
+
+
+def test_blocked_report_does_not_duplicate_findings() -> None:
+    findings = [
+        Finding(
+            rule_id="RULE-BLOCK",
+            severity="blocking",
+            message="Blocking detail here.",
+            source="p.yml#RULE-BLOCK",
+            evaluation="coding",
+            rule_type="deterministic",
+        ),
+        Finding(
+            rule_id="RULE-HIGH",
+            severity="high",
+            message="High detail here.",
+            source="p.yml#RULE-HIGH",
+            evaluation="coding",
+            rule_type="deterministic",
+        ),
+    ]
+    html = render_visual_review_report(
+        make_record(risk="blocking", blocking_count=1, high_count=1, warning_count=0, findings=findings)
+    )
+
+    assert "Why this is blocked" in html
+    assert "Other findings" in html  # the second table is relabelled
+    assert "<h2>All findings</h2>" not in html
+    # the blocking finding appears once (blocked section only), not duplicated
+    assert html.count("Blocking detail here.") == 1
+    assert "High detail here." in html  # the non-blocking finding is still listed
+
+
+def test_embedded_report_tightens_padding_and_widens_sheet() -> None:
+    record = make_record(risk="none", blocking_count=0, warning_count=0, findings=[])
+    embedded = render_visual_review_report(record, embedded=True)
+    standalone = render_visual_review_report(record)
+
+    assert '<body class="mg-light mg-embedded">' in embedded
+    assert '<body class="mg-light">' in standalone  # default keeps the document look
+    assert "body.mg-embedded {" in embedded
+    assert "max-width: none" in embedded
+    # the embedded sheet fills the iframe so its bottom edge can't float as a stray line
+    assert "min-height: calc(100vh" in embedded

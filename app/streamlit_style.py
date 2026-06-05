@@ -106,16 +106,16 @@ a {{
 .mg-brand-mark {{
   align-items: center;
   background: var(--ink);
-  border-radius: 9px;
+  clip-path: polygon(50% 0, 100% 18%, 100% 62%, 50% 100%, 0 62%, 0 18%);
   color: var(--paper);
   display: inline-flex;
+  flex: none;
   font-family: var(--mg-mono);
-  font-size: 13px;
-  font-weight: 700;
-  height: 34px;
+  font-size: 18px;
+  font-weight: 600;
+  height: 42px;
   justify-content: center;
-  letter-spacing: .04em;
-  width: 34px;
+  width: 38px;
 }}
 
 .mg-app-hero h1 {{
@@ -218,8 +218,8 @@ a {{
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
-  margin: 28px 0 6px;
-  padding-top: 16px;
+  margin: 14px 0 6px;
+  padding-top: 14px;
 }}
 
 .mg-howitworks-label {{
@@ -285,7 +285,6 @@ a {{
   margin: 0;
 }}
 
-.mg-panel-num,
 .mg-panel-eyebrow {{
   color: var(--ink-3);
   font-family: var(--mg-mono);
@@ -293,11 +292,6 @@ a {{
   font-weight: 600;
   letter-spacing: .11em;
   text-transform: uppercase;
-}}
-
-.mg-panel-num {{
-  display: inline-block;
-  margin-bottom: 3px;
 }}
 
 .mg-panel-eyebrow {{
@@ -391,6 +385,120 @@ a {{
 
 .mg-metric-card.pass .mg-metric-value {{
   color: var(--pass);
+}}
+
+.mg-trend-chart-card {{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  margin: 0 0 18px;
+  overflow: hidden;
+}}
+
+.mg-trend-chart-head {{
+  align-items: center;
+  background: var(--surface-2s);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px 18px;
+}}
+
+.mg-trend-chart-head h2 {{
+  color: var(--ink);
+  font-family: var(--mg-display);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin: 0;
+}}
+
+.mg-trend-legend {{
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}}
+
+.mg-trend-legend span {{
+  align-items: center;
+  color: var(--ink-2);
+  display: inline-flex;
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  gap: 6px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}}
+
+.mg-trend-legend i {{
+  border-radius: 999px;
+  display: inline-block;
+  height: 9px;
+  width: 9px;
+}}
+
+.mg-trend-legend i.blocking {{
+  background: var(--block);
+}}
+
+.mg-trend-legend i.warning {{
+  background: var(--warn);
+}}
+
+.mg-trend-chart-body {{
+  background: var(--surface);
+  padding: 14px 16px 10px;
+}}
+
+.mg-trend-svg {{
+  display: block;
+  height: auto;
+  overflow: visible;
+  width: 100%;
+}}
+
+.mg-trend-grid {{
+  stroke: var(--line);
+  stroke-width: 1;
+}}
+
+.mg-trend-y-label,
+.mg-trend-x-label,
+.mg-trend-axis-title {{
+  fill: var(--ink-3);
+  font-family: var(--mg-mono);
+  font-size: 11px;
+}}
+
+.mg-trend-axis-title {{
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}}
+
+.mg-trend-line {{
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}}
+
+.mg-trend-line.blocking,
+.mg-trend-point.blocking {{
+  stroke: var(--block);
+}}
+
+.mg-trend-line.warning,
+.mg-trend-point.warning {{
+  stroke: var(--warn);
+}}
+
+.mg-trend-point {{
+  fill: var(--surface);
+  stroke-width: 3;
 }}
 
 .mg-table-wrap {{
@@ -769,8 +877,7 @@ a {{
 }}
 
 [data-testid="stDataFrame"],
-[data-testid="stTable"],
-[data-testid="stVegaLiteChart"] {{
+[data-testid="stTable"] {{
   background: var(--mg-card);
   border: 1px solid var(--mg-line);
   border-radius: 8px;

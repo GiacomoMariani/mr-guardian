@@ -300,8 +300,9 @@ def test_pipeline_hook_renders_three_steps() -> None:
 
 
 def test_review_report_height_scales_and_clamps() -> None:
-    import app.streamlit_app as streamlit_app
     from types import SimpleNamespace
+
+    import app.streamlit_app as streamlit_app
 
     def run(findings=None, **counts: int) -> SimpleNamespace:
         base = {
@@ -313,29 +314,82 @@ def test_review_report_height_scales_and_clamps() -> None:
         base.update(counts)
         return SimpleNamespace(findings=findings, **base)
 
-    assert streamlit_app._review_report_height(run()) == 700  # ~one-page initial
-    assert streamlit_app._review_report_height(run(findings=[1] * 5)) == 700 + 50 * 5
-    assert streamlit_app._review_report_height(run(findings=[1] * 100)) == 2400  # max
+    assert streamlit_app._review_report_height(run()) == 680  # passed / no findings
+    assert streamlit_app._review_report_height(run(findings=[1] * 5)) == 680 + 46 * 5
+    # blocked reports add the "why this is blocked" section
+    assert (
+        streamlit_app._review_report_height(run(blocking_count=1, findings=[1] * 2))
+        == 680 + 46 * 2 + 210
+    )
+    assert streamlit_app._review_report_height(run(findings=[1] * 100)) == 2800  # cap
 
 
 def test_trends_use_custom_chart_and_dynamic_report_height() -> None:
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
-    assert "st.line_chart(" not in source  # call replaced by the themed Altair chart
-    assert "st.altair_chart(" in source
+    assert "st.line_chart(" not in source
+    assert "st.altair_chart(" not in source
+    assert "import altair" not in source
+    assert "stVegaLiteChart" not in Path("app/streamlit_style.py").read_text(
+        encoding="utf-8"
+    )
     assert "_render_trend_chart" in source
+    assert "render_trend_chart(" in source
     assert "height=_review_report_height(selected_run)" in source
     assert "height=1100" not in source
 
 
-def test_render_section_omits_panel_number_when_index_is_none() -> None:
+def test_trends_render_chart_before_table() -> None:
+    import app.streamlit_app as streamlit_app
+
+    source = getsource(streamlit_app._render_trends)
+
+    assert source.index("_render_trend_chart") < source.index("_trend_table(data)")
+
+
+def test_trend_chart_uses_dashboard_design_classes() -> None:
+    from app.streamlit_components import render_trend_chart
+    from app.streamlit_style import dashboard_css
+
+    html = render_trend_chart(
+        [
+            ("2026-06-01", 1, 2),
+            ("2026-06-02", 0, 1),
+        ]
+    )
+    css = dashboard_css("dark")
+
+    assert "mg-trend-chart-card" in html
+    assert "mg-trend-svg" in html
+    assert "Blocking" in html
+    assert "Warnings" in html
+    assert "mg-trend-line blocking" in html
+    assert "mg-trend-line warning" in html
+    assert "2026-06-01" in html
+    assert ">2<" in html
+    assert ".mg-trend-chart-card" in css
+    assert "background: var(--surface);" in css
+    assert "stroke: var(--block);" in css
+    assert "stroke: var(--warn);" in css
+
+
+def test_trend_chart_renders_empty_state() -> None:
+    from app.streamlit_components import render_trend_chart
+
+    html = render_trend_chart([])
+
+    assert "mg-trend-chart-card" in html
+    assert "No trend data is available yet." in html
+
+
+def test_render_section_does_not_render_panel_numbers() -> None:
     from app.streamlit_components import render_section
 
     numbered = render_section(index=1, title="Agent Review", body_html="<p>x</p>")
     unnumbered = render_section(title="Agent Review", body_html="<p>x</p>")
 
-    assert "mg-panel-num" in numbered
-    assert ">01<" in numbered
+    assert "mg-panel-num" not in numbered
+    assert ">01<" not in numbered
     assert "mg-panel-num" not in unnumbered
     assert "Agent Review" in unnumbered
 

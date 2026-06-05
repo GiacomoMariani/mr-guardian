@@ -1,5 +1,6 @@
 """Shared deterministic review engine."""
 
+from pathlib import Path
 from time import perf_counter
 
 from mr_guardian.models.policy import Policy, PolicyRule
@@ -24,9 +25,14 @@ def run_review(
     review_input: ReviewInput,
     rule_registry: RuleRegistry,
     llm_rule_runner: LlmRuleRunner | None = None,
+    repo_root: Path | None = None,
 ) -> EngineReviewResult:
     """Run enabled policy rules against review input."""
-    context = RuleEvaluationContext(policy=policy, review_input=review_input)
+    context = RuleEvaluationContext(
+        policy=policy,
+        review_input=review_input,
+        repo_root=repo_root,
+    )
     findings: list[Finding] = []
     llm_metrics: list[LlmRuleMetric] = []
     llm_runner = llm_rule_runner or DisabledLlmRuleRunner()

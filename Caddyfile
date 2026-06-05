@@ -1,0 +1,21 @@
+# Reverse proxy for the combined single-port deployment (Render injects $PORT).
+#   /api/*  -> FastAPI  (prefix stripped, so /api/healthz -> /healthz)
+#   /*      -> Streamlit dashboard (websockets handled automatically)
+{
+	admin off
+	auto_https off
+	persist_config off
+	log {
+		output stderr
+		format console
+	}
+}
+
+:{$PORT:8000} {
+	handle_path /api/* {
+		reverse_proxy 127.0.0.1:8800
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8810
+	}
+}
