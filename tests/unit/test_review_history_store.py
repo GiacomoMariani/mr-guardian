@@ -13,6 +13,7 @@ from mr_guardian.models.review import (
     LlmRuleMetric,
     ReviewEvaluation,
 )
+from mr_guardian.models.weekly_review import WeeklyLlmReviewCreate
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -113,7 +114,90 @@ def test_initializes_schema(tmp_path: Path) -> None:
         "review_evaluations",
         "review_evaluation_triggered_rules",
         "dashboard_eta_note",
+        "weekly_llm_reviews",
     }.issubset(table_names(database_path))
+
+
+def test_stores_and_reads_latest_weekly_llm_review(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    older = store.store_weekly_llm_review(
+        WeeklyLlmReviewCreate(
+            week_start=date(2026, 5, 25),
+            week_end=date(2026, 5, 31),
+            created_at=datetime(2026, 5, 31, 18, tzinfo=timezone.utc),
+            result="needs_attention",
+            score=67,
+            summary="Older weekly review.",
+            mr_count=8,
+            developer_count=3,
+            ticket_count=5,
+            approved_ticket_count=2,
+            observed_ticket_count=3,
+            blocking_review_count=1,
+            high_risk_review_count=1,
+            warning_review_count=2,
+            info_review_count=4,
+            top_risks=["Metadata issues are repeating."],
+            recommended_actions=["Fix MR templates."],
+            provider="openai",
+            model="gpt-4.1-mini",
+            input_tokens=100,
+            output_tokens=20,
+            total_tokens=120,
+            estimated_cost_usd=0.001,
+        )
+    )
+    latest = store.store_weekly_llm_review(
+        WeeklyLlmReviewCreate(
+            week_start=date(2026, 6, 1),
+            week_end=date(2026, 6, 7),
+            created_at=datetime(2026, 6, 7, 18, tzinfo=timezone.utc),
+            result="on_track",
+            score=84,
+            summary="Latest weekly review.",
+            mr_count=12,
+            developer_count=4,
+            ticket_count=7,
+            approved_ticket_count=5,
+            observed_ticket_count=2,
+            blocking_review_count=0,
+            high_risk_review_count=1,
+            warning_review_count=3,
+            info_review_count=8,
+            top_risks=["One high-risk review remains."],
+            recommended_actions=["Prioritize the high-risk ticket."],
+            provider="openai",
+            model="gpt-4.1-mini",
+            input_tokens=1200,
+            output_tokens=240,
+            total_tokens=1440,
+            estimated_cost_usd=0.0031,
+            currency="usd",
+        )
+    )
+
+    found = store.latest_weekly_llm_review()
+    store.close()
+
+    assert older.weekly_review_id == 1
+    assert latest.weekly_review_id == 2
+    assert found is not None
+    assert found.weekly_review_id == latest.weekly_review_id
+    assert found.result == "on_track"
+    assert found.score == 84
+    assert found.currency == "USD"
+    assert found.top_risks == ["One high-risk review remains."]
+    assert found.recommended_actions == ["Prioritize the high-risk ticket."]
+
+
+def test_reads_empty_weekly_llm_review_history() -> None:
+    store = ReviewHistoryStore(":memory:")
+
+    record = store.latest_weekly_llm_review()
+    store.close()
+
+    assert record is None
 
 
 def test_stores_review_run(tmp_path: Path) -> None:

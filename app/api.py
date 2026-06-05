@@ -29,8 +29,13 @@ from mr_guardian.core.review_finality import (
     set_stored_review_finality,
 )
 from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
+from mr_guardian.core.weekly_llm_review import (
+    manual_weekly_llm_review_payload_schema,
+    store_weekly_llm_review_payload,
+)
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.models.history import review_run_record_schema
+from mr_guardian.models.weekly_review import WeeklyLlmReviewCreate
 from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
 from mr_guardian.summarizer_ai import (
@@ -60,6 +65,12 @@ async def manual_review_schema() -> dict[str, Any]:
 async def review_schema() -> dict[str, Any]:
     """Return the stored review run JSON schema."""
     return review_run_record_schema()
+
+
+@app.get("/weekly-llm-reviews/schema")
+async def weekly_llm_review_schema() -> dict[str, Any]:
+    """Return the manual weekly LLM review submission JSON schema."""
+    return manual_weekly_llm_review_payload_schema()
 
 
 @app.get("/dashboard/eta-note/schema")
@@ -137,6 +148,45 @@ async def submit_manual_review(request: Request) -> dict[str, Any]:
         "risk": record.risk,
         "score": record.review_score,
         "ticket_key": record.ticket_key,
+    }
+
+
+@app.post("/weekly-llm-reviews/manual", status_code=201)
+async def submit_weekly_llm_review(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Validate and store an externally generated weekly LLM review."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+
+    try:
+        payload = WeeklyLlmReviewCreate.model_validate(raw_payload)
+        record = store_weekly_llm_review_payload(
+            payload,
+            database_path=settings.history_db_path,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid weekly LLM review structure: {exc}",
+        ) from exc
+
+    return {
+        "status": "stored",
+        "weekly_review_id": record.weekly_review_id,
+        "week_start": record.week_start.isoformat(),
+        "week_end": record.week_end.isoformat(),
+        "result": record.result,
+        "score": record.score,
     }
 
 

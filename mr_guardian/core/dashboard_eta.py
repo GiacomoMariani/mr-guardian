@@ -1,13 +1,22 @@
 """Dashboard delivery ETA note helpers."""
 
-from datetime import date
+import sqlite3
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from mr_guardian.models.history import DashboardEtaNote
-from mr_guardian.storage import ReviewHistoryStore
+from mr_guardian.models.dashboard import DashboardEtaNote
+
+ETA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS dashboard_eta_note (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    message TEXT NOT NULL,
+    target_date TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
 
 
 class DashboardEtaNotePayload(BaseModel):
@@ -36,11 +45,23 @@ def dashboard_eta_note_payload_schema() -> dict[str, Any]:
 
 def load_dashboard_eta_note(database_path: str | Path) -> DashboardEtaNote | None:
     """Read the current dashboard ETA note from storage."""
-    store = ReviewHistoryStore(database_path)
-    try:
-        return store.get_eta_note()
-    finally:
-        store.close()
+    with _connect(database_path) as connection:
+        _initialize_eta_schema(connection)
+        row = connection.execute(
+            """
+            SELECT message, target_date, updated_at
+            FROM dashboard_eta_note
+            WHERE id = 1
+            """
+        ).fetchone()
+
+    if row is None:
+        return None
+    return DashboardEtaNote(
+        message=str(row["message"]),
+        target_date=_optional_date(row["target_date"]),
+        updated_at=datetime.fromisoformat(str(row["updated_at"])),
+    )
 
 
 def set_dashboard_eta_note(
@@ -49,11 +70,54 @@ def set_dashboard_eta_note(
     database_path: str | Path,
 ) -> DashboardEtaNote:
     """Store the dashboard ETA note, replacing any previous value."""
-    store = ReviewHistoryStore(database_path)
-    try:
-        return store.set_eta_note(
-            message=payload.message,
-            target_date=payload.target_date,
+    updated_at = datetime.now(timezone.utc)
+    with _connect(database_path) as connection:
+        _initialize_eta_schema(connection)
+        connection.execute(
+            """
+            INSERT INTO dashboard_eta_note (
+                id,
+                message,
+                target_date,
+                updated_at
+            )
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                message = excluded.message,
+                target_date = excluded.target_date,
+                updated_at = excluded.updated_at
+            """,
+            (
+                payload.message,
+                payload.target_date.isoformat()
+                if payload.target_date is not None
+                else None,
+                updated_at.isoformat(),
+            ),
         )
-    finally:
-        store.close()
+        connection.commit()
+
+    return DashboardEtaNote(
+        message=payload.message,
+        target_date=payload.target_date,
+        updated_at=updated_at,
+    )
+
+
+def _connect(database_path: str | Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(database_path)
+    connection.row_factory = sqlite3.Row
+    return connection
+
+
+def _initialize_eta_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.executescript(ETA_SCHEMA)
+    connection.commit()
+
+
+def _optional_date(value: object) -> date | None:
+    if value is None:
+        return None
+    return date.fromisoformat(str(value))
+

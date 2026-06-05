@@ -1,10 +1,11 @@
 """Typed review history models."""
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mr_guardian.models.dashboard import DashboardEtaNote
 from mr_guardian.models.review import (
     Finding,
     LlmDeveloperProfile,
@@ -13,6 +14,15 @@ from mr_guardian.models.review import (
     ReviewEvaluation,
     RiskLevel,
 )
+
+__all__ = [
+    "DashboardEtaNote",
+    "ReviewPolicySummary",
+    "ReviewRunCreate",
+    "ReviewRunRecord",
+    "TriggeredRuleStat",
+    "review_run_record_schema",
+]
 
 
 class ReviewRunCreate(BaseModel):
@@ -98,16 +108,6 @@ class ReviewPolicySummary(BaseModel):
     policy_version: int
     enabled_rule_count: int
     disabled_rule_count: int
-
-
-class DashboardEtaNote(BaseModel):
-    """The singleton delivery ETA note shown on the dashboard."""
-
-    model_config = ConfigDict(frozen=True)
-
-    message: str
-    target_date: date | None = None
-    updated_at: datetime
 
 
 def review_run_record_schema() -> dict[str, Any]:

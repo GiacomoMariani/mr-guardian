@@ -78,6 +78,34 @@ def manual_review_payload() -> dict[str, Any]:
     }
 
 
+def weekly_review_payload() -> dict[str, Any]:
+    return {
+        "week_start": "2026-06-01",
+        "week_end": "2026-06-07",
+        "result": "on_track",
+        "score": 84,
+        "summary": "The week is on track with a few metadata cleanup items.",
+        "mr_count": 12,
+        "developer_count": 4,
+        "ticket_count": 7,
+        "approved_ticket_count": 5,
+        "observed_ticket_count": 2,
+        "blocking_review_count": 1,
+        "high_risk_review_count": 2,
+        "warning_review_count": 3,
+        "info_review_count": 4,
+        "top_risks": ["Two tickets still have high-risk review signals."],
+        "recommended_actions": ["Clear high-risk tickets before the beta cut."],
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "input_tokens": 1200,
+        "output_tokens": 240,
+        "total_tokens": 1440,
+        "estimated_cost_usd": 0.0031,
+        "currency": "usd",
+    }
+
+
 def test_api_health_check() -> None:
     response = client().get("/healthz")
 
@@ -105,6 +133,17 @@ def test_api_returns_stored_review_schema() -> None:
     assert "developer_profile" in body["properties"]
     assert "llm_summary_score" in body["x-sqlite-columns"]
     assert "is_final" in body["x-sqlite-columns"]
+
+
+def test_api_returns_weekly_llm_review_schema() -> None:
+    response = client().get("/weekly-llm-reviews/schema")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "WeeklyLlmReviewCreate"
+    assert "week_start" in body["properties"]
+    assert "score" in body["properties"]
+    assert body["x-storage-notes"]["week_start"] == "Must be a Monday."
 
 
 def test_api_returns_eta_note_schema() -> None:
@@ -255,6 +294,84 @@ def test_api_stores_valid_manual_review(monkeypatch, tmp_path) -> None:
     assert record.developer_id == "API Reviewer"
     assert record.ticket_key == "TK-234"
     assert record.findings[0].rule_id == "MANUAL-001"
+
+
+def test_api_stores_valid_weekly_llm_review(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post(
+        "/weekly-llm-reviews/manual",
+        json=weekly_review_payload(),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body == {
+        "status": "stored",
+        "weekly_review_id": 1,
+        "week_start": "2026-06-01",
+        "week_end": "2026-06-07",
+        "result": "on_track",
+        "score": 84,
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.latest_weekly_llm_review()
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.result == "on_track"
+    assert record.currency == "USD"
+    assert record.top_risks == ["Two tickets still have high-risk review signals."]
+
+
+def test_api_weekly_llm_review_admin_token_is_enforced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/weekly-llm-reviews/manual",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json=weekly_review_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_rejects_invalid_weekly_llm_review_payload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    payload = weekly_review_payload()
+    payload["week_start"] = "2026-06-02"
+
+    response = client().post("/weekly-llm-reviews/manual", json=payload)
+
+    assert response.status_code == 400
+    assert "Invalid weekly LLM review structure" in response.json()["detail"]
+    assert "week_start must be a Monday" in response.json()["detail"]
+
+
+def test_api_rejects_invalid_weekly_llm_review_json(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    invalid_json_response = client().post(
+        "/weekly-llm-reviews/manual",
+        content="{",
+        headers={"content-type": "application/json"},
+    )
+    non_object_response = client().post("/weekly-llm-reviews/manual", json=[])
+
+    assert invalid_json_response.status_code == 400
+    assert invalid_json_response.json() == {"detail": "Invalid JSON payload."}
+    assert non_object_response.status_code == 400
+    assert non_object_response.json() == {"detail": "Expected JSON object payload."}
 
 
 def test_api_deletes_existing_review(monkeypatch, tmp_path) -> None:

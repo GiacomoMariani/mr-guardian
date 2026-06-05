@@ -38,21 +38,35 @@ def render_page_header(
     kicker: str,
     body: str,
     meta_items: Sequence[tuple[str, str]] = (),
+    top_links: Sequence[tuple[str, str]] = (),
 ) -> str:
     """Render the standalone-style dashboard header."""
     meta_html = "".join(
         f"<span>{_html(label)} <b>{_html(value)}</b></span>"
         for label, value in meta_items
     )
+    links_html = (
+        '<div class="mg-hero-links">'
+        + "".join(
+            '<a class="mg-hero-top-link" '
+            f'href="{_html(url)}" target="_blank" rel="noreferrer">'
+            f"{_html(label)}</a>"
+            for label, url in top_links
+        )
+        + "</div>"
+        if top_links
+        else ""
+    )
     return "\n".join(
         [
             '<section class="mg-app-hero">',
+            '<div class="mg-app-hero-top">',
+            f'<div class="mg-kicker">{_html(kicker)}</div>',
+            links_html,
+            "</div>",
             '<div class="mg-brand-row">',
             '<div class="mg-brand-mark">MR</div>',
-            "<div>",
-            f'<div class="mg-kicker">{_html(kicker)}</div>',
             f"<h1>{_html(title)}</h1>",
-            "</div>",
             "</div>",
             f"<p>{_html(body)}</p>",
             f'<div class="mg-hero-meta">{meta_html}</div>' if meta_items else "",
@@ -63,14 +77,19 @@ def render_page_header(
 
 def render_section(
     *,
-    index: int,
+    index: int | None = None,
     title: str,
     body_html: str,
     eyebrow: str | None = None,
     action_html: str | None = None,
     anchor_id: str | None = None,
 ) -> str:
-    """Render one dashboard panel."""
+    """Render one dashboard panel.
+
+    ``index`` shows a small sequence number ("01") in the panel head; pass ``None``
+    to omit it (e.g. for a single-section panel where the number has nothing to
+    sequence against).
+    """
     eyebrow_html = (
         f'<span class="mg-panel-eyebrow">{_html(eyebrow)}</span>'
         if eyebrow is not None
@@ -78,12 +97,15 @@ def render_section(
     )
     action = action_html or ""
     section_id = f' id="{_html(anchor_id)}"' if anchor_id else ""
+    num_html = (
+        f'<span class="mg-panel-num">{index:02}</span>' if index is not None else ""
+    )
     return "\n".join(
         [
             f'<section class="mg-dashboard-panel"{section_id}>',
             '<div class="mg-panel-head">',
             "<div>",
-            f'<span class="mg-panel-num">{index:02}</span>',
+            num_html,
             f"<h2>{_html(title)}</h2>",
             "</div>",
             eyebrow_html or action,

@@ -89,6 +89,14 @@ a {{
   padding: 26px 30px;
 }}
 
+.mg-app-hero-top {{
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 0 0 14px 47px;
+}}
+
 .mg-brand-row {{
   align-items: center;
   display: flex;
@@ -149,14 +157,14 @@ a {{
   font-weight: 600;
 }}
 
-.mg-link-bar {{
+.mg-hero-links {{
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: -8px 0 22px;
 }}
 
-.mg-link-bar a {{
+.mg-hero-top-link {{
   background: var(--surface-2s);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -168,9 +176,10 @@ a {{
   padding: 6px 10px;
   text-decoration: none;
   text-transform: uppercase;
+  white-space: nowrap;
 }}
 
-.mg-link-bar a:hover {{
+.mg-hero-top-link:hover {{
   background: var(--accent-bg);
   color: var(--ink);
   text-decoration: none;
@@ -250,6 +259,34 @@ a {{
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 4px 9px;
+}}
+
+.mg-readiness-badge {{
+  align-items: center;
+  background: var(--pass-bg);
+  border: 1px solid var(--pass-line);
+  border-radius: 10px;
+  color: var(--pass);
+  display: flex;
+  font-family: var(--mg-mono);
+  gap: 10px;
+  padding: 8px 13px;
+  text-transform: uppercase;
+}}
+
+.mg-readiness-badge span {{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}}
+
+.mg-readiness-badge strong {{
+  color: var(--ink);
+  font-family: var(--mg-display);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
 }}
 
 .mg-metric-grid {{
@@ -404,6 +441,62 @@ a {{
   padding: 18px 20px;
 }}
 
+.mg-section-caption {{
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+  padding: 18px 20px;
+}}
+
+.mg-pager-label {{
+  color: var(--ink);
+  font-family: var(--mg-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}}
+
+[data-testid="stButton"] button {{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-2);
+  font-family: var(--mg-mono);
+  font-size: 13px;
+  min-height: 40px;
+  transition: border-color .12s ease, color .12s ease;
+}}
+
+[data-testid="stButton"] button:hover:not(:disabled) {{
+  border-color: var(--accent);
+  color: var(--ink);
+}}
+
+[data-testid="stButton"] button[kind="primary"],
+[data-testid="stButton"] [data-testid="baseButton-primary"],
+[data-testid="stButton"] [data-testid="stBaseButton-primary"] {{
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--ink);
+  font-weight: 800;
+}}
+
+[data-testid="stButton"] button:disabled {{
+  color: var(--ink-3);
+  opacity: .45;
+}}
+
+.st-key-agent-review-prev button,
+.st-key-agent-review-next button {{
+  color: var(--ink-3);
+  font-size: 12px;
+  min-height: 34px;
+  padding: 0 4px;
+}}
+
 .mg-eta-note {{
   background: var(--surface);
   color: var(--ink-2);
@@ -494,6 +587,75 @@ a {{
   flex-wrap: wrap;
   gap: 8px 16px;
   padding-top: 12px;
+}}
+
+.mg-weekly-score {{
+  background: var(--accent-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-width: 150px;
+  padding: 9px 12px;
+  text-align: right;
+}}
+
+.mg-weekly-score span {{
+  color: var(--ink-3);
+  display: block;
+  font-family: var(--mg-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}}
+
+.mg-weekly-score strong {{
+  color: var(--ink);
+  display: block;
+  font-family: var(--mg-display);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.1;
+  margin-top: 3px;
+}}
+
+.mg-weekly-review-lists {{
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin: 0 0 14px;
+}}
+
+.mg-weekly-review-list {{
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 14px 16px;
+}}
+
+.mg-weekly-review-list h3 {{
+  color: var(--ink);
+  font-family: var(--mg-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}}
+
+.mg-weekly-review-list ul {{
+  color: var(--ink-2);
+  margin: 0;
+  padding-left: 18px;
+}}
+
+.mg-weekly-review-list li {{
+  margin: 0 0 7px;
+}}
+
+.mg-weekly-review-list li.empty {{
+  color: var(--ink-3);
+  list-style: none;
+  margin-left: -18px;
 }}
 
 .mg-raw-md {{
@@ -622,6 +784,18 @@ a {{
 
 hr {{
   border-color: var(--mg-line);
+}}
+
+@media (max-width: 680px) {{
+  .mg-app-hero {{
+    padding: 22px;
+  }}
+
+  .mg-app-hero-top {{
+    align-items: flex-start;
+    flex-direction: column;
+    margin-left: 0;
+  }}
 }}
 </style>
 """

@@ -69,8 +69,9 @@ from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_developer_detail,
 )
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
+from mr_guardian.core.weekly_llm_review import load_latest_weekly_llm_review  # noqa: E402
+from mr_guardian.models.dashboard import DashboardEtaNote  # noqa: E402
 from mr_guardian.models.history import (  # noqa: E402
-    DashboardEtaNote,
     ReviewRunRecord,
     TriggeredRuleStat,
 )
@@ -83,24 +84,35 @@ from mr_guardian.models.pm_dashboard import (  # noqa: E402
     PmTicketStatus,
 )
 from mr_guardian.models.review import RiskLevel  # noqa: E402
+from mr_guardian.models.weekly_review import WeeklyLlmReviewRecord  # noqa: E402
 from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
 
 DASHBOARD_TAB_LABELS = (
-    "Project Health",
     "Delivery Health",
+    "Agent Review",
+    "Recent Reviews",
     "Lead Review",
     "Trends",
     "Triggered Rules",
-    "Recent Reviews",
-    "Stored Report",
 )
 BEST_PRACTICES_URL = "https://github.com/GiacomoMariani/UnityBestPractices"
+SOURCE_URL = "https://github.com/GiacomoMariani/mr-guardian"
 DEFAULT_THEME_LABEL = "Dark"
 DEFAULT_RECENT_REVIEW_LIMIT = 50
 DEFAULT_PM_LOOKBACK_DAYS = 30
 DEFAULT_LEAD_LOOKBACK_DAYS = 30
 DEFAULT_DEVELOPER_LOOKBACK_DAYS = 30
+DEFAULT_DASHBOARD_TAB_INDEX = 1
+# The pager shows up to AGENT_REVIEW_PAGER_PAGE_SIZE reviews at a time and slides
+# by AGENT_REVIEW_PAGER_STEP per «/» click. The «/» arrows are always rendered (at
+# AGENT_REVIEW_PAGER_ARROW_WIDTH the relative width of a number button) and are
+# disabled when there is nothing to page in that direction.
+AGENT_REVIEW_PAGER_PAGE_SIZE = 10
+AGENT_REVIEW_PAGER_STEP = 1
+AGENT_REVIEW_PAGER_ARROW_WIDTH = 0.5
+AGENT_REVIEW_SELECTED_KEY = "agent_review_selected_id"
+AGENT_REVIEW_WINDOW_KEY = "agent_review_window_start"
 
 
 def main() -> None:
@@ -136,18 +148,19 @@ def main() -> None:
         title="MR Guardian",
         kicker="Review Intelligence",
         body=(
-            "Policy-driven merge request review history, delivery risk, "
-            "developer trends, and reviewer-ready reports."
+            "An agentic merge-request reviewer that pairs deterministic policy "
+            "checks with bounded, advisory LLM reasoning."
         ),
         meta_items=(
             ("Database", database_path.name),
             ("Reviews", str(len(data.recent_reviews))),
             ("Mode", "Dashboard"),
         ),
+        top_links=(
+            ("View source ↗", SOURCE_URL),
+            ("Best practices applied ↗", BEST_PRACTICES_URL),
+        ),
     )
-    _render_best_practices_link(st)
-    _render_eta_note(st, database_path)
-    _render_latest_llm_review(st, data.recent_reviews)
     _render_dashboard_tabs(
         st,
         data=data,
@@ -212,29 +225,65 @@ def _render_dashboard_tabs(
     theme: DashboardTheme,
 ) -> None:
     (
-        project_health_tab,
         delivery_health_tab,
+        agent_review_tab,
+        recent_reviews_tab,
         lead_review_tab,
         trends_tab,
         triggered_rules_tab,
-        recent_reviews_tab,
-        stored_report_tab,
     ) = st.tabs(list(_dashboard_tab_labels()))
 
-    with project_health_tab:
-        _render_project_health(st, data)
     with delivery_health_tab:
-        _render_pm_dashboard(st, database_path)
+        readiness_percent = _render_pm_dashboard(st, database_path)
+        _render_eta_note(
+            st,
+            database_path,
+            readiness_percent=readiness_percent,
+        )
+        _render_weekly_llm_review(st, database_path)
+    with agent_review_tab:
+        _render_selected_report(st, database_path, data, theme)
+    with recent_reviews_tab:
+        _render_recent_reviews(st, database_path)
     with lead_review_tab:
         _render_lead_dashboard(st, database_path)
     with trends_tab:
         _render_trends(st, data)
     with triggered_rules_tab:
         _render_triggered_rules(st, data)
-    with recent_reviews_tab:
-        _render_recent_reviews(st, database_path)
-    with stored_report_tab:
-        _render_selected_report(st, database_path, data, theme)
+    _render_default_tab_script(st, DEFAULT_DASHBOARD_TAB_INDEX)
+
+
+def _render_default_tab_script(st, index: int) -> None:
+    """Open the dashboard on the given tab.
+
+    Streamlit's ``st.tabs`` always renders with the first tab active and exposes
+    no default-selection argument, so we nudge the selection client-side once per
+    page load. The guard lives on the parent ``window`` (not sessionStorage), so a
+    fresh load - including a refresh - lands on this tab, while in-session reruns
+    leave a visitor's manual tab choice untouched.
+    """
+    script = """
+<script>
+(function () {
+  const win = window.parent;
+  if (win.__mgDefaultTabApplied) return;
+  let tries = 0;
+  const timer = setInterval(function () {
+    const list = win.document.querySelector('[data-baseweb="tab-list"]');
+    const tabs = list ? list.querySelectorAll('button[data-baseweb="tab"]') : [];
+    if (tabs.length > __INDEX__) {
+      tabs[__INDEX__].click();
+      win.__mgDefaultTabApplied = true;
+      clearInterval(timer);
+    } else if (++tries > 40) {
+      clearInterval(timer);
+    }
+  }, 100);
+})();
+</script>
+""".replace("__INDEX__", str(int(index)))
+    st.components.v1.html(script, height=0)
 
 
 def _render_page_heading(
@@ -244,6 +293,7 @@ def _render_page_heading(
     kicker: str,
     body: str,
     meta_items: tuple[tuple[str, str], ...] = (),
+    top_links: tuple[tuple[str, str], ...] = (),
 ) -> None:
     st.markdown(
         render_page_header(
@@ -251,6 +301,7 @@ def _render_page_heading(
             kicker=kicker,
             body=body,
             meta_items=meta_items,
+            top_links=top_links,
         ),
         unsafe_allow_html=True,
     )
@@ -260,38 +311,34 @@ def _render_html(st, html: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
-def _render_best_practices_link(st) -> None:
-    _render_html(
-        st,
-        (
-            '<div class="mg-link-bar">'
-            f'<a href="{BEST_PRACTICES_URL}" target="_blank" rel="noreferrer">'
-            "Best practices applied</a>"
-            "</div>"
-        ),
-    )
-
-
-def _render_eta_note(st, database_path: Path) -> None:
+def _render_eta_note(
+    st,
+    database_path: Path,
+    *,
+    readiness_percent: float,
+) -> None:
     note = load_dashboard_eta_note(database_path)
     _render_html(
         st,
         render_section(
-            index=0,
-            title="Delivery ETA",
-            eyebrow="Based on AI evaluation",
+            index=2,
+            title="Beta Phase ETA",
+            action_html=_readiness_badge(readiness_percent),
             body_html=_eta_note_panel(note),
         ),
     )
 
 
 def _eta_note_panel(note: DashboardEtaNote | None) -> str:
-    disclaimer = "Based on AI evaluation. Confirm dates and delivery risk with the team."
+    disclaimer = (
+        "Based on AI evaluation. Confirm beta phase dates and delivery risk "
+        "with the team."
+    )
     if note is None:
         return "\n".join(
             [
                 '<div class="mg-eta-note empty">',
-                '<div class="mg-eta-message">No delivery ETA note has been set yet.</div>',
+                '<div class="mg-eta-message">No beta phase ETA note has been set yet.</div>',
                 f'<div class="mg-eta-disclaimer">{_html(disclaimer)}</div>',
                 "</div>",
             ]
@@ -312,58 +359,27 @@ def _eta_note_panel(note: DashboardEtaNote | None) -> str:
     )
 
 
-def _render_latest_llm_review(st, runs: list[ReviewRunRecord]) -> None:
-    _render_html(
-        st,
-        render_section(
-            index=0,
-            title="Latest LLM Review",
-            eyebrow="AI review note",
-            body_html=_llm_review_summary_panel(_latest_llm_summary_run(runs)),
-        ),
+def _readiness_badge(readiness_percent: float) -> str:
+    return (
+        '<div class="mg-readiness-badge">'
+        '<span>Readiness</span>'
+        f"<strong>{readiness_percent:.0f}%</strong>"
+        "</div>"
     )
 
 
-def _render_project_health(st, data: DashboardData) -> None:
-    risk_counts = {risk_count.risk: risk_count.count for risk_count in data.risk_counts}
+def _render_weekly_llm_review(st, database_path: Path) -> None:
+    weekly_review = load_latest_weekly_llm_review(database_path)
     _render_html(
         st,
         render_section(
-            index=1,
-            title="Project Health",
-            eyebrow="Recent review window",
-            anchor_id="project-health",
-            body_html=render_metric_grid(
-                [
-                    MetricCard(
-                        label="Blocking Reviews",
-                        value=risk_counts.get("blocking", 0),
-                        tone="blocking",
-                    ),
-                    MetricCard(
-                        label="High Risk Reviews",
-                        value=risk_counts.get("high", 0),
-                        tone="high",
-                    ),
-                    MetricCard(
-                        label="Warning Reviews",
-                        value=risk_counts.get("warning", 0),
-                        tone="warning",
-                    ),
-                    MetricCard(
-                        label="Info Reviews",
-                        value=risk_counts.get("info", 0),
-                        tone="info",
-                    ),
-                    MetricCard(
-                        label="AI-Code Risk Runs",
-                        value=data.ai_code_risk_frequency,
-                        tone="accent",
-                    ),
-                ]
-            ),
+            index=3,
+            title="Weekly LLM Review",
+            action_html=_weekly_llm_result_badge(weekly_review),
+            body_html=_weekly_llm_review_panel(weekly_review),
         ),
     )
+
 
 def _render_triggered_rules(st, data: DashboardData) -> None:
     _render_html(
@@ -423,59 +439,41 @@ def _render_recent_reviews(st, database_path: Path) -> None:
     )
 
 
-def _render_pm_dashboard(st, database_path: Path) -> None:
-    lookback_days = st.number_input(
-        "PM lookback days",
-        min_value=1,
-        max_value=365,
-        value=DEFAULT_PM_LOOKBACK_DAYS,
-        step=1,
-        key="pm_lookback_days",
-    )
+def _render_pm_dashboard(st, database_path: Path) -> float:
+    lookback_days = DEFAULT_PM_LOOKBACK_DAYS
     summary = load_pm_dashboard_summary(
         database_path,
-        days=int(lookback_days),
+        days=lookback_days,
     )
 
     _render_html(
         st,
         render_section(
-            index=2,
+            index=1,
             title="Delivery Health",
-            eyebrow=f"{int(lookback_days)} days",
+            eyebrow=f"{lookback_days} days",
             anchor_id="delivery-health",
-            body_html=(
-                render_metric_grid(
-                    [
-                        MetricCard("Tickets", summary.total_ticket_count, "accent"),
-                        MetricCard("Pass", summary.pass_count, "pass"),
-                        MetricCard(
-                            "Warnings",
-                            summary.pass_with_warnings_count,
-                            "warning",
-                        ),
-                        MetricCard("Fail", summary.fail_count, "blocking"),
-                        MetricCard("Pass Rate", f"{summary.pass_rate:.1f}%", "pass"),
-                        MetricCard(
-                            "Unlinked Reviews",
-                            summary.unlinked_review_count,
-                            "neutral",
-                        ),
-                    ]
-                )
-                + _pm_tickets_table(summary.tickets)
+            body_html=render_metric_grid(
+                [
+                    MetricCard("Tickets", summary.total_ticket_count, "accent"),
+                    MetricCard("Pass", summary.pass_count, "pass"),
+                    MetricCard(
+                        "Warnings",
+                        summary.pass_with_warnings_count,
+                        "warning",
+                    ),
+                    MetricCard("Fail", summary.fail_count, "blocking"),
+                    MetricCard("Pass Rate", f"{summary.pass_rate:.1f}%", "pass"),
+                    MetricCard(
+                        "Unlinked Reviews",
+                        summary.unlinked_review_count,
+                        "neutral",
+                    ),
+                ]
             ),
         ),
     )
-
-    _render_html(
-        st,
-        render_section(
-            index=2,
-            title="Recurring Blockers",
-            body_html=_pm_blockers_table(summary.recurring_blockers),
-        ),
-    )
+    return summary.pass_rate
 
 
 def _render_lead_dashboard(st, database_path: Path) -> None:
@@ -750,6 +748,128 @@ def _evaluation_average_score(
     return None
 
 
+def _agent_review_caption() -> str:
+    return (
+        '<p class="mg-section-caption">'
+        "A complete review the agent produced — deterministic policy checks "
+        "fused with bounded LLM reasoning into a single merge verdict."
+        "</p>"
+    )
+
+
+def _review_pager_slots(
+    ids: list[int],
+    *,
+    window_start: int,
+    page_size: int,
+) -> list[tuple[str, int | bool]]:
+    """Describe the review pager controls for a sorted id list.
+
+    Returns ordered ``(kind, value)`` slots: a leading ``("prev", disabled)`` arrow,
+    one ``("id", review_id)`` per visible review, and a trailing ``("next", disabled)``
+    arrow. Both arrows are always present; ``disabled`` is True when there is nothing
+    to page in that direction (including when every id fits in one page).
+    """
+    count = len(ids)
+    if count <= page_size:
+        visible = list(ids)
+        prev_disabled = True
+        next_disabled = True
+    else:
+        max_start = count - page_size
+        start = max(0, min(window_start, max_start))
+        visible = ids[start : start + page_size]
+        prev_disabled = start <= 0
+        next_disabled = start >= max_start
+    return [
+        ("prev", prev_disabled),
+        *(("id", review_id) for review_id in visible),
+        ("next", next_disabled),
+    ]
+
+
+def _pager_select_review(review_id: int) -> None:
+    import streamlit as st
+
+    st.session_state[AGENT_REVIEW_SELECTED_KEY] = review_id
+
+
+def _pager_shift_window(delta: int) -> None:
+    import streamlit as st
+
+    current = st.session_state.get(AGENT_REVIEW_WINDOW_KEY, 0)
+    st.session_state[AGENT_REVIEW_WINDOW_KEY] = current + delta
+
+
+def _render_review_pager(st, review_ids: list[int]) -> int:
+    """Render the review-id button pager and return the selected review id.
+
+    Buttons are labelled with each review's 1-based position (oldest = 1, newest
+    = len) rather than its raw database id, so the row reads 1..N regardless of
+    gaps in the ids; selection still tracks the real review id underneath.
+    Defaults the selection to the latest review. When the ids overflow one page
+    (``AGENT_REVIEW_PAGER_PAGE_SIZE``) a sliding window is shown; the «/» arrows are
+    always rendered (smaller than the number buttons) and disabled when there is
+    nothing to page in that direction.
+    """
+    ids = sorted(review_ids)
+    count = len(ids)
+    positions = {review_id: index + 1 for index, review_id in enumerate(ids)}
+    if st.session_state.get(AGENT_REVIEW_SELECTED_KEY) not in ids:
+        st.session_state[AGENT_REVIEW_SELECTED_KEY] = ids[-1]
+    selected_id = st.session_state[AGENT_REVIEW_SELECTED_KEY]
+
+    if count > AGENT_REVIEW_PAGER_PAGE_SIZE:
+        max_start = count - AGENT_REVIEW_PAGER_PAGE_SIZE
+        if AGENT_REVIEW_WINDOW_KEY not in st.session_state:
+            st.session_state[AGENT_REVIEW_WINDOW_KEY] = max_start
+        window_start = max(0, min(st.session_state[AGENT_REVIEW_WINDOW_KEY], max_start))
+        st.session_state[AGENT_REVIEW_WINDOW_KEY] = window_start
+    else:
+        window_start = 0
+
+    slots = _review_pager_slots(
+        ids,
+        window_start=window_start,
+        page_size=AGENT_REVIEW_PAGER_PAGE_SIZE,
+    )
+    _render_html(st, '<div class="mg-pager-label">Review</div>')
+    column_widths = [
+        AGENT_REVIEW_PAGER_ARROW_WIDTH if kind in ("prev", "next") else 1.0
+        for kind, _ in slots
+    ]
+    for column, (kind, value) in zip(st.columns(column_widths), slots):
+        with column:
+            if kind == "id":
+                st.button(
+                    str(positions[value]),
+                    key=f"agent-review-id-{value}",
+                    type="primary" if value == selected_id else "secondary",
+                    use_container_width=True,
+                    on_click=_pager_select_review,
+                    args=(value,),
+                )
+            elif kind == "prev":
+                st.button(
+                    "«",
+                    key="agent-review-prev",
+                    disabled=bool(value),
+                    use_container_width=True,
+                    on_click=_pager_shift_window,
+                    args=(-AGENT_REVIEW_PAGER_STEP,),
+                )
+            else:
+                st.button(
+                    "»",
+                    key="agent-review-next",
+                    disabled=bool(value),
+                    use_container_width=True,
+                    on_click=_pager_shift_window,
+                    args=(AGENT_REVIEW_PAGER_STEP,),
+                )
+    return st.session_state[AGENT_REVIEW_SELECTED_KEY]
+
+
 def _render_selected_report(
     st,
     database_path: Path,
@@ -760,9 +880,8 @@ def _render_selected_report(
         _render_html(
             st,
             render_section(
-                index=7,
-                title="Stored Report",
-                anchor_id="stored-report",
+                title="Agent Review",
+                anchor_id="agent-review",
                 body_html=render_empty_state("Run a review first, then select it here."),
             ),
         )
@@ -771,14 +890,13 @@ def _render_selected_report(
     _render_html(
         st,
         render_section(
-            index=7,
-            title="Stored Report",
-            anchor_id="stored-report",
-            body_html=render_empty_state("Choose a stored review to inspect."),
+            title="Agent Review",
+            anchor_id="agent-review",
+            body_html=_agent_review_caption(),
         ),
     )
     review_ids = [run.review_id for run in data.recent_reviews]
-    selected_review_id = st.selectbox("Review ID", review_ids)
+    selected_review_id = _render_review_pager(st, review_ids)
     store = ReviewHistoryStore(database_path)
     try:
         selected_run = store.review_run(int(selected_review_id))
@@ -789,8 +907,7 @@ def _render_selected_report(
         _render_html(
             st,
             render_section(
-                index=7,
-                title="Selected Review",
+                title="Agent Review",
                 body_html=render_empty_state("Selected review could not be loaded."),
             ),
         )
@@ -1074,62 +1191,168 @@ def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
     )
 
 
-def _latest_llm_summary_run(runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
-    for run in runs:
-        if run.llm_summary is not None:
-            return run
-    return None
+def _weekly_llm_review_panel(review: WeeklyLlmReviewRecord | None) -> str:
+    if review is None:
+        return render_empty_state("No weekly LLM review has been stored yet.")
 
-
-def _llm_review_summary_panel(run: ReviewRunRecord | None) -> str:
-    if run is None or run.llm_summary is None:
-        return render_empty_state("No LLM review summary has been generated yet.")
-
-    summary = run.llm_summary
-    summary_text = (
-        summary.text
-        or summary.error_message
-        or "LLM review summary did not return text."
-    )
-    usage_parts = [
-        _token_count("input", summary.input_tokens),
-        _token_count("output", summary.output_tokens),
-        _token_count("total", summary.total_tokens),
-    ]
-    usage = " · ".join(part for part in usage_parts if part)
-    if not usage:
-        usage = "token usage unavailable"
-
-    summary_score = getattr(summary, "score", None)
-    score = _score(summary_score if summary_score is not None else run.review_score)
-    body = _html(summary_text).replace("\n", "<br>")
+    tone = _weekly_llm_result_tone(review.result)
+    summary = _html(review.summary).replace("\n", "<br>")
     return "\n".join(
         [
-            '<div class="mg-profile-card mg-llm-review-card">',
+            '<div class="mg-profile-card mg-weekly-review-card">',
             '<div class="mg-profile-card-head">',
             "<div>",
-            '<div class="mg-profile-card-title">Latest LLM Review</div>',
+            '<div class="mg-profile-card-title">Weekly assessment</div>',
             (
                 '<div class="mg-profile-card-meta">'
-                f"Review {_html(str(run.review_id))} · "
-                f"{_html(_format_datetime(run.timestamp))} · "
-                f"Developer {_html(run.developer_id)} · "
-                f"Score {_html(score)}"
+                f"Week {_html(review.week_start.isoformat())} to "
+                f"{_html(review.week_end.isoformat())} · "
+                f"Stored {_html(_format_datetime(review.created_at))}"
                 "</div>"
             ),
             "</div>",
-            _llm_status_pill(summary.status).html,
+            (
+                '<div class="mg-weekly-score">'
+                "<span>LLM-calculated score</span>"
+                f"<strong>{review.score}/100</strong>"
+                "</div>"
+            ),
             "</div>",
-            f'<div class="mg-profile-card-body">{body}</div>',
+            render_metric_grid(
+                [
+                    MetricCard(
+                        label="LLM Score",
+                        value=f"{review.score}/100",
+                        tone=tone,
+                        detail="Calculated by LLM",
+                    ),
+                    MetricCard(
+                        label="MRs This Week",
+                        value=review.mr_count,
+                        tone="accent",
+                    ),
+                    MetricCard(
+                        label="Developers",
+                        value=review.developer_count,
+                        tone="neutral",
+                    ),
+                    MetricCard(
+                        label="Tickets",
+                        value=review.ticket_count,
+                        tone="neutral",
+                    ),
+                    MetricCard(
+                        label="Approved / Observed",
+                        value=f"{review.approved_ticket_count}/{review.observed_ticket_count}",
+                        tone="pass",
+                    ),
+                    MetricCard(
+                        label="Blocking / High / Warning",
+                        value=(
+                            f"{review.blocking_review_count}/"
+                            f"{review.high_risk_review_count}/"
+                            f"{review.warning_review_count}"
+                        ),
+                        tone=_weekly_risk_metric_tone(review),
+                        detail=f"Info reviews {review.info_review_count}",
+                    ),
+                ]
+            ),
+            f'<div class="mg-profile-card-body">{summary}</div>',
+            '<div class="mg-weekly-review-lists">',
+            _weekly_review_list("Top risks", review.top_risks, "No top risks recorded."),
+            _weekly_review_list(
+                "Recommended actions",
+                review.recommended_actions,
+                "No recommended actions recorded.",
+            ),
+            "</div>",
             '<div class="mg-profile-card-foot">',
-            f"<span>Provider <b>{_html(summary.provider)}</b></span>",
-            f"<span>Model <b>{_html(summary.model)}</b></span>",
-            f"<span>Duration <b>{summary.duration_ms}ms</b></span>",
-            f"<span>{_html(usage)}</span>",
+            "<span>LLM-generated weekly review</span>",
+            f"<span>Provider <b>{_html(review.provider)}</b></span>",
+            f"<span>Model <b>{_html(review.model)}</b></span>",
+            f"<span>Week <b>{_html(review.week_start.isoformat())}</b> to "
+            f"<b>{_html(review.week_end.isoformat())}</b></span>",
+            f"<span>{_html(_weekly_token_usage(review))}</span>",
+            f"<span>Estimated cost <b>{_html(_weekly_cost(review))}</b></span>",
             "</div>",
             "</div>",
         ]
     )
+
+
+def _weekly_llm_result_badge(review: WeeklyLlmReviewRecord | None) -> str:
+    if review is None:
+        return ""
+    return cell_pill(
+        _weekly_llm_result_label(review.result),
+        _weekly_llm_result_tone(review.result),
+    ).html
+
+
+def _weekly_llm_result_label(result: str) -> str:
+    if result == "optimal":
+        return "Optimal"
+    if result == "on_track":
+        return "On Track"
+    if result == "needs_attention":
+        return "Needs Attention"
+    if result == "at_risk":
+        return "At Risk"
+    if result == "blocked":
+        return "Blocked"
+    return result.replace("_", " ").title()
+
+
+def _weekly_llm_result_tone(result: str) -> Tone:
+    if result in {"optimal", "on_track"}:
+        return "pass"
+    if result == "needs_attention":
+        return "warning"
+    if result == "at_risk":
+        return "high"
+    return "blocking"
+
+
+def _weekly_risk_metric_tone(review: WeeklyLlmReviewRecord) -> Tone:
+    if review.blocking_review_count > 0:
+        return "blocking"
+    if review.high_risk_review_count > 0:
+        return "high"
+    if review.warning_review_count > 0:
+        return "warning"
+    return "pass"
+
+
+def _weekly_review_list(title: str, values: list[str], empty_message: str) -> str:
+    if values:
+        items = "".join(f"<li>{_html(value)}</li>" for value in values)
+    else:
+        items = f'<li class="empty">{_html(empty_message)}</li>'
+    return "\n".join(
+        [
+            '<div class="mg-weekly-review-list">',
+            f"<h3>{_html(title)}</h3>",
+            f"<ul>{items}</ul>",
+            "</div>",
+        ]
+    )
+
+
+def _weekly_token_usage(review: WeeklyLlmReviewRecord) -> str:
+    usage_parts = [
+        _token_count("input", review.input_tokens),
+        _token_count("output", review.output_tokens),
+        _token_count("total", review.total_tokens),
+    ]
+    usage = " · ".join(part for part in usage_parts if part)
+    return usage or "token usage unavailable"
+
+
+def _weekly_cost(review: WeeklyLlmReviewRecord) -> str:
+    if review.estimated_cost_usd is None:
+        return "unavailable"
+    return f"{review.estimated_cost_usd:.4f} {review.currency}"
 
 
 def _latest_developer_profile_run(

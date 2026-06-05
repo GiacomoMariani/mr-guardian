@@ -1,5 +1,6 @@
 """SQLite-backed review history storage."""
 
+import json
 import sqlite3
 from collections.abc import Sequence
 from datetime import date, datetime, timezone
@@ -7,8 +8,8 @@ from pathlib import Path
 from typing import cast
 
 from mr_guardian.core.review_score import calculate_review_score
+from mr_guardian.models.dashboard import DashboardEtaNote
 from mr_guardian.models.history import (
-    DashboardEtaNote,
     ReviewPolicySummary,
     ReviewRunCreate,
     ReviewRunRecord,
@@ -24,6 +25,11 @@ from mr_guardian.models.review import (
     LlmRuleMetric,
     LlmSummaryStatus,
     ReviewEvaluation,
+)
+from mr_guardian.models.weekly_review import (
+    WeeklyLlmReviewCreate,
+    WeeklyLlmReviewRecord,
+    WeeklyLlmReviewResult,
 )
 
 SCHEMA = """
@@ -161,7 +167,38 @@ CREATE TABLE IF NOT EXISTS dashboard_eta_note (
     target_date TEXT,
     updated_at TEXT NOT NULL
 );
-"""
+
+CREATE TABLE IF NOT EXISTS weekly_llm_reviews (
+    weekly_review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_start TEXT NOT NULL,
+    week_end TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    result TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    mr_count INTEGER NOT NULL,
+    developer_count INTEGER NOT NULL,
+    ticket_count INTEGER NOT NULL,
+    approved_ticket_count INTEGER NOT NULL,
+    observed_ticket_count INTEGER NOT NULL,
+    blocking_review_count INTEGER NOT NULL,
+    high_risk_review_count INTEGER NOT NULL,
+    warning_review_count INTEGER NOT NULL,
+    info_review_count INTEGER NOT NULL,
+    top_risks TEXT NOT NULL DEFAULT '[]',
+    recommended_actions TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    total_tokens INTEGER,
+    estimated_cost_usd REAL,
+    currency TEXT NOT NULL DEFAULT 'USD'
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_llm_reviews_week_start
+ON weekly_llm_reviews(week_start DESC);
+""" 
 
 
 class ReviewHistoryStore:
@@ -438,6 +475,110 @@ class ReviewHistoryStore:
             updated_at=updated_at,
         )
 
+    def store_weekly_llm_review(
+        self,
+        review: WeeklyLlmReviewCreate,
+    ) -> WeeklyLlmReviewRecord:
+        """Persist one externally generated weekly LLM review."""
+        self.initialize_schema()
+        created_at = review.created_at or datetime.now(timezone.utc)
+        cursor = self._connection.execute(
+            """
+            INSERT INTO weekly_llm_reviews (
+                week_start,
+                week_end,
+                created_at,
+                result,
+                score,
+                summary,
+                mr_count,
+                developer_count,
+                ticket_count,
+                approved_ticket_count,
+                observed_ticket_count,
+                blocking_review_count,
+                high_risk_review_count,
+                warning_review_count,
+                info_review_count,
+                top_risks,
+                recommended_actions,
+                provider,
+                model,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                estimated_cost_usd,
+                currency
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review.week_start.isoformat(),
+                review.week_end.isoformat(),
+                created_at.isoformat(),
+                review.result,
+                review.score,
+                review.summary,
+                review.mr_count,
+                review.developer_count,
+                review.ticket_count,
+                review.approved_ticket_count,
+                review.observed_ticket_count,
+                review.blocking_review_count,
+                review.high_risk_review_count,
+                review.warning_review_count,
+                review.info_review_count,
+                _json_text(review.top_risks),
+                _json_text(review.recommended_actions),
+                review.provider,
+                review.model,
+                review.input_tokens,
+                review.output_tokens,
+                review.total_tokens,
+                review.estimated_cost_usd,
+                review.currency,
+            ),
+        )
+        if cursor.lastrowid is None:
+            msg = "SQLite did not return a weekly review ID for the inserted review."
+            raise RuntimeError(msg)
+        self._connection.commit()
+        return self.weekly_llm_review(cursor.lastrowid)
+
+    def latest_weekly_llm_review(self) -> WeeklyLlmReviewRecord | None:
+        """Return the latest stored weekly LLM review, if one exists."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT *
+            FROM weekly_llm_reviews
+            ORDER BY week_start DESC, created_at DESC, weekly_review_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        return _weekly_llm_review_from_row(row)
+
+    def weekly_llm_review(
+        self,
+        weekly_review_id: int,
+    ) -> WeeklyLlmReviewRecord:
+        """Return one stored weekly LLM review by ID."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT *
+            FROM weekly_llm_reviews
+            WHERE weekly_review_id = ?
+            """,
+            (weekly_review_id,),
+        ).fetchone()
+        if row is None:
+            msg = f"Stored weekly LLM review {weekly_review_id} could not be read."
+            raise RuntimeError(msg)
+        return _weekly_llm_review_from_row(row)
+
     def set_review_finality(
         self,
         *,
@@ -597,6 +738,7 @@ class ReviewHistoryStore:
         self._connection.execute("DELETE FROM review_evaluation_triggered_rules")
         self._connection.execute("DELETE FROM review_evaluations")
         self._connection.execute("DELETE FROM review_runs")
+        self._connection.execute("DELETE FROM weekly_llm_reviews")
         self._connection.commit()
         return run_count
 
@@ -1109,6 +1251,50 @@ def _optional_date(value: object) -> date | None:
         return date.fromisoformat(value)
     msg = f"Expected date-compatible SQLite value, got {type(value).__name__}."
     raise TypeError(msg)
+
+
+def _json_text(values: Sequence[str]) -> str:
+    return json.dumps(list(values), separators=(",", ":"))
+
+
+def _json_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    loaded = json.loads(str(value))
+    if not isinstance(loaded, list):
+        msg = "Expected SQLite JSON list value."
+        raise TypeError(msg)
+    return [str(item) for item in loaded]
+
+
+def _weekly_llm_review_from_row(row: sqlite3.Row) -> WeeklyLlmReviewRecord:
+    return WeeklyLlmReviewRecord(
+        weekly_review_id=int(row["weekly_review_id"]),
+        week_start=date.fromisoformat(str(row["week_start"])),
+        week_end=date.fromisoformat(str(row["week_end"])),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        result=cast(WeeklyLlmReviewResult, row["result"]),
+        score=int(row["score"]),
+        summary=str(row["summary"]),
+        mr_count=int(row["mr_count"]),
+        developer_count=int(row["developer_count"]),
+        ticket_count=int(row["ticket_count"]),
+        approved_ticket_count=int(row["approved_ticket_count"]),
+        observed_ticket_count=int(row["observed_ticket_count"]),
+        blocking_review_count=int(row["blocking_review_count"]),
+        high_risk_review_count=int(row["high_risk_review_count"]),
+        warning_review_count=int(row["warning_review_count"]),
+        info_review_count=int(row["info_review_count"]),
+        top_risks=_json_list(row["top_risks"]),
+        recommended_actions=_json_list(row["recommended_actions"]),
+        provider=str(row["provider"]),
+        model=str(row["model"]),
+        input_tokens=_optional_int(row["input_tokens"]),
+        output_tokens=_optional_int(row["output_tokens"]),
+        total_tokens=_optional_int(row["total_tokens"]),
+        estimated_cost_usd=_optional_float(row["estimated_cost_usd"]),
+        currency=str(row["currency"]),
+    )
 
 
 def _optional_path(value: object) -> Path | None:

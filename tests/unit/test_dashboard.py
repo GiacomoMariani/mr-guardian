@@ -1,9 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
+from inspect import getsource
 from pathlib import Path
 
 from mr_guardian.core.dashboard import load_dashboard_data, prepare_dashboard_data
 from mr_guardian.models.history import DashboardEtaNote, ReviewRunCreate, TriggeredRuleStat
 from mr_guardian.models.review import LlmDeveloperProfile, LlmReviewSummary, RiskLevel
+from mr_guardian.models.weekly_review import WeeklyLlmReviewRecord
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -190,14 +192,81 @@ def test_dashboard_declares_clickable_tab_labels() -> None:
     import app.streamlit_app as streamlit_app
 
     assert streamlit_app._dashboard_tab_labels() == (
-        "Project Health",
         "Delivery Health",
+        "Agent Review",
+        "Recent Reviews",
         "Lead Review",
         "Trends",
         "Triggered Rules",
-        "Recent Reviews",
-        "Stored Report",
     )
+
+
+def test_agent_review_tab_is_second_and_opens_by_default() -> None:
+    import app.streamlit_app as streamlit_app
+
+    labels = streamlit_app._dashboard_tab_labels()
+    assert streamlit_app.DEFAULT_DASHBOARD_TAB_INDEX == 1
+    assert labels[streamlit_app.DEFAULT_DASHBOARD_TAB_INDEX] == "Agent Review"
+
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
+    assert "with agent_review_tab:" in source
+    assert "_render_default_tab_script(st, DEFAULT_DASHBOARD_TAB_INDEX)" in source
+    assert "mg-section-caption" in source
+
+
+def test_review_pager_shows_all_ids_with_disabled_arrows_when_they_fit() -> None:
+    import app.streamlit_app as streamlit_app
+
+    slots = streamlit_app._review_pager_slots(
+        [3, 4, 5, 6, 7], window_start=0, page_size=10
+    )
+    assert slots[0] == ("prev", True)  # present but disabled — nothing to page
+    assert slots[-1] == ("next", True)
+    assert [value for kind, value in slots if kind == "id"] == [3, 4, 5, 6, 7]
+
+
+def test_review_pager_at_latest_end_disables_next() -> None:
+    import app.streamlit_app as streamlit_app
+
+    ids = list(range(1, 16))  # 1..15
+    # Default window sits at the latest end: start = 15 - 10 = 5 -> ids[5:15] = 6..15.
+    slots = streamlit_app._review_pager_slots(ids, window_start=5, page_size=10)
+    assert slots[0] == ("prev", False)  # can page back -> enabled
+    assert slots[-1] == ("next", True)  # already at the latest end -> disabled
+    assert [value for kind, value in slots if kind == "id"] == list(range(6, 16))
+
+
+def test_review_pager_at_start_disables_prev() -> None:
+    import app.streamlit_app as streamlit_app
+
+    ids = list(range(1, 16))
+    slots = streamlit_app._review_pager_slots(ids, window_start=0, page_size=10)
+    assert slots[0] == ("prev", True)  # at the start -> disabled
+    assert slots[-1] == ("next", False)  # can page forward -> enabled
+    assert [value for kind, value in slots if kind == "id"] == list(range(1, 11))
+
+
+def test_review_pager_in_the_middle_enables_both_arrows() -> None:
+    import app.streamlit_app as streamlit_app
+
+    slots = streamlit_app._review_pager_slots(
+        list(range(1, 31)), window_start=10, page_size=10
+    )
+    assert slots[0] == ("prev", False)
+    assert slots[-1] == ("next", False)
+    assert [value for kind, value in slots if kind == "id"] == list(range(11, 21))
+
+
+def test_render_section_omits_panel_number_when_index_is_none() -> None:
+    from app.streamlit_components import render_section
+
+    numbered = render_section(index=1, title="Agent Review", body_html="<p>x</p>")
+    unnumbered = render_section(title="Agent Review", body_html="<p>x</p>")
+
+    assert "mg-panel-num" in numbered
+    assert ">01<" in numbered
+    assert "mg-panel-num" not in unnumbered
+    assert "Agent Review" in unnumbered
 
 
 def test_dashboard_defaults_to_dark_theme() -> None:
@@ -208,12 +277,20 @@ def test_dashboard_defaults_to_dark_theme() -> None:
 
 
 def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
+    import app.streamlit_app as streamlit_app
+
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
     assert "st.tabs(list(_dashboard_tab_labels()))" in source
     assert "render_section_nav" not in source
     assert "NavItem" not in source
     assert "st.sidebar" not in source
+    assert "with delivery_health_tab:" in source
+    assert "readiness_percent = _render_pm_dashboard(st, database_path)" in source
+    assert "readiness_percent=readiness_percent" in source
+    assert "_render_weekly_llm_review(st, database_path)" in source
+    assert "Project Health" not in streamlit_app._dashboard_tab_labels()
+    assert "_render_project_health" not in source
 
 
 def test_dashboard_database_path_is_readonly_and_window_controls_are_scoped() -> None:
@@ -222,19 +299,73 @@ def test_dashboard_database_path_is_readonly_and_window_controls_are_scoped() ->
     assert "st.text_input" not in source
     assert "mg-readonly-value" in source
     assert 'key="recent_reviews_limit"' in source
-    assert 'key="pm_lookback_days"' in source
     assert 'key="lead_lookback_days"' in source
     assert 'key="developer_detail_lookback_days"' in source
 
 
-def test_dashboard_exposes_best_practices_link() -> None:
+def test_delivery_health_first_tab_is_summary_only() -> None:
     import app.streamlit_app as streamlit_app
+
+    source = getsource(streamlit_app._render_pm_dashboard)
+
+    assert "DEFAULT_PM_LOOKBACK_DAYS" in source
+    assert "st.number_input" not in source
+    assert "_pm_tickets_table" not in source
+    assert "_pm_blockers_table" not in source
+    assert "Recurring Blockers" not in source
+    assert "return summary.pass_rate" in source
+
+
+def test_beta_phase_eta_uses_readiness_eyebrow() -> None:
+    import app.streamlit_app as streamlit_app
+
+    source = getsource(streamlit_app._render_eta_note)
+
+    assert "action_html=_readiness_badge(readiness_percent)" in source
+
+
+def test_readiness_badge_is_prominent() -> None:
+    import app.streamlit_app as streamlit_app
+    from app.streamlit_style import dashboard_css
+
+    html = streamlit_app._readiness_badge(75.0)
+    css = dashboard_css("dark")
+
+    assert "mg-readiness-badge" in html
+    assert "<strong>75%</strong>" in html
+    assert ".mg-readiness-badge" in css
+    assert "font-size: 22px;" in css
+
+
+def test_dashboard_exposes_source_and_best_practices_links() -> None:
+    import app.streamlit_app as streamlit_app
+    from app.streamlit_components import render_page_header
 
     assert streamlit_app.BEST_PRACTICES_URL == (
         "https://github.com/GiacomoMariani/UnityBestPractices"
     )
+    assert streamlit_app.SOURCE_URL == "https://github.com/GiacomoMariani/mr-guardian"
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
-    assert "Best practices applied" in source
+    assert "Best practices applied ↗" in source
+    assert "View source ↗" in source
+    assert "_render_best_practices_link" not in source
+
+    html = render_page_header(
+        title="MR Guardian",
+        kicker="Review Intelligence",
+        body="Review body.",
+        top_links=(
+            ("View source ↗", streamlit_app.SOURCE_URL),
+            ("Best practices applied ↗", streamlit_app.BEST_PRACTICES_URL),
+        ),
+    )
+    assert "mg-app-hero-top" in html
+    assert "mg-hero-links" in html
+    assert "Review Intelligence" in html
+    assert "View source ↗" in html
+    assert "Best practices applied ↗" in html
+    assert streamlit_app.SOURCE_URL in html
+    assert streamlit_app.BEST_PRACTICES_URL in html
 
 
 def test_eta_note_panel_renders_empty_state_with_disclaimer() -> None:
@@ -242,8 +373,8 @@ def test_eta_note_panel_renders_empty_state_with_disclaimer() -> None:
 
     html = streamlit_app._eta_note_panel(None)
 
-    assert "No delivery ETA note has been set yet." in html
-    assert "Based on AI evaluation" in html
+    assert "No beta phase ETA note has been set yet." in html
+    assert "Confirm beta phase dates" in html
 
 
 def test_eta_note_panel_renders_note_with_target_and_updated_timestamp() -> None:
@@ -260,7 +391,7 @@ def test_eta_note_panel_renders_note_with_target_and_updated_timestamp() -> None
     assert "Milestone looks merge-ready by Friday." in html
     assert "2026-06-05" in html
     assert "2026-06-03T10:30:00+00:00" in html
-    assert "Based on AI evaluation" in html
+    assert "Confirm beta phase dates" in html
 
 
 def test_dashboard_loads_eta_note_through_core() -> None:
@@ -270,73 +401,65 @@ def test_dashboard_loads_eta_note_through_core() -> None:
     assert "set_dashboard_eta_note" not in source
 
 
-def test_latest_llm_review_panel_renders_summary() -> None:
+def test_weekly_llm_review_panel_renders_stored_summary() -> None:
     import app.streamlit_app as streamlit_app
 
-    store = ReviewHistoryStore(":memory:")
-    old_record = store.store_review_run(make_review_run())
-    latest_record = store.store_review_run(
-        make_review_run(
-            developer_id="Jane",
-            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
-            llm_summary=LlmReviewSummary(
-                status="succeeded",
-                provider="openai",
-                model="gpt-4.1-mini",
-                duration_ms=820,
-                text="This MR is ready after metadata cleanup.",
-                score=82,
-                input_tokens=10,
-                output_tokens=20,
-                total_tokens=30,
-            ),
-        )
+    record = WeeklyLlmReviewRecord(
+        weekly_review_id=1,
+        week_start=date(2026, 6, 1),
+        week_end=date(2026, 6, 7),
+        created_at=datetime(2026, 6, 7, 18, tzinfo=timezone.utc),
+        result="on_track",
+        score=84,
+        summary="The week is on track with one remaining high-risk review.",
+        mr_count=12,
+        developer_count=4,
+        ticket_count=7,
+        approved_ticket_count=5,
+        observed_ticket_count=2,
+        blocking_review_count=0,
+        high_risk_review_count=1,
+        warning_review_count=3,
+        info_review_count=8,
+        top_risks=["One ticket still has a high-risk review."],
+        recommended_actions=["Clear the high-risk ticket before the beta cut."],
+        provider="openai",
+        model="gpt-4.1-mini",
+        input_tokens=1200,
+        output_tokens=240,
+        total_tokens=1440,
+        estimated_cost_usd=0.0031,
     )
-    store.close()
 
-    selected_run = streamlit_app._latest_llm_summary_run([latest_record, old_record])
-    html = streamlit_app._llm_review_summary_panel(selected_run)
+    html = streamlit_app._weekly_llm_review_panel(record)
+    badge_html = streamlit_app._weekly_llm_result_badge(record)
 
-    assert selected_run == latest_record
-    assert "Latest LLM Review" in html
-    assert "This MR is ready after metadata cleanup." in html
-    assert "Score 82" in html
+    assert "Weekly assessment" in html
+    assert "The week is on track with one remaining high-risk review." in html
+    assert "84/100" in html
+    assert "LLM-calculated score" in html
+    assert "MRs This Week" in html
+    assert "One ticket still has a high-risk review." in html
+    assert "Clear the high-risk ticket before the beta cut." in html
     assert "gpt-4.1-mini" in html
+    assert "input 1200" in html
+    assert "0.0031 USD" in html
+    assert "On Track" in badge_html
 
 
-def test_latest_llm_review_panel_handles_legacy_summary_without_score() -> None:
+def test_weekly_llm_review_panel_renders_empty_state() -> None:
     import app.streamlit_app as streamlit_app
 
-    class LegacySummary:
-        status = "succeeded"
-        provider = "openai"
-        model = "gpt-4.1-mini"
-        duration_ms = 820
-        text = "Legacy summary still renders."
-        input_tokens = 10
-        output_tokens = 20
-        total_tokens = 30
-        error_message = None
+    html = streamlit_app._weekly_llm_review_panel(None)
 
-    class LegacyRun:
-        review_id = 1
-        timestamp = datetime(2026, 5, 29, tzinfo=timezone.utc)
-        developer_id = "Jane"
-        review_score = 91
-        llm_summary = LegacySummary()
-
-    html = streamlit_app._llm_review_summary_panel(LegacyRun())
-
-    assert "Legacy summary still renders." in html
-    assert "Score 91" in html
+    assert "No weekly LLM review has been stored yet." in html
 
 
-def test_latest_llm_review_panel_renders_empty_state() -> None:
-    import app.streamlit_app as streamlit_app
+def test_dashboard_loads_weekly_llm_review_through_core() -> None:
+    source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
-    html = streamlit_app._llm_review_summary_panel(None)
-
-    assert "No LLM review summary has been generated yet." in html
+    assert "load_latest_weekly_llm_review" in source
+    assert "store_weekly_llm_review" not in source
 
 
 def test_lead_developers_render_name_as_link_without_extra_open_column() -> None:
@@ -476,7 +599,9 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
     assert "Hanken Grotesk" in light_css
     assert "JetBrains Mono" in dark_css
     assert "mg-app-hero" in light_css
-    assert "mg-link-bar" in light_css
+    assert "mg-hero-top-link" in light_css
+    assert "mg-hero-links" in light_css
+    assert "mg-pager-label" in light_css
     assert "[data-testid=\"stTextInput\"] input" in light_css
     assert "-webkit-text-fill-color: var(--ink)" in light_css
     assert "[data-baseweb=\"tab-list\"]" in light_css

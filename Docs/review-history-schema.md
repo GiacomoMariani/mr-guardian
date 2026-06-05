@@ -145,6 +145,8 @@ The typed model is the integration contract. SQLite storage uses tables and colu
 - `review_llm_rule_metrics` stores per-rule LLM runtime and token metadata.
 - `review_evaluations` stores coding and MR-structure summary rows.
 - `review_evaluation_triggered_rules` stores rule IDs attached to each evaluation summary.
+- `weekly_llm_reviews` stores externally supplied weekly LLM dashboard summaries,
+  including result, score, weekly counts, risks, actions, tokens, and estimated cost.
 
 Nested values returned by the application are reconstructed from those tables.
 
@@ -161,3 +163,12 @@ Manual review submission uses a different schema:
 ```text
 GET /reviews/manual/schema
 ```
+
+Weekly LLM dashboard review ingestion uses its own schema:
+
+```text
+GET /weekly-llm-reviews/schema
+POST /weekly-llm-reviews/manual
+```
+
+See `Docs/weekly-llm-review.md` for the weekly payload shape and validation rules.
