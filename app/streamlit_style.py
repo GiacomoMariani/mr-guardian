@@ -782,6 +782,42 @@ a {{
   color: var(--ink);
 }}
 
+.st-key-dashboard_section [role="radiogroup"] {{
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 22px;
+  margin: 8px 0 20px;
+}}
+
+.st-key-dashboard_section [role="radiogroup"] > label {{
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  gap: 0;
+  margin: 0;
+  padding-bottom: 12px;
+}}
+
+.st-key-dashboard_section [role="radiogroup"] > label > div:first-child {{
+  display: none;
+}}
+
+.st-key-dashboard_section [role="radiogroup"] > label p {{
+  color: var(--ink-3);
+  font-family: var(--mg-mono);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  margin: 0;
+}}
+
+.st-key-dashboard_section [role="radiogroup"] > label:has(input:checked) {{
+  border-bottom-color: var(--accent);
+}}
+
+.st-key-dashboard_section [role="radiogroup"] > label:has(input:checked) p {{
+  color: var(--ink);
+}}
+
 hr {{
   border-color: var(--mg-line);
 }}

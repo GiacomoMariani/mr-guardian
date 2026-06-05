@@ -209,8 +209,11 @@ def test_agent_review_tab_is_second_and_opens_by_default() -> None:
     assert labels[streamlit_app.DEFAULT_DASHBOARD_TAB_INDEX] == "Agent Review"
 
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
-    assert "with agent_review_tab:" in source
-    assert "_render_default_tab_script(st, DEFAULT_DASHBOARD_TAB_INDEX)" in source
+    # The radio nav defaults to Agent Review server-side (no first-tab flash); the
+    # old client-side tab nudge is gone.
+    assert "st.radio(" in source
+    assert "index=DEFAULT_DASHBOARD_TAB_INDEX" in source
+    assert "_render_default_tab_script" not in source
     assert "mg-section-caption" in source
 
 
@@ -276,16 +279,18 @@ def test_dashboard_defaults_to_dark_theme() -> None:
     assert streamlit_app._default_theme_index() == 1
 
 
-def test_dashboard_main_page_uses_tabs_not_anchor_nav() -> None:
+def test_dashboard_main_page_uses_radio_section_nav() -> None:
     import app.streamlit_app as streamlit_app
 
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
-    assert "st.tabs(list(_dashboard_tab_labels()))" in source
+    assert 'key="dashboard_section"' in source
+    assert "horizontal=True" in source
     assert "render_section_nav" not in source
     assert "NavItem" not in source
     assert "st.sidebar" not in source
-    assert "with delivery_health_tab:" in source
+    assert 'selected_section == "Delivery Health"' in source
+    assert 'selected_section == "Agent Review"' in source
     assert "readiness_percent = _render_pm_dashboard(st, database_path)" in source
     assert "readiness_percent=readiness_percent" in source
     assert "_render_weekly_llm_review(st, database_path)" in source

@@ -224,16 +224,20 @@ def _render_dashboard_tabs(
     database_path: Path,
     theme: DashboardTheme,
 ) -> None:
-    (
-        delivery_health_tab,
-        agent_review_tab,
-        recent_reviews_tab,
-        lead_review_tab,
-        trends_tab,
-        triggered_rules_tab,
-    ) = st.tabs(list(_dashboard_tab_labels()))
+    # A horizontal radio (styled as a tab strip) drives the active section instead
+    # of st.tabs: it honours a default index server-side, so the page renders
+    # straight to Agent Review on first paint - no first-tab flash - while that tab
+    # still sits second in the bar. Only the selected section is rendered each run.
+    selected_section = st.radio(
+        "Dashboard section",
+        list(_dashboard_tab_labels()),
+        index=DEFAULT_DASHBOARD_TAB_INDEX,
+        horizontal=True,
+        key="dashboard_section",
+        label_visibility="collapsed",
+    )
 
-    with delivery_health_tab:
+    if selected_section == "Delivery Health":
         readiness_percent = _render_pm_dashboard(st, database_path)
         _render_eta_note(
             st,
@@ -241,49 +245,16 @@ def _render_dashboard_tabs(
             readiness_percent=readiness_percent,
         )
         _render_weekly_llm_review(st, database_path)
-    with agent_review_tab:
+    elif selected_section == "Agent Review":
         _render_selected_report(st, database_path, data, theme)
-    with recent_reviews_tab:
+    elif selected_section == "Recent Reviews":
         _render_recent_reviews(st, database_path)
-    with lead_review_tab:
+    elif selected_section == "Lead Review":
         _render_lead_dashboard(st, database_path)
-    with trends_tab:
+    elif selected_section == "Trends":
         _render_trends(st, data)
-    with triggered_rules_tab:
+    elif selected_section == "Triggered Rules":
         _render_triggered_rules(st, data)
-    _render_default_tab_script(st, DEFAULT_DASHBOARD_TAB_INDEX)
-
-
-def _render_default_tab_script(st, index: int) -> None:
-    """Open the dashboard on the given tab.
-
-    Streamlit's ``st.tabs`` always renders with the first tab active and exposes
-    no default-selection argument, so we nudge the selection client-side once per
-    page load. The guard lives on the parent ``window`` (not sessionStorage), so a
-    fresh load - including a refresh - lands on this tab, while in-session reruns
-    leave a visitor's manual tab choice untouched.
-    """
-    script = """
-<script>
-(function () {
-  const win = window.parent;
-  if (win.__mgDefaultTabApplied) return;
-  let tries = 0;
-  const timer = setInterval(function () {
-    const list = win.document.querySelector('[data-baseweb="tab-list"]');
-    const tabs = list ? list.querySelectorAll('button[data-baseweb="tab"]') : [];
-    if (tabs.length > __INDEX__) {
-      tabs[__INDEX__].click();
-      win.__mgDefaultTabApplied = true;
-      clearInterval(timer);
-    } else if (++tries > 40) {
-      clearInterval(timer);
-    }
-  }, 100);
-})();
-</script>
-""".replace("__INDEX__", str(int(index)))
-    st.components.v1.html(script, height=0)
 
 
 def _render_page_heading(
