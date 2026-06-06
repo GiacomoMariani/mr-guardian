@@ -72,6 +72,7 @@ from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_developer_detail,
 )
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
+from mr_guardian.core.review_rules import rules_that_ran  # noqa: E402
 from mr_guardian.core.weekly_llm_review import load_latest_weekly_llm_review  # noqa: E402
 from mr_guardian.models.dashboard import DashboardEtaNote  # noqa: E402
 from mr_guardian.models.history import (  # noqa: E402
@@ -86,8 +87,10 @@ from mr_guardian.models.pm_dashboard import (  # noqa: E402
     PmRecurringBlocker,
     PmTicketStatus,
 )
+from mr_guardian.models.policy import PolicyRule  # noqa: E402
 from mr_guardian.models.review import RiskLevel  # noqa: E402
 from mr_guardian.models.weekly_review import WeeklyLlmReviewRecord  # noqa: E402
+from mr_guardian.policies.catalog import load_rule_catalog, summarize_catalog  # noqa: E402
 from mr_guardian.reporting.visual_report import render_visual_review_report  # noqa: E402
 from mr_guardian.storage import ReviewHistoryStore  # noqa: E402
 
@@ -129,6 +132,25 @@ def _db_mtime(database_path: Path) -> float:
         return database_path.stat().st_mtime
     except OSError:
         return 0.0
+
+
+_POLICY_DIR = "sources/yaml"
+
+
+def _policy_dir_mtime(policy_dir: str) -> float:
+    """Newest mtime across the policy YAML files; refreshes the catalog cache."""
+    directory = Path(policy_dir)
+    mtimes = [
+        path.stat().st_mtime
+        for pattern in ("*.yml", "*.yaml")
+        for path in directory.glob(pattern)
+    ]
+    return max(mtimes, default=0.0)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_rule_catalog(policy_dir: str, policy_mtime: float):
+    return load_rule_catalog(policy_dir)
 
 
 # The dashboard re-runs on every interaction, so the section loaders are cached and
@@ -229,6 +251,7 @@ def main() -> None:
         theme=theme,
     )
     _render_pipeline_hook(st)
+    _render_browse_all_checks(st)
     _render_bottom_controls(st, database_path)
 
 
@@ -992,6 +1015,85 @@ def _render_review_report_tabs(st, selected_run, theme: DashboardTheme) -> None:
         )
     with raw_tab:
         _render_html(st, render_raw_markdown_block(selected_run.generated_review_report))
+    _render_rules_that_ran(st, selected_run)
+
+
+_RULE_SOURCE_BLOB = f"{SOURCE_URL}/blob/main/sources/yaml/"
+_CHECKS_PER_ROW = 4
+
+
+def _rule_source_url(source: str) -> str | None:
+    """Map a rule ``source`` (``file.yml#ID``) to its file URL on the public repo."""
+    filename = source.split("#", 1)[0].strip()
+    if not filename.endswith((".yml", ".yaml")):
+        return None
+    return _RULE_SOURCE_BLOB + filename
+
+
+def _render_rule_popover(st, rule_id: str, rule: PolicyRule | None) -> None:
+    with st.popover(rule_id, use_container_width=True):
+        if rule is None:
+            st.markdown(f"**{rule_id}**")
+            st.caption("Definition is not in the current policy.")
+            return
+        kind = "LLM" if rule.type == "llm" else "Deterministic"
+        st.markdown(f"**{rule_id}**")
+        st.caption(f"{kind} · {rule.severity} · {rule.evaluation}")
+        st.write(rule.description)
+        if rule.prompt:
+            st.caption("LLM prompt")
+            st.code(rule.prompt.strip(), language="markdown")
+        source_url = _rule_source_url(rule.source)
+        if source_url is not None:
+            st.markdown(f"[View source ↗]({source_url})")
+
+
+def _render_rule_chip_grid(st, rule_ids, catalog) -> None:
+    for start in range(0, len(rule_ids), _CHECKS_PER_ROW):
+        chunk = rule_ids[start : start + _CHECKS_PER_ROW]
+        columns = st.columns(_CHECKS_PER_ROW)
+        for column, rule_id in zip(columns, chunk, strict=False):
+            with column:
+                _render_rule_popover(st, rule_id, catalog.get(rule_id))
+
+
+def _render_rules_that_ran(st, selected_run) -> None:
+    rule_ids = rules_that_ran(selected_run.findings, selected_run.triggered_rule_ids)
+    if not rule_ids:
+        return
+    catalog = _cached_rule_catalog(_POLICY_DIR, _policy_dir_mtime(_POLICY_DIR))
+    st.markdown(f"**Policies triggered** ({len(rule_ids)})")
+    _render_rule_chip_grid(st, rule_ids, catalog)
+
+
+def _render_browse_all_checks(st) -> None:
+    catalog = _cached_rule_catalog(_POLICY_DIR, _policy_dir_mtime(_POLICY_DIR))
+    if not catalog:
+        return
+    summary = summarize_catalog(catalog)
+    # Lazy reveal: st.expander renders its body even when collapsed, which would
+    # build all ~56 rule popovers on every rerun. A toggled button renders the
+    # chips only while open, so the collapsed default costs nothing.
+    state_key = "browse_all_checks_open"
+    if st.button(f"Browse all {summary.total} policies", key="browse_all_checks_btn"):
+        st.session_state[state_key] = not st.session_state.get(state_key, False)
+    if not st.session_state.get(state_key, False):
+        return
+    deterministic = sorted(
+        rule_id for rule_id, rule in catalog.items() if rule.type == "deterministic"
+    )
+    llm = sorted(rule_id for rule_id, rule in catalog.items() if rule.type == "llm")
+    st.caption(
+        f"{summary.by_type.get('llm', 0)} LLM · "
+        f"{summary.by_type.get('deterministic', 0)} deterministic · "
+        f"{summary.blocking} blocking · {len(summary.by_dimension)} dimensions"
+    )
+    if deterministic:
+        st.markdown(f"**Deterministic gates** ({len(deterministic)})")
+        _render_rule_chip_grid(st, deterministic, catalog)
+    if llm:
+        st.markdown(f"**LLM judgment** ({len(llm)})")
+        _render_rule_chip_grid(st, llm, catalog)
 
 
 def _triggered_rules_table(stats: list[TriggeredRuleStat]) -> str:

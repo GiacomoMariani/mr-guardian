@@ -669,6 +669,10 @@ a {{
   padding: 0 4px;
 }}
 
+.st-key-browse_all_checks_btn {{
+  margin-top: 16px;
+}}
+
 .mg-eta-note {{
   background: var(--surface);
   color: var(--ink-2);

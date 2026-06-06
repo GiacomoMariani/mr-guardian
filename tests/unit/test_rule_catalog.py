@@ -84,3 +84,5 @@ def test_loads_real_policy_directory() -> None:
     summary = summarize_catalog(catalog)
     assert summary.by_type.get("llm", 0) >= 20
     assert summary.by_type.get("deterministic", 0) >= 20
+    assert summary.total == sum(summary.by_type.values())
+    assert summary.blocking >= 1

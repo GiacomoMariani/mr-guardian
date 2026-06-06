@@ -241,7 +241,13 @@ def test_blocked_report_does_not_duplicate_findings() -> None:
         ),
     ]
     html = render_visual_review_report(
-        make_record(risk="blocking", blocking_count=1, high_count=1, warning_count=0, findings=findings)
+        make_record(
+            risk="blocking",
+            blocking_count=1,
+            high_count=1,
+            warning_count=0,
+            findings=findings,
+        )
     )
 
     assert "Why this is blocked" in html

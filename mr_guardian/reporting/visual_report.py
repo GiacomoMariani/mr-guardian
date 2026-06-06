@@ -380,7 +380,6 @@ def _render_blocked_section(
     return f"""
 <section>
   <div class="s-head">
-    <span class="s-num">01</span>
     <h2>Why this is blocked</h2>
     <span class="rule-tag">{_html(_rule_range(actionable_findings))}</span>
   </div>
@@ -420,14 +419,12 @@ def _render_skipped_section(
     skipped_rule_ids: list[str],
     skipped_metrics: list[LlmRuleMetric],
 ) -> str:
-    section_number = "02"
     provider = _provider_model(skipped_metrics)
     reason = _skipped_reason(skipped_metrics)
     chips = "".join(f"<span>{_html(rule_id)}</span>" for rule_id in skipped_rule_ids)
     return f"""
 <section>
   <div class="s-head">
-    <span class="s-num">{section_number}</span>
     <h2>Code analysis was not completed</h2>
   </div>
   <div class="callout">
@@ -455,7 +452,6 @@ def _render_findings_section(
     return f"""
 <section>
   <div class="s-head">
-    <span class="s-num">03</span>
     <h2>{_html(title)}</h2>
     <span class="rule-tag">{len(findings)} total</span>
   </div>
