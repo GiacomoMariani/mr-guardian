@@ -552,6 +552,10 @@ a {{
   text-align: right;
 }}
 
+.mg-dashboard-table thead th.right {{
+  text-align: right;
+}}
+
 .mg-cell-mono {{
   color: var(--ink-2);
   font-family: var(--mg-mono);

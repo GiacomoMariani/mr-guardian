@@ -3,7 +3,7 @@ from pathlib import Path
 
 from mr_guardian.models.history import ReviewPolicySummary, ReviewRunRecord
 from mr_guardian.models.policy import PolicyRule
-from mr_guardian.models.review import Finding, LlmRuleMetric
+from mr_guardian.models.review import Finding, LlmReviewSummary, LlmRuleMetric
 from mr_guardian.reporting.visual_report import render_visual_review_report
 
 
@@ -16,6 +16,7 @@ def make_record(
     info_count: int = 0,
     findings: list[Finding] | None = None,
     llm_metrics: list[LlmRuleMetric] | None = None,
+    llm_summary: LlmReviewSummary | None = None,
     developer_id: str = "Test User",
 ) -> ReviewRunRecord:
     return ReviewRunRecord(
@@ -36,6 +37,7 @@ def make_record(
         findings=findings or [],
         triggered_rule_ids=[finding.rule_id for finding in findings or []],
         llm_metrics=llm_metrics or [],
+        llm_summary=llm_summary,
         policy_summaries=[
             ReviewPolicySummary(
                 policy_path="sources/yaml/python-policy.yml",
@@ -386,3 +388,41 @@ def test_developer_name_plain_without_url() -> None:
     html = render_visual_review_report(make_record(developer_id="Nora Valenti"))
     assert 'class="dev-link"' not in html
     assert "<b>Nora Valenti</b>" in html
+
+
+def test_outcome_label_and_severity_aware_next_steps() -> None:
+    # the band label is now "Outcome", not "Verdict"
+    passed = render_visual_review_report(
+        make_record(risk="none", blocking_count=0, warning_count=0, findings=[])
+    )
+    assert ">Outcome</div>" in passed
+    assert ">Verdict<" not in passed
+    assert "No immediate action required." in passed
+
+    # blocking -> resolve before assigned for review
+    blocked = render_visual_review_report(
+        make_record(risk="blocking", blocking_count=1, warning_count=0)
+    )
+    assert "before this is assigned for review." in blocked
+
+    # high/warning -> routed to the lead for sign-off
+    warned = render_visual_review_report(
+        make_record(risk="warning", blocking_count=0, high_count=0, warning_count=1)
+    )
+    assert "routed to the lead developer for sign-off." in warned
+
+
+def test_llm_note_renders_under_outcome_when_summary_present() -> None:
+    summary = LlmReviewSummary(
+        status="succeeded",
+        provider="openai",
+        model="gpt-4.1-mini",
+        duration_ms=1800,
+        text="This MR refactors the player motor; watch the hot path.",
+    )
+    html = render_visual_review_report(make_record(llm_summary=summary))
+    assert 'class="llm-note"' in html
+    assert "This MR refactors the player motor" in html
+    assert "AI summary" in html
+    # no summary -> the note is omitted entirely
+    assert 'class="llm-note"' not in render_visual_review_report(make_record())

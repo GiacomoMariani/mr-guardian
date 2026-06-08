@@ -140,7 +140,13 @@ def render_table(
     if not rows:
         return render_empty_state(empty_message)
 
-    header_html = "".join(f"<th>{_html(header)}</th>" for header in headers)
+    first_row = rows[0]
+    header_html = "".join(
+        _render_header_cell(
+            header, first_row[index] if index < len(first_row) else None
+        )
+        for index, header in enumerate(headers)
+    )
     row_html = "\n".join(
         _render_row(row, is_active=index == active_row_index)
         for index, row in enumerate(rows)
@@ -331,6 +337,14 @@ def _render_row(row: Sequence[TableValue], *, is_active: bool) -> str:
     active_attribute = ' data-active="true"' if is_active else ""
     cells = "".join(_render_cell(value) for value in row)
     return f'<tr class="row-hover"{active_attribute}>{cells}</tr>'
+
+
+def _render_header_cell(header: str, sample_cell: TableValue) -> str:
+    # Mirror the column's cell alignment onto its header, so a right-aligned numeric
+    # column (e.g. Score, Changed Lines) lines its header up over the values.
+    align = sample_cell.align if isinstance(sample_cell, TableCell) else "left"
+    align_class = ' class="right"' if align == "right" else ""
+    return f"<th{align_class}>{_html(header)}</th>"
 
 
 def _render_cell(value: TableValue) -> str:

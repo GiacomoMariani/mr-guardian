@@ -51,6 +51,9 @@ CODEX_DEVELOPMENT_NOTES.md
 codex-*.log
 codex-*.json
 
+# Claude Code local settings (personal, per-machine)
+.claude/settings.local.json
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -38,6 +38,11 @@ class Settings:
             "MR_GUARDIAN_DEVELOPER_PROFILE_MAX_CHARS",
             900,
         )
+        # Per-dimension score targets (out of 100) used to colour developer score cards
+        # green (meets) / amber (below) on the dashboard.
+        self.score_target_average = _int_env("MR_GUARDIAN_SCORE_TARGET_AVERAGE", 80)
+        self.score_target_coding = _int_env("MR_GUARDIAN_SCORE_TARGET_CODING", 80)
+        self.score_target_structure = _int_env("MR_GUARDIAN_SCORE_TARGET_STRUCTURE", 80)
         self.gitlab_webhook_secret = os.getenv("GITLAB_WEBHOOK_SECRET", "")
         self.gitlab_token = os.getenv("GITLAB_TOKEN", "")
         self.gitlab_base_url = os.getenv("GITLAB_BASE_URL", "https://gitlab.com")

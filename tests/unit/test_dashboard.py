@@ -310,16 +310,17 @@ def test_review_report_height_scales_and_clamps() -> None:
             "high_count": 0,
             "warning_count": 0,
             "info_count": 0,
+            "llm_summary": None,
         }
         base.update(counts)
         return SimpleNamespace(findings=findings, **base)
 
     assert streamlit_app._review_report_height(run()) == 680  # passed / no findings
-    assert streamlit_app._review_report_height(run(findings=[1] * 5)) == 680 + 46 * 5
+    assert streamlit_app._review_report_height(run(findings=[1] * 5)) == 680 + 56 * 5
     # blocked reports add the "why this is blocked" section
     assert (
         streamlit_app._review_report_height(run(blocking_count=1, findings=[1] * 2))
-        == 680 + 46 * 2 + 210
+        == 680 + 56 * 2 + 210
     )
     assert streamlit_app._review_report_height(run(findings=[1] * 100)) == 2800  # cap
 
@@ -542,6 +543,24 @@ def test_metric_formatters_humanize_values() -> None:
     assert streamlit_app._trend_label_tone("insufficient_data") == ("-", "neutral")
 
 
+def test_developer_profile_panel_shows_no_info_when_missing() -> None:
+    import app.streamlit_app as streamlit_app
+
+    # no profile (or a failed generation) -> a "No info found." note, not a blank slot
+    assert "No info found." in streamlit_app._developer_profile_panel(None)
+
+
+def test_score_card_colours_against_target() -> None:
+    import app.streamlit_app as streamlit_app
+
+    below = streamlit_app._score_card("Average Score", 75, 80)
+    meets = streamlit_app._score_card("Coding Score", 100, 80)
+    assert below.tone == "warning"
+    assert below.detail is not None and "Target 80" in below.detail
+    assert meets.tone == "pass"
+    assert streamlit_app._score_card("Missing", None, 80).value == "-"
+
+
 def test_dashboard_loads_eta_note_through_core() -> None:
     source = Path("app/streamlit_app.py").read_text(encoding="utf-8")
 
@@ -633,10 +652,11 @@ def test_lead_developers_render_name_as_link_without_extra_open_column() -> None
 
     assert "Jane Developer</a>" in html
     assert "Developer Page" not in html
-    assert "<th>Developer</th>" in html
-    assert "<th>Review Requests</th>" in html
-    assert "<th>Approved Tickets</th>" in html
-    assert "<th>Avg Approval Attempts</th>" in html
+    assert "<th>Developer</th>" in html  # text column stays left
+    # numeric column headers now right-align to match their values
+    assert '<th class="right">Review Requests</th>' in html
+    assert '<th class="right">Approved Tickets</th>' in html
+    assert '<th class="right">Avg Approval Attempts</th>' in html
 
 
 def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:

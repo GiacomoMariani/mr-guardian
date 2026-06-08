@@ -726,6 +726,40 @@ def _render_developer_detail_page(
     developer = detail.developer
     coding_score = _evaluation_average_score(developer, "coding")
     mr_structure_score = _evaluation_average_score(developer, "mr_structure")
+    settings = get_settings()
+    # Lead with the LLM developer profile (the headline artifact) — its scores plus the
+    # AI write-up — then the activity metrics below it.
+    _render_html(
+        st,
+        render_section(
+            title="Latest LLM Developer Profile",
+            eyebrow="AI-generated",
+            body_html=(
+                render_metric_grid(
+                    [
+                        _score_card(
+                            "Average Score",
+                            developer.average_score,
+                            settings.score_target_average,
+                        ),
+                        _score_card(
+                            "Coding Score", coding_score, settings.score_target_coding
+                        ),
+                        _score_card(
+                            "MR Structure Score",
+                            mr_structure_score,
+                            settings.score_target_structure,
+                        ),
+                    ]
+                )
+                + _developer_profile_panel(
+                    _latest_developer_profile_run(detail.review_runs),
+                    show_title=False,
+                )
+            ),
+        ),
+    )
+
     _render_html(
         st,
         render_section(
@@ -740,28 +774,6 @@ def _render_developer_detail_page(
                     MetricCard("Approved Tickets", developer.approved_ticket_count, "pass"),
                     MetricCard("Trend", *_trend_label_tone(developer.trend_direction)),
                 ]
-            ),
-        ),
-    )
-
-    _render_html(
-        st,
-        render_section(
-            index=2,
-            title="Latest Developer Profile",
-            body_html=(
-                # Scores live with the profile now (average grouped next to the coding
-                # and MR-structure breakdown it summarises), not in the top metric strip.
-                render_metric_grid(
-                    [
-                        _score_card("Average Score", developer.average_score),
-                        _score_card("Coding Score", coding_score),
-                        _score_card("MR Structure Score", mr_structure_score),
-                    ]
-                )
-                + _developer_profile_panel(
-                    _latest_developer_profile_run(detail.review_runs)
-                )
             ),
         ),
     )
@@ -993,7 +1005,8 @@ def _review_report_height(run: ReviewRunRecord) -> int:
         if run.findings
         else run.blocking_count + run.high_count + run.warning_count + run.info_count
     )
-    height = 680 + 46 * findings + (210 if run.blocking_count else 0)
+    note = 80 if (run.llm_summary and run.llm_summary.text) else 0
+    height = 680 + 56 * findings + (210 if run.blocking_count else 0) + note
     return min(2800, height)
 
 
@@ -1526,18 +1539,13 @@ def _latest_developer_profile_run(
     return None
 
 
-def _developer_profile_panel(run: ReviewRunRecord | None) -> str:
-    if run is None or run.developer_profile is None:
-        return render_empty_state(
-            "No developer profile snapshot has been generated for this developer yet."
-        )
+def _developer_profile_panel(run: ReviewRunRecord | None, *, show_title: bool = True) -> str:
+    profile = run.developer_profile if run is not None else None
+    if run is None or profile is None or not profile.text:
+        # No usable LLM write-up (never generated, or a failed generation).
+        return render_empty_state("No info found.")
 
-    profile = run.developer_profile
-    profile_text = (
-        profile.text
-        or profile.error_message
-        or "Developer profile generation did not return profile text."
-    )
+    profile_text = profile.text
     usage_parts = [
         _token_count("input", profile.input_tokens),
         _token_count("output", profile.output_tokens),
@@ -1547,13 +1555,18 @@ def _developer_profile_panel(run: ReviewRunRecord | None) -> str:
     if not usage:
         usage = "token usage unavailable"
 
+    title_html = (
+        '<div class="mg-profile-card-title">Latest LLM Developer Profile</div>'
+        if show_title
+        else ""
+    )
     body = _html(profile_text).replace("\n", "<br>")
     return "\n".join(
         [
             '<div class="mg-profile-card">',
             '<div class="mg-profile-card-head">',
             "<div>",
-            '<div class="mg-profile-card-title">Latest LLM Developer Profile</div>',
+            title_html,
             (
                 '<div class="mg-profile-card-meta">'
                 f"Review {_html(str(run.review_id))} · "
@@ -1695,17 +1708,13 @@ def _score(value: float | int | None) -> str:
     return str(value)
 
 
-# Scores are out of 100; this fixed bar gives a bare number some meaning (meets/below).
-_SCORE_TARGET = 80
-
-
-def _score_card(label: str, value: float | int | None) -> MetricCard:
-    """A score card with a fixed-target reference: green when the score meets the
-    target, amber when below, plus a "Target N" detail line for context."""
+def _score_card(label: str, value: float | int | None, target: int) -> MetricCard:
+    """A score card with a per-dimension target (from settings): green when the score
+    meets the target, amber when below, plus a "Target N" detail line for context."""
     if value is None:
         return MetricCard(label, "-", "neutral")
-    tone: Tone = "pass" if value >= _SCORE_TARGET else "warning"
-    return MetricCard(label, _score(value), tone, detail=f"Target {_SCORE_TARGET}")
+    tone: Tone = "pass" if value >= target else "warning"
+    return MetricCard(label, _score(value), tone, detail=f"Target {target}")
 
 
 def _format_datetime(value: datetime | None) -> str:

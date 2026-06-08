@@ -101,6 +101,7 @@ def render_visual_review_report(
             '<div class="sheet">',
             _render_header(run, developer_url),
             _render_verdict(verdict),
+            _render_llm_note(run),
             _render_stats(run),
             _render_scope(run),
             "<main>",
@@ -396,6 +397,29 @@ tr.fdetail > td {
 .dev-link:hover {
   text-decoration-thickness: 2px;
 }
+
+/* Short LLM-written summary under the outcome band — labelled so it reads as the agent's
+   take, distinct from the deterministic findings table. */
+.llm-note {
+  padding: 13px 18px 15px;
+  background: var(--surface-2s);
+  border-bottom: 1px solid var(--line);
+}
+.llm-note-label {
+  margin-bottom: 5px;
+  color: var(--info);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.llm-note-text {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
 """
 
 
@@ -435,10 +459,28 @@ def _render_verdict(verdict: tuple[str, str, str]) -> str:
 <div class="verdict {css_class}">
   <span class="dot"></span>
   <div class="v-text">
-    <div class="v-label">Verdict</div>
+    <div class="v-label">Outcome</div>
     <div class="v-headline">{_html(headline)}</div>
   </div>
   <span class="v-tag">{_html(tag)}</span>
+</div>
+"""
+
+
+def _render_llm_note(run: ReviewRunRecord) -> str:
+    """A short LLM-written summary of the review, shown under the outcome band. Returns
+    an empty string when no summary text is available (never generated / failed) so the
+    layout is untouched."""
+    summary = run.llm_summary
+    if summary is None or not summary.text:
+        return ""
+    label = "AI summary"
+    if summary.model:
+        label = f"AI summary · {_html(summary.model)}"
+    return f"""
+<div class="llm-note">
+  <div class="llm-note-label">{label}</div>
+  <p class="llm-note-text">{_html(summary.text)}</p>
 </div>
 """
 
@@ -711,24 +753,31 @@ def _policy_lines(run: ReviewRunRecord) -> list[str]:
 
 
 def _next_steps(run: ReviewRunRecord, skipped_rule_ids: list[str]) -> list[str]:
-    steps: list[str] = []
-    blocking_sections = [
-        section
-        for finding in run.findings
-        if finding.severity == "blocking"
-        for section in _metadata_sections(finding)
-    ]
-    if blocking_sections:
-        steps.append(f"Add {_format_sections(blocking_sections)} to unblock.")
-    elif run.blocking_count:
-        steps.append("Resolve blocking findings before merge.")
+    # Report a single action for the TOP severity present. Blocking must be fixed before
+    # the MR is assigned for review; high is treated as a warning and routed to the lead
+    # for sign-off. (Routing is messaging only — there is no approval workflow.)
+    if run.blocking_count:
+        blocking_sections = [
+            section
+            for finding in run.findings
+            if finding.severity == "blocking"
+            for section in _metadata_sections(finding)
+        ]
+        if blocking_sections:
+            top = (
+                f"Add {_format_sections(blocking_sections)} to unblock before this is "
+                "assigned for review."
+            )
+        else:
+            top = "Resolve the blocking finding(s) before this is assigned for review."
+    elif run.high_count or run.warning_count:
+        top = "Warning-level findings will be routed to the lead developer for sign-off."
+    else:
+        top = "No immediate action required."
 
-    if run.high_count or run.warning_count:
-        steps.append("Resolve or acknowledge warning-level findings.")
+    steps = [top]
     if skipped_rule_ids:
         steps.append("Re-run when the LLM provider is available.")
-    if not steps:
-        steps.append("No immediate action required.")
     return [_html(step) for step in steps]
 
 

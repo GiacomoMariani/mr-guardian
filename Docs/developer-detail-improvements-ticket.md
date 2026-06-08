@@ -10,9 +10,10 @@ reads like a raw data dump — machine values leak into the UI, the metric grid 
 ragged, and the strongest artifact (the LLM developer profile) is buried at the
 bottom.
 
-**Status (2026-06-08):** item **#1 (humanize raw values) is implemented and verified.**
-#2 and #3 are **done** too (2026-06-08). Only #4 (elevate the AI profile narrative)
-remains open.
+**Status (2026-06-08): all four items done** — #1 humanize values, #2 grid re-balance,
+#3 score targets (now env-configurable per dimension, default 80), #4 elevate the AI
+profile. The developer page now leads with the LLM profile (scores + AI write-up,
+explicitly labelled), then the activity metrics.
 
 ## In scope
 
@@ -74,12 +75,20 @@ Jack chose the **fixed-target** option (over team-average). Added `_SCORE_TARGET
 **"Target 80"** detail line. Applied to the three profile-section scores. The target is
 a one-line constant — change `_SCORE_TARGET` to retune.
 
-## Open decisions — needed before speccing
+## Decisions
 
-### 4. Lead with the AI profile
-The **LLM Developer Profile** narrative (currently rendered *below* the metric grid) is
-the strongest agentic artifact on the page. **Decide how to elevate it:** move it above
-the metrics, promote it to a headline card, or pull a one-line quote up top.
+### 4. Lead with the AI profile — ✅ done 2026-06-08
+Jack chose: make the profile the **top item**. The whole profile section (scores + the
+LLM write-up) now renders **above** the Developer Metrics, titled **"Latest LLM Developer
+Profile"** with an **"AI-generated"** eyebrow (the redundant outer "Latest Developer
+Profile" wrapper was dropped — `_developer_profile_panel(show_title=False)`), so LLM
+provenance is explicit (title + eyebrow + the provider/model/tokens footer). For a
+developer with no profile / a failed generation, the panel shows a **"No info found."**
+note rather than collapsing.
+
+Also done same day: the three score targets are now **env-configurable per dimension**
+(`MR_GUARDIAN_SCORE_TARGET_AVERAGE` / `_CODING` / `_STRUCTURE`, default 80) via
+`Settings`, in `.env` + `.env.example`.
 
 ## Backlog — rolls into the responsive/mobile ticket
 
