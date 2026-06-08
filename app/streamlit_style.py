@@ -621,6 +621,17 @@ a {{
   padding: 0;
 }}
 
+/* The developer-metrics panel is just a single compact row now, so its header is
+   slimmed down to match (tighter padding, smaller title). */
+#developer-metrics .mg-panel-head {{
+  padding: 8px 18px;
+}}
+/* zero out Streamlit's default heading padding so the slimmed bar is actually tight */
+#developer-metrics .mg-panel-head h2 {{
+  font-size: 15px;
+  padding: 0;
+}}
+
 .mg-pager-label {{
   color: var(--ink);
   font-family: var(--mg-mono);

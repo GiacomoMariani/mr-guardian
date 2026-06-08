@@ -175,6 +175,24 @@ rules:
           - Risk
           - Reviewer Notes
 
+  - id: UNITY-PACKAGES-001
+    type: deterministic
+    implementation: changed_files_require_mr_section
+    evaluation: mr_structure
+    enabled: true
+    severity: high
+    source: unity-policy.yml#UNITY-PACKAGES-001
+    description: Package manifest changes must document new or upgraded dependencies and any compatibility impact.
+    parameters:
+      match:
+        changed_files:
+          - "Packages/manifest.json"
+          - "Packages/packages-lock.json"
+      require:
+        mr_sections:
+          - Risk
+          - Reviewer Notes
+
   - id: UNITY-TESTS-001
     type: deterministic
     implementation: production_code_requires_tests_or_validation

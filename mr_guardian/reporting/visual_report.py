@@ -1,11 +1,12 @@
 """HTML rendering for Streamlit review reports."""
 
+from collections.abc import Mapping
 from html import escape
 from pathlib import Path
 from typing import Literal
 
 from mr_guardian.models.history import ReviewRunRecord
-from mr_guardian.models.policy import Severity
+from mr_guardian.models.policy import PolicyRule, Severity
 from mr_guardian.models.review import Finding, LlmRuleMetric
 from mr_guardian.reporting.design_system import (
     css_variable_block,
@@ -36,12 +37,20 @@ def render_visual_review_report(
     *,
     theme: VisualReportTheme = "light",
     embedded: bool = False,
+    rule_details: Mapping[str, PolicyRule] | None = None,
+    developer_url: str | None = None,
 ) -> str:
     """Render one stored review run as a self-contained HTML report.
 
     Set ``embedded=True`` when showing the report inside the dashboard iframe: the
     page padding is tightened and the sheet fills the available width (standalone
-    exported reports keep their centred, padded document look)."""
+    exported reports keep their centred, padded document look).
+
+    Pass ``rule_details`` (a ``rule_id -> PolicyRule`` catalog) to make each finding
+    row expandable: clicking it reveals the rule's policy description (and LLM prompt),
+    so the report is self-contained and no separate "policies triggered" list is
+    needed. Rows whose rule is absent from the catalog stay plain, and omitting
+    ``rule_details`` keeps the classic static tables (e.g. standalone exports)."""
     verdict = _verdict(run)
     findings = sorted(run.findings, key=_finding_sort_key)
     skipped_findings = [finding for finding in findings if _is_skipped_llm_finding(finding)]
@@ -62,15 +71,21 @@ def render_visual_review_report(
         other_findings = [f for f in findings if f.severity != "blocking"]
         findings_section = (
             _render_findings_section(
-                other_findings, skipped_findings, title="Other findings"
+                other_findings, skipped_findings, title="Other findings",
+                rule_details=rule_details,
             )
             if other_findings or skipped_findings
             else ""
         )
     else:
-        findings_section = _render_findings_section(findings, skipped_findings)
+        findings_section = _render_findings_section(
+            findings, skipped_findings, rule_details=rule_details
+        )
 
     body_class = f"mg-{theme}" + (" mg-embedded" if embedded else "")
+    has_expandable = bool(rule_details) and any(
+        rule_details.get(finding.rule_id) for finding in findings
+    )
 
     return "\n".join(
         [
@@ -84,12 +99,12 @@ def render_visual_review_report(
             "</head>",
             f'<body class="{body_class}">',
             '<div class="sheet">',
-            _render_header(run),
+            _render_header(run, developer_url),
             _render_verdict(verdict),
             _render_stats(run),
             _render_scope(run),
             "<main>",
-            _render_blocked_section(metadata_findings, findings)
+            _render_blocked_section(metadata_findings, findings, rule_details)
             if run.blocking_count
             else "",
             _render_skipped_section(skipped_rule_ids, skipped_metrics)
@@ -99,10 +114,24 @@ def render_visual_review_report(
             "</main>",
             _render_footer(run, skipped_rule_ids),
             "</div>",
+            _FINDING_TOGGLE_SCRIPT if has_expandable else "",
             "</body>",
             "</html>",
         ]
     )
+
+
+# Clicking an expandable finding row toggles its detail row open/closed. Event
+# delegation keeps it to one listener regardless of how many rows there are.
+_FINDING_TOGGLE_SCRIPT = """<script>
+(function () {
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest) return;
+    var row = event.target.closest("tr.frow[data-expandable]");
+    if (row) row.classList.toggle("open");
+  });
+})();
+</script>"""
 
 
 def _styles(theme: VisualReportTheme) -> str:
@@ -292,10 +321,95 @@ body.mg-embedded .sheet {
   min-height: calc(100vh - 12px);
   box-shadow: 0 1px 0 var(--inner-shadow) inset;
 }
+
+/* Expandable finding rows — clicking a row reveals the rule's policy description
+   (and LLM prompt) in a detail row, so the report carries that context inline and
+   needs no separate "policies triggered" list. */
+tr.frow[data-expandable] {
+  cursor: pointer;
+}
+/* Make the affordance obvious: the rule reads like a link and the whole row
+   highlights on hover / while open. */
+tr.frow[data-expandable] .rid {
+  border-bottom: 1px dotted var(--ink-2);
+  padding-bottom: 1px;
+}
+tr.frow[data-expandable]:hover,
+tr.frow.open {
+  background: var(--surface-2s);
+}
+tr.frow[data-expandable]:hover .rid {
+  border-bottom-style: solid;
+  border-bottom-color: var(--ink);
+}
+tr.fdetail {
+  display: none;
+}
+tr.frow.open + tr.fdetail {
+  display: table-row;
+}
+tr.fdetail > td {
+  padding-top: 0;
+}
+.fd-body {
+  padding: 2px 2px 12px 2px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.fd-desc {
+  margin: 0;
+}
+.fd-prompt {
+  margin-top: 10px;
+}
+.fd-plabel {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.fd-prompt pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2s);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-2);
+}
+
+/* The developer name links through to their detail view. It opens in a new tab —
+   the report iframe's sandbox blocks in-place navigation. */
+.dev-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.dev-link:hover {
+  text-decoration-thickness: 2px;
+}
 """
 
 
-def _render_header(run: ReviewRunRecord) -> str:
+def _render_header(run: ReviewRunRecord, developer_url: str | None = None) -> str:
+    name = _html(run.developer_id)
+    # Link the developer name through to their detail view whenever the dashboard
+    # supplies a URL (every review type); standalone exports pass none and stay plain.
+    if developer_url:
+        developer = (
+            f'<b><a class="dev-link" href="{_html(developer_url)}" '
+            f'target="_blank" rel="noopener">{name}</a></b>'
+        )
+    else:
+        developer = f"<b>{name}</b>"
     return f"""
 <header>
   <div class="brand">
@@ -306,7 +420,7 @@ def _render_header(run: ReviewRunRecord) -> str:
     </div>
   </div>
   <div class="meta">
-    Developer&nbsp;-&nbsp;<b>{_html(run.developer_id)}</b><br>
+    Developer&nbsp;-&nbsp;{developer}<br>
     Files changed&nbsp;-&nbsp;<b>{run.changed_file_count}</b>
     &nbsp;/&nbsp;Lines&nbsp;-&nbsp;<b>{run.changed_line_count}</b><br>
     Findings&nbsp;-&nbsp;<b>{_total_findings(run)}</b>
@@ -357,6 +471,7 @@ def _render_scope(run: ReviewRunRecord) -> str:
 def _render_blocked_section(
     metadata_findings: list[Finding],
     findings: list[Finding],
+    rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
     actionable_findings = [
         finding
@@ -375,7 +490,7 @@ def _render_blocked_section(
     if metadata_findings:
         checklist = _render_metadata_checklist(metadata_findings)
     else:
-        checklist = _render_blocking_table(findings)
+        checklist = _render_blocking_table(findings, rule_details)
 
     return f"""
 <section>
@@ -408,11 +523,14 @@ def _render_metadata_checklist(findings: list[Finding]) -> str:
     return '<ul class="check">' + "".join(rows) + "</ul>"
 
 
-def _render_blocking_table(findings: list[Finding]) -> str:
+def _render_blocking_table(
+    findings: list[Finding],
+    rule_details: Mapping[str, PolicyRule] | None = None,
+) -> str:
     blocking_findings = [
         finding for finding in findings if finding.severity == "blocking"
     ]
-    return _render_findings_table(blocking_findings)
+    return _render_findings_table(blocking_findings, rule_details=rule_details)
 
 
 def _render_skipped_section(
@@ -448,6 +566,7 @@ def _render_findings_section(
     skipped_findings: list[Finding],
     *,
     title: str = "All findings",
+    rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
     return f"""
 <section>
@@ -455,7 +574,7 @@ def _render_findings_section(
     <h2>{_html(title)}</h2>
     <span class="rule-tag">{len(findings)} total</span>
   </div>
-  {_render_findings_table(findings, skipped_findings)}
+  {_render_findings_table(findings, skipped_findings, rule_details)}
 </section>
 """
 
@@ -463,6 +582,7 @@ def _render_findings_section(
 def _render_findings_table(
     findings: list[Finding],
     skipped_findings: list[Finding] | None = None,
+    rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
     skipped = skipped_findings or []
     normal_findings = [
@@ -471,7 +591,9 @@ def _render_findings_table(
     if not normal_findings and not skipped:
         return '<p class="lede">No findings were triggered.</p>'
 
-    rows = "".join(_render_finding_row(finding) for finding in normal_findings)
+    rows = "".join(
+        _render_finding_row(finding, rule_details) for finding in normal_findings
+    )
     if skipped:
         rows += _render_skipped_findings_row(skipped)
     return f"""
@@ -484,23 +606,50 @@ def _render_findings_table(
 """
 
 
-def _render_finding_row(finding: Finding) -> str:
+def _render_finding_row(
+    finding: Finding,
+    rule_details: Mapping[str, PolicyRule] | None = None,
+) -> str:
     severity_class = _severity_class(finding.severity)
     detail = _finding_detail(finding)
     location = _location(finding)
     if location:
         detail = f"{detail} ({location})"
-    return f"""
-<tr>
+    rule = rule_details.get(finding.rule_id) if rule_details else None
+    rid_cell = f'<span class="rid">{_html(finding.rule_id)}</span>'
+    row_attrs = ""
+    if rule is not None:
+        row_attrs = ' class="frow" data-expandable="1"'
+    row = f"""
+<tr{row_attrs}>
   <td class="sevcol">
     <span class="pill {severity_class}">{_html(SEVERITY_LABELS[finding.severity])}</span>
   </td>
-  <td><span class="rid">{_html(finding.rule_id)}</span></td>
+  <td>{rid_cell}</td>
   <td>{_html(detail)}</td>
   <td><span class="type">{_html(finding.rule_type or "unknown")}</span></td>
   <td><span class="type">{_html(finding.source)}</span></td>
 </tr>
 """
+    if rule is not None:
+        row += _render_rule_detail_row(rule)
+    return row
+
+
+def _render_rule_detail_row(rule: PolicyRule) -> str:
+    """The hidden detail row revealed when an expandable finding row is clicked:
+    the rule's policy description and, for LLM rules, its prompt."""
+    body = f'<p class="fd-desc">{_html(rule.description)}</p>'
+    if rule.prompt:
+        body += (
+            '<div class="fd-prompt"><span class="fd-plabel">LLM prompt</span>'
+            f"<pre>{_html(rule.prompt.strip())}</pre></div>"
+        )
+    return (
+        '<tr class="fdetail"><td colspan="5">'
+        f'<div class="fd-body">{body}</div>'
+        "</td></tr>"
+    )
 
 
 def _render_skipped_findings_row(findings: list[Finding]) -> str:

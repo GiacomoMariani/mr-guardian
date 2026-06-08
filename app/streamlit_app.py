@@ -72,7 +72,6 @@ from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_developer_detail,
 )
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
-from mr_guardian.core.review_rules import rules_that_ran  # noqa: E402
 from mr_guardian.core.weekly_llm_review import load_latest_weekly_llm_review  # noqa: E402
 from mr_guardian.models.dashboard import DashboardEtaNote  # noqa: E402
 from mr_guardian.models.history import (  # noqa: E402
@@ -639,7 +638,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
                         ),
                         MetricCard(
                             "Avg Attempts",
-                            developer_summary.average_attempts_per_ticket,
+                            _score(developer_summary.average_attempts_per_ticket),
                         ),
                         MetricCard(
                             "Approved Tickets",
@@ -657,7 +656,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
                             _score(mr_structure_score),
                             "warning",
                         ),
-                        MetricCard("Trend", developer_summary.trend_direction),
+                        MetricCard("Trend", *_trend_label_tone(developer_summary.trend_direction)),
                     ]
                 )
                 + _lead_tickets_table(developer_summary)
@@ -732,32 +731,14 @@ def _render_developer_detail_page(
         render_section(
             index=1,
             title="Developer Metrics",
-            eyebrow=f"{int(lookback_days)} days",
+            anchor_id="developer-metrics",
             body_html=render_metric_grid(
                 [
                     MetricCard("Review Requests", developer.review_request_count, "accent"),
                     MetricCard("Tickets", developer.ticket_count, "accent"),
-                    MetricCard("Avg Attempts", developer.average_attempts_per_ticket),
+                    MetricCard("Avg Attempts", _score(developer.average_attempts_per_ticket)),
                     MetricCard("Approved Tickets", developer.approved_ticket_count, "pass"),
-                    MetricCard(
-                        "Avg Approval Attempts",
-                        _score(developer.average_attempts_to_approval),
-                        "pass",
-                    ),
-                    MetricCard("Average Score", _score(developer.average_score), "pass"),
-                    MetricCard("Trend", developer.trend_direction),
-                    MetricCard("Coding Score", _score(coding_score), "info"),
-                    MetricCard(
-                        "MR Structure Score",
-                        _score(mr_structure_score),
-                        "warning",
-                    ),
-                    MetricCard(
-                        "Latest Review",
-                        _format_datetime(developer.latest_review_at),
-                    ),
-                    MetricCard("Repeated Rules", developer.repeated_rule_count),
-                    MetricCard("Unlinked Reviews", developer.unlinked_review_count),
+                    MetricCard("Trend", *_trend_label_tone(developer.trend_direction)),
                 ]
             ),
         ),
@@ -768,8 +749,19 @@ def _render_developer_detail_page(
         render_section(
             index=2,
             title="Latest Developer Profile",
-            body_html=_developer_profile_panel(
-                _latest_developer_profile_run(detail.review_runs)
+            body_html=(
+                # Scores live with the profile now (average grouped next to the coding
+                # and MR-structure breakdown it summarises), not in the top metric strip.
+                render_metric_grid(
+                    [
+                        _score_card("Average Score", developer.average_score),
+                        _score_card("Coding Score", coding_score),
+                        _score_card("MR Structure Score", mr_structure_score),
+                    ]
+                )
+                + _developer_profile_panel(
+                    _latest_developer_profile_run(detail.review_runs)
+                )
             ),
         ),
     )
@@ -1006,16 +998,27 @@ def _review_report_height(run: ReviewRunRecord) -> int:
 
 
 def _render_review_report_tabs(st, selected_run, theme: DashboardTheme) -> None:
+    # The catalog makes each finding row in the report expandable (rule description +
+    # prompt), so the report is self-contained — no separate "policies triggered" list.
+    catalog = _cached_rule_catalog(_POLICY_DIR, _policy_dir_mtime(_POLICY_DIR))
+    # Same relative ``?view=developer`` link the Lead view uses; the report opens it in a
+    # new tab (its iframe sandbox blocks in-place nav). Relative, so it works on any host.
+    developer_url = _developer_link(selected_run.developer_id)
     visual_tab, raw_tab = st.tabs(["Visual Report", "Raw Markdown"])
     with visual_tab:
         st.components.v1.html(
-            render_visual_review_report(selected_run, theme=theme, embedded=True),
+            render_visual_review_report(
+                selected_run,
+                theme=theme,
+                embedded=True,
+                rule_details=catalog,
+                developer_url=developer_url,
+            ),
             height=_review_report_height(selected_run),
             scrolling=True,
         )
     with raw_tab:
         _render_html(st, render_raw_markdown_block(selected_run.generated_review_report))
-    _render_rules_that_ran(st, selected_run)
 
 
 _RULE_SOURCE_BLOB = f"{SOURCE_URL}/blob/main/sources/yaml/"
@@ -1055,15 +1058,6 @@ def _render_rule_chip_grid(st, rule_ids, catalog) -> None:
         for column, rule_id in zip(columns, chunk, strict=False):
             with column:
                 _render_rule_popover(st, rule_id, catalog.get(rule_id))
-
-
-def _render_rules_that_ran(st, selected_run) -> None:
-    rule_ids = rules_that_ran(selected_run.findings, selected_run.triggered_rule_ids)
-    if not rule_ids:
-        return
-    catalog = _cached_rule_catalog(_POLICY_DIR, _policy_dir_mtime(_POLICY_DIR))
-    st.markdown(f"**Policies triggered** ({len(rule_ids)})")
-    _render_rule_chip_grid(st, rule_ids, catalog)
 
 
 def _render_browse_all_checks(st) -> None:
@@ -1651,14 +1645,20 @@ def _llm_status_pill(status: str) -> TableCell:
     return cell_pill(status.replace("_", " ").title(), "blocking")
 
 
-def _trend_pill(trend: str) -> TableCell:
+def _trend_label_tone(trend: str) -> tuple[str, Tone]:
+    """Map the raw ``TrendDirection`` enum to a human label + colour tone, shared by
+    the table pills and the metric cards so the trend never shows as ``insufficient_data``."""
     if trend == "improving":
-        return cell_pill("Improving", "pass")
+        return "Improving", "pass"
     if trend == "declining":
-        return cell_pill("Declining", "blocking")
+        return "Declining", "blocking"
     if trend == "stable":
-        return cell_pill("Stable", "info")
-    return cell_pill("Insufficient Data", "neutral")
+        return "Stable", "info"
+    return "-", "neutral"  # no trend yet — a dash reads cleaner than a wrapped sentence
+
+
+def _trend_pill(trend: str) -> TableCell:
+    return cell_pill(*_trend_label_tone(trend))
 
 
 def _risk_tone(risk: RiskLevel) -> Tone:
@@ -1689,14 +1689,31 @@ def _score(value: float | int | None) -> str:
     if value is None:
         return "-"
     if isinstance(value, float):
-        return f"{value:.1f}"
+        # Whole numbers read cleaner without a trailing ".0" (75.0 -> 75); keep one
+        # decimal for genuine fractions (1.33 -> 1.3).
+        return str(int(value)) if value.is_integer() else f"{value:.1f}"
     return str(value)
+
+
+# Scores are out of 100; this fixed bar gives a bare number some meaning (meets/below).
+_SCORE_TARGET = 80
+
+
+def _score_card(label: str, value: float | int | None) -> MetricCard:
+    """A score card with a fixed-target reference: green when the score meets the
+    target, amber when below, plus a "Target N" detail line for context."""
+    if value is None:
+        return MetricCard(label, "-", "neutral")
+    tone: Tone = "pass" if value >= _SCORE_TARGET else "warning"
+    return MetricCard(label, _score(value), tone, detail=f"Target {_SCORE_TARGET}")
 
 
 def _format_datetime(value: datetime | None) -> str:
     if value is None:
         return "-"
-    return value.isoformat(timespec="seconds")
+    # Human-readable instead of a raw ISO string (no "T", seconds, or tz offset),
+    # so it stays readable in cards and doesn't wrap across lines in the metric grid.
+    return value.strftime("%Y-%m-%d %H:%M")
 
 
 def _is_developer_view(st) -> bool:

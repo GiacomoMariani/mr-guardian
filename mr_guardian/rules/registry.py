@@ -48,6 +48,7 @@ DEFAULT_RULE_FACTORIES: dict[str, Callable[[], DeterministicRule]] = {
     "UNITY-PROJECTSETTINGS-001": lambda: ChangedFilesRequireMrSectionRule(
         "UNITY-PROJECTSETTINGS-001"
     ),
+    "UNITY-PACKAGES-001": lambda: ChangedFilesRequireMrSectionRule("UNITY-PACKAGES-001"),
     "UNITY-TESTS-001": lambda: ProductionCodeRequiresTestsOrValidationRule("UNITY-TESTS-001"),
     "UNITY-EVENTS-001": lambda: UnityEventSubscriptionRule("UNITY-EVENTS-001"),
     "UNITY-PERF-GC-001": lambda: UnityPerFrameAllocationRule("UNITY-PERF-GC-001"),

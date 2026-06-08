@@ -517,8 +517,29 @@ def test_eta_note_panel_renders_note_with_target_and_updated_timestamp() -> None
 
     assert "Milestone looks merge-ready by Friday." in html
     assert "2026-06-05" in html
-    assert "2026-06-03T10:30:00+00:00" in html
+    assert "2026-06-03 10:30" in html  # human-formatted, not raw ISO
     assert "Confirm beta phase dates" in html
+
+
+def test_metric_formatters_humanize_values() -> None:
+    import app.streamlit_app as streamlit_app
+
+    # scores: whole numbers drop the trailing ".0"; genuine fractions keep one decimal
+    assert streamlit_app._score(75.0) == "75"
+    assert streamlit_app._score(100.0) == "100"
+    assert streamlit_app._score(1.33) == "1.3"
+    assert streamlit_app._score(None) == "-"
+    # datetimes render human-readable, not as a raw ISO string
+    assert (
+        streamlit_app._format_datetime(
+            datetime(2026, 6, 2, 10, 53, 25, tzinfo=timezone.utc)
+        )
+        == "2026-06-02 10:53"
+    )
+    # trend enum maps to a friendly label + tone (never raw "insufficient_data")
+    assert streamlit_app._trend_label_tone("improving") == ("Improving", "pass")
+    assert streamlit_app._trend_label_tone("declining") == ("Declining", "blocking")
+    assert streamlit_app._trend_label_tone("insufficient_data") == ("-", "neutral")
 
 
 def test_dashboard_loads_eta_note_through_core() -> None:
