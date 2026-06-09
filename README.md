@@ -10,7 +10,7 @@ MR Guardian turns best-practices into automated MR checks.
 
 Developers spend less time on routine checks and more attention where human judgment creates value.
 
-> **See it in action:** [Link]
+> **See it in action:** [MR-Guardian](https://mr-guardian.onrender.com)
 
 **LLM analysis requires an API key.**
 

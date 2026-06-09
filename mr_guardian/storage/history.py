@@ -371,6 +371,7 @@ class ReviewHistoryStore:
     ) -> ReviewRunRecord:
         """Attach an LLM developer profile snapshot to a stored review run."""
         self.initialize_schema()
+        self._require_review(review_id)
         self._connection.execute(
             """
             UPDATE review_runs
@@ -397,6 +398,136 @@ class ReviewHistoryStore:
                 developer_profile.total_tokens,
                 developer_profile.error_message,
                 developer_profile.lookback_days,
+                review_id,
+            ),
+        )
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def replace_findings(
+        self,
+        *,
+        review_id: int,
+        findings: Sequence[Finding],
+    ) -> ReviewRunRecord:
+        """Replace all stored findings for one review run (idempotent feed)."""
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            "DELETE FROM review_findings WHERE review_id = ?",
+            (review_id,),
+        )
+        self._insert_findings(review_id, findings)
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def replace_triggered_rules(
+        self,
+        *,
+        review_id: int,
+        rule_ids: Sequence[str],
+    ) -> ReviewRunRecord:
+        """Replace all stored triggered-rule IDs for one review run."""
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            "DELETE FROM triggered_rules WHERE review_id = ?",
+            (review_id,),
+        )
+        self._insert_triggered_rules(review_id, rule_ids)
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def replace_evaluations(
+        self,
+        *,
+        review_id: int,
+        evaluations: Sequence[ReviewEvaluation],
+    ) -> ReviewRunRecord:
+        """Replace all stored evaluation summaries for one review run.
+
+        Deleting the parent ``review_evaluations`` rows cascades to their
+        ``review_evaluation_triggered_rules`` children (foreign keys are on).
+        """
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            "DELETE FROM review_evaluations WHERE review_id = ?",
+            (review_id,),
+        )
+        self._insert_evaluations(review_id, evaluations)
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def replace_policy_summaries(
+        self,
+        *,
+        review_id: int,
+        policy_summaries: Sequence[ReviewPolicySummary],
+    ) -> ReviewRunRecord:
+        """Replace all stored policy summaries for one review run."""
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            "DELETE FROM review_policies WHERE review_id = ?",
+            (review_id,),
+        )
+        self._insert_policy_summaries(review_id, policy_summaries)
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def replace_llm_metrics(
+        self,
+        *,
+        review_id: int,
+        metrics: Sequence[LlmRuleMetric],
+    ) -> ReviewRunRecord:
+        """Replace all stored LLM rule metrics for one review run."""
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            "DELETE FROM review_llm_rule_metrics WHERE review_id = ?",
+            (review_id,),
+        )
+        self._insert_llm_metrics(review_id, metrics)
+        self._connection.commit()
+        return self._record_for_review_id(review_id)
+
+    def set_llm_summary(
+        self,
+        *,
+        review_id: int,
+        llm_summary: LlmReviewSummary,
+    ) -> ReviewRunRecord:
+        """Attach an LLM review summary to a stored review run."""
+        self.initialize_schema()
+        self._require_review(review_id)
+        self._connection.execute(
+            """
+            UPDATE review_runs
+            SET llm_summary = ?,
+                llm_summary_score = ?,
+                llm_summary_status = ?,
+                llm_summary_provider = ?,
+                llm_summary_model = ?,
+                llm_summary_duration_ms = ?,
+                llm_summary_input_tokens = ?,
+                llm_summary_output_tokens = ?,
+                llm_summary_total_tokens = ?,
+                llm_summary_error_message = ?
+            WHERE review_id = ?
+            """,
+            (
+                llm_summary.text,
+                llm_summary.score,
+                llm_summary.status,
+                llm_summary.provider,
+                llm_summary.model,
+                llm_summary.duration_ms,
+                llm_summary.input_tokens,
+                llm_summary.output_tokens,
+                llm_summary.total_tokens,
+                llm_summary.error_message,
                 review_id,
             ),
         )
@@ -910,6 +1041,15 @@ class ReviewHistoryStore:
             """,
             [(review_evaluation_id, rule_id) for rule_id in rule_ids],
         )
+
+    def _require_review(self, review_id: int) -> None:
+        row = self._connection.execute(
+            "SELECT 1 FROM review_runs WHERE review_id = ?",
+            (review_id,),
+        ).fetchone()
+        if row is None:
+            msg = f"Review {review_id} was not found."
+            raise KeyError(msg)
 
     def _record_for_review_id(self, review_id: int) -> ReviewRunRecord:
         row = self._connection.execute(

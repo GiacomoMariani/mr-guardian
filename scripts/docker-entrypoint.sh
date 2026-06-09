@@ -20,7 +20,9 @@ DASH_PORT=8810
 
 start_combined() {
 	trap 'kill 0' SIGTERM SIGINT
-	python -m uvicorn app.api:app --host 127.0.0.1 --port "$API_PORT" &
+	# --root-path /api tells FastAPI it's served behind Caddy's /api prefix, so
+	# Swagger (/api/docs), ReDoc (/api/redoc), and openapi.json resolve correctly.
+	python -m uvicorn app.api:app --host 127.0.0.1 --port "$API_PORT" --root-path /api &
 	python -m streamlit run app/streamlit_app.py \
 		--server.port="$DASH_PORT" --server.address=127.0.0.1 \
 		--server.headless=true --browser.gatherUsageStats=false \

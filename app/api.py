@@ -1,11 +1,12 @@
 """FastAPI service entrypoint for MR Guardian."""
 
 import logging
+from collections.abc import Callable
 from hmac import compare_digest
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from mr_guardian.config import Settings, get_settings
 from mr_guardian.core.dashboard_eta import (
@@ -22,6 +23,16 @@ from mr_guardian.core.manual_review import (
     manual_review_payload_schema,
     store_manual_review_payload,
 )
+from mr_guardian.core.review_components import (
+    ReviewComponentNotFoundError,
+    feed_review_evaluations,
+    feed_review_findings,
+    feed_review_llm_metrics,
+    feed_review_policy_summaries,
+    feed_review_triggered_rules,
+    set_review_developer_profile,
+    set_review_llm_summary,
+)
 from mr_guardian.core.review_deletion import ReviewNotFoundError, delete_stored_review
 from mr_guardian.core.review_finality import (
     ReviewFinalityNotFoundError,
@@ -34,10 +45,23 @@ from mr_guardian.core.weekly_llm_review import (
     store_weekly_llm_review_payload,
 )
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
-from mr_guardian.models.history import review_run_record_schema
+from mr_guardian.models.history import (
+    ReviewPolicySummary,
+    ReviewRunCreate,
+    ReviewRunRecord,
+    review_run_record_schema,
+)
+from mr_guardian.models.review import (
+    Finding,
+    LlmDeveloperProfile,
+    LlmReviewSummary,
+    LlmRuleMetric,
+    ReviewEvaluation,
+)
 from mr_guardian.models.weekly_review import WeeklyLlmReviewCreate
 from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
+from mr_guardian.storage import ReviewHistoryStore
 from mr_guardian.summarizer_ai import (
     create_llm_developer_profile_runner,
     create_llm_review_summary_runner,
@@ -47,6 +71,12 @@ from mr_guardian.summarizer_ai import (
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MR Guardian")
+
+_FINDINGS_ADAPTER = TypeAdapter(list[Finding])
+_EVALUATIONS_ADAPTER = TypeAdapter(list[ReviewEvaluation])
+_POLICY_SUMMARIES_ADAPTER = TypeAdapter(list[ReviewPolicySummary])
+_LLM_METRICS_ADAPTER = TypeAdapter(list[LlmRuleMetric])
+_TRIGGERED_RULES_ADAPTER = TypeAdapter(list[str])
 
 
 @app.get("/healthz")
@@ -151,6 +181,76 @@ async def submit_manual_review(request: Request) -> dict[str, Any]:
     }
 
 
+@app.post("/reviews", status_code=201)
+async def create_review_run(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Create one review run from a verbatim payload (admin only).
+
+    The canonical entry point for feeding a review: the supplied ReviewRunCreate is
+    stored as-is and the new review_id is returned, which the per-component feed
+    endpoints (/reviews/{id}/findings, /evaluations, /llm-summary, ...) then target.
+    Child collections may be supplied inline here or fed separately afterward.
+    """
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_object(request)
+    try:
+        run = ReviewRunCreate.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid review run structure: {exc}",
+        ) from exc
+
+    record = _store_review_run(run, settings)
+    return {
+        "status": "created",
+        "review_id": record.review_id,
+        "ticket_key": record.ticket_key,
+        "risk": record.risk,
+        "score": record.review_score,
+        "is_final": record.is_final,
+    }
+
+
+@app.post("/reviews/import", status_code=201)
+async def import_review_run(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Import one fully-formed review run, preserving all fields (admin only).
+
+    Identical storage to POST /reviews, retained as the named entry point for porting
+    an existing history database into a fresh deployment: the supplied ReviewRunCreate
+    is stored verbatim (ticket key and LLM annotations preserved, unlike
+    /reviews/manual).
+    """
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_object(request)
+    try:
+        run = ReviewRunCreate.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid review run structure: {exc}",
+        ) from exc
+
+    record = _store_review_run(run, settings)
+    return {
+        "status": "imported",
+        "review_id": record.review_id,
+        "ticket_key": record.ticket_key,
+        "risk": record.risk,
+        "score": record.review_score,
+        "is_final": record.is_final,
+    }
+
+
 @app.post("/weekly-llm-reviews/manual", status_code=201)
 async def submit_weekly_llm_review(
     request: Request,
@@ -246,6 +346,239 @@ async def set_review_finality(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ReviewFinalityNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/reviews/{review_id}/findings")
+async def feed_review_findings_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Replace the findings stored for one review run (idempotent feed)."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_array(request)
+    try:
+        findings = _FINDINGS_ADAPTER.validate_python(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid findings structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: feed_review_findings(
+            review_id=review_id,
+            findings=findings,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "finding_count": len(record.findings),
+    }
+
+
+@app.post("/reviews/{review_id}/triggered-rules")
+async def feed_review_triggered_rules_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Replace the triggered-rule IDs stored for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_array(request)
+    try:
+        rule_ids = _TRIGGERED_RULES_ADAPTER.validate_python(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid triggered rules structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: feed_review_triggered_rules(
+            review_id=review_id,
+            rule_ids=rule_ids,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "triggered_rule_count": len(record.triggered_rule_ids),
+    }
+
+
+@app.post("/reviews/{review_id}/evaluations")
+async def feed_review_evaluations_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Replace the evaluation summaries stored for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_array(request)
+    try:
+        evaluations = _EVALUATIONS_ADAPTER.validate_python(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid evaluations structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: feed_review_evaluations(
+            review_id=review_id,
+            evaluations=evaluations,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "evaluation_count": len(record.evaluations),
+    }
+
+
+@app.post("/reviews/{review_id}/policies")
+async def feed_review_policies_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Replace the policy summaries stored for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_array(request)
+    try:
+        policy_summaries = _POLICY_SUMMARIES_ADAPTER.validate_python(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid policy summaries structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: feed_review_policy_summaries(
+            review_id=review_id,
+            policy_summaries=policy_summaries,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "policy_count": len(record.policy_summaries),
+    }
+
+
+@app.post("/reviews/{review_id}/llm-metrics")
+async def feed_review_llm_metrics_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Replace the LLM rule metrics stored for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_array(request)
+    try:
+        metrics = _LLM_METRICS_ADAPTER.validate_python(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid LLM metrics structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: feed_review_llm_metrics(
+            review_id=review_id,
+            metrics=metrics,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "stored",
+        "review_id": record.review_id,
+        "llm_metric_count": len(record.llm_metrics),
+    }
+
+
+@app.put("/reviews/{review_id}/llm-summary")
+async def feed_review_llm_summary_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Attach or overwrite the LLM review summary for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_object(request)
+    try:
+        llm_summary = LlmReviewSummary.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid LLM summary structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: set_review_llm_summary(
+            review_id=review_id,
+            llm_summary=llm_summary,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "updated",
+        "review_id": record.review_id,
+        "llm_summary_status": record.llm_summary.status if record.llm_summary is not None else None,
+    }
+
+
+@app.put("/reviews/{review_id}/developer-profile")
+async def feed_review_developer_profile_endpoint(
+    review_id: int,
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Attach or overwrite the developer profile snapshot for one review run."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_object(request)
+    try:
+        developer_profile = LlmDeveloperProfile.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid developer profile structure: {exc}",
+        ) from exc
+
+    record = _feed_component(
+        lambda: set_review_developer_profile(
+            review_id=review_id,
+            developer_profile=developer_profile,
+            database_path=settings.history_db_path,
+        )
+    )
+    return {
+        "status": "updated",
+        "review_id": record.review_id,
+        "developer_profile_status": record.developer_profile.status
+        if record.developer_profile is not None
+        else None,
+    }
 
 
 @app.post("/webhooks/gitlab", status_code=202)
@@ -362,6 +695,43 @@ def _review_commenter(settings: Settings) -> GitLabMergeRequestCommenter | None:
         token=settings.gitlab_token,
         timeout_seconds=settings.gitlab_api_timeout_seconds,
     )
+
+
+def _store_review_run(run: ReviewRunCreate, settings: Settings) -> ReviewRunRecord:
+    store = ReviewHistoryStore(settings.history_db_path)
+    try:
+        return store.store_review_run(run)
+    finally:
+        store.close()
+
+
+def _feed_component(operation: Callable[[], ReviewRunRecord]) -> ReviewRunRecord:
+    try:
+        return operation()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ReviewComponentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+async def _read_json_object(request: Request) -> dict[str, Any]:
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+    return raw_payload
+
+
+async def _read_json_array(request: Request) -> list[Any]:
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+    if not isinstance(raw_payload, list):
+        raise HTTPException(status_code=400, detail="Expected JSON array payload.")
+    return raw_payload
 
 
 def _verify_admin_token(settings: Settings, supplied_token: str | None) -> None:

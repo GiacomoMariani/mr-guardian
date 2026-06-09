@@ -106,6 +106,25 @@ def weekly_review_payload() -> dict[str, Any]:
     }
 
 
+def review_run_payload() -> dict[str, Any]:
+    return {
+        "review_scope": "import-review",
+        "branch_name": "feature/TK-900-import",
+        "developer_id": "Import Bot",
+        "ticket_key": "TK-900",
+        "policy_version": 1,
+        "risk": "none",
+        "blocking_count": 0,
+        "high_count": 0,
+        "warning_count": 0,
+        "info_count": 0,
+        "changed_file_count": 1,
+        "changed_line_count": 5,
+        "triggered_rule_ids": [],
+        "generated_review_report": "# Imported review\n\nVerbatim body.",
+    }
+
+
 def test_api_health_check() -> None:
     response = client().get("/healthz")
 
@@ -767,6 +786,378 @@ def test_api_reports_missing_webhook_job() -> None:
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Webhook review job not found."}
+
+
+def test_api_creates_review_run(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post("/reviews", json=review_run_payload())
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "created"
+    assert body["review_id"] == 1
+    assert body["risk"] == "none"
+    assert body["ticket_key"] == "TK-900"
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(1)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.developer_id == "Import Bot"
+    assert record.findings == []
+
+
+def test_api_create_review_run_admin_token_is_enforced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/reviews",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json=review_run_payload(),
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_feeds_findings_and_replaces_on_repeat(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    findings = [
+        {
+            "rule_id": "RULE-1",
+            "severity": "warning",
+            "message": "First finding.",
+            "source": "import#RULE-1",
+            "evaluation": "coding",
+        },
+        {
+            "rule_id": "RULE-2",
+            "severity": "info",
+            "message": "Second finding.",
+            "source": "import#RULE-2",
+            "evaluation": "coding",
+        },
+    ]
+
+    first = client().post(f"/reviews/{review_id}/findings", json=findings)
+    assert first.status_code == 200
+    assert first.json() == {
+        "status": "stored",
+        "review_id": review_id,
+        "finding_count": 2,
+    }
+
+    # Idempotent replace: re-feeding a single finding replaces the prior set.
+    second = client().post(f"/reviews/{review_id}/findings", json=findings[:1])
+    assert second.status_code == 200
+    assert second.json()["finding_count"] == 1
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert [finding.rule_id for finding in record.findings] == ["RULE-1"]
+
+
+def test_api_feeds_triggered_rules(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    response = client().post(
+        f"/reviews/{review_id}/triggered-rules",
+        json=["RULE-1", "RULE-2"],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "stored",
+        "review_id": review_id,
+        "triggered_rule_count": 2,
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.triggered_rule_ids == ["RULE-1", "RULE-2"]
+
+
+def test_api_feeds_evaluations_and_replaces_on_repeat(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    first = client().post(
+        f"/reviews/{review_id}/evaluations",
+        json=[
+            {
+                "evaluation": "coding",
+                "risk": "warning",
+                "counts": {"blocking": 0, "high": 0, "warning": 1, "info": 0},
+                "triggered_rule_ids": ["RULE-1", "RULE-2"],
+            },
+            {
+                "evaluation": "mr_structure",
+                "risk": "none",
+                "counts": {"blocking": 0, "high": 0, "warning": 0, "info": 0},
+                "triggered_rule_ids": [],
+            },
+        ],
+    )
+    assert first.status_code == 200
+    assert first.json()["evaluation_count"] == 2
+
+    second = client().post(
+        f"/reviews/{review_id}/evaluations",
+        json=[
+            {
+                "evaluation": "coding",
+                "risk": "none",
+                "counts": {"blocking": 0, "high": 0, "warning": 0, "info": 0},
+                "triggered_rule_ids": ["RULE-9"],
+            }
+        ],
+    )
+    assert second.status_code == 200
+    assert second.json()["evaluation_count"] == 1
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    # The replace dropped the prior evaluations and their triggered-rule children.
+    assert record is not None
+    assert len(record.evaluations) == 1
+    assert record.evaluations[0].triggered_rule_ids == ["RULE-9"]
+
+
+def test_api_feeds_policy_summaries(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    response = client().post(
+        f"/reviews/{review_id}/policies",
+        json=[
+            {
+                "policy_path": "sources/yaml/unity.yaml",
+                "policy_version": 1,
+                "enabled_rule_count": 12,
+                "disabled_rule_count": 3,
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "stored",
+        "review_id": review_id,
+        "policy_count": 1,
+    }
+
+
+def test_api_feeds_llm_metrics(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    response = client().post(
+        f"/reviews/{review_id}/llm-metrics",
+        json=[
+            {
+                "rule_id": "LLM-RULE-1",
+                "provider": "openai",
+                "model": "gpt-4.1-mini",
+                "status": "succeeded",
+                "duration_ms": 120,
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "total_tokens": 120,
+            }
+        ],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "stored",
+        "review_id": review_id,
+        "llm_metric_count": 1,
+    }
+
+
+def test_api_sets_llm_summary(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    response = client().put(
+        f"/reviews/{review_id}/llm-summary",
+        json={
+            "status": "succeeded",
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "duration_ms": 300,
+            "text": "Looks merge-ready.",
+            "score": 88,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "updated",
+        "review_id": review_id,
+        "llm_summary_status": "succeeded",
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.llm_summary is not None
+    assert record.llm_summary.text == "Looks merge-ready."
+    assert record.llm_summary.score == 88
+
+
+def test_api_sets_developer_profile(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    response = client().put(
+        f"/reviews/{review_id}/developer-profile",
+        json={
+            "status": "succeeded",
+            "provider": "openai",
+            "model": "gpt-4.1-mini",
+            "duration_ms": 400,
+            "lookback_days": 30,
+            "text": "Strong, consistent contributor.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "updated",
+        "review_id": review_id,
+        "developer_profile_status": "succeeded",
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.review_run(review_id)
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.developer_profile is not None
+    assert record.developer_profile.text == "Strong, consistent contributor."
+    assert record.developer_profile.lookback_days == 30
+
+
+def test_api_feed_component_reports_missing_review(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post("/reviews/999/findings", json=[])
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Review 999 was not found."}
+
+
+def test_api_feed_component_rejects_invalid_review_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post("/reviews/0/findings", json=[])
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Review ID must be a positive integer."}
+
+
+def test_api_feed_component_admin_token_is_enforced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/reviews/1/findings",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json=[],
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_feed_findings_rejects_invalid_payloads(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    invalid_json = client().post(
+        f"/reviews/{review_id}/findings",
+        content="{",
+        headers={"content-type": "application/json"},
+    )
+    non_array = client().post(f"/reviews/{review_id}/findings", json={})
+    bad_struct = client().post(
+        f"/reviews/{review_id}/findings",
+        json=[{"severity": "warning"}],
+    )
+
+    assert invalid_json.status_code == 400
+    assert invalid_json.json() == {"detail": "Invalid JSON payload."}
+    assert non_array.status_code == 400
+    assert non_array.json() == {"detail": "Expected JSON array payload."}
+    assert bad_struct.status_code == 400
+    assert "Invalid findings structure" in bad_struct.json()["detail"]
+
+
+def test_api_feed_llm_summary_rejects_non_object(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    review_id = client().post("/reviews", json=review_run_payload()).json()["review_id"]
+    non_object = client().put(f"/reviews/{review_id}/llm-summary", json=[])
+    bad_struct = client().put(
+        f"/reviews/{review_id}/llm-summary",
+        json={"status": "succeeded"},
+    )
+
+    assert non_object.status_code == 400
+    assert non_object.json() == {"detail": "Expected JSON object payload."}
+    assert bad_struct.status_code == 400
+    assert "Invalid LLM summary structure" in bad_struct.json()["detail"]
 
 
 def client() -> TestClient:
