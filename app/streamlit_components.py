@@ -305,15 +305,30 @@ def cell_pill(label: str, tone: Tone) -> TableCell:
     )
 
 
-def cell_chips(values: Sequence[str], *, empty_label: str = "-") -> TableCell:
-    """Create a compact chip list cell."""
+def cell_chips(
+    values: Sequence[str],
+    *,
+    empty_label: str = "-",
+    hrefs: Sequence[str | None] | None = None,
+    titles: Sequence[str | None] | None = None,
+) -> TableCell:
+    """Create a compact chip list cell. A chip with a matching ``hrefs`` entry renders as
+    a link (opening in a new tab); a matching ``titles`` entry adds a hover tooltip."""
     if not values:
         return cell_text(empty_label)
-    chip_html = "".join(
-        f'<span class="mg-chip">{_html(value)}</span>'
-        for value in values
-    )
-    return TableCell(html=f'<div class="mg-chip-row">{chip_html}</div>')
+    chips: list[str] = []
+    for index, value in enumerate(values):
+        href = hrefs[index] if hrefs is not None and index < len(hrefs) else None
+        title = titles[index] if titles is not None and index < len(titles) else None
+        title_attr = f' title="{_html(title)}"' if title else ""
+        if href:
+            chips.append(
+                f'<a class="mg-chip mg-chip-link" href="{_html(href)}" '
+                f'target="_blank" rel="noopener"{title_attr}>{_html(value)}</a>'
+            )
+        else:
+            chips.append(f'<span class="mg-chip"{title_attr}>{_html(value)}</span>')
+    return TableCell(html=f'<div class="mg-chip-row">{"".join(chips)}</div>')
 
 
 def _render_metric_card(card: MetricCard) -> str:

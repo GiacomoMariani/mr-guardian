@@ -16,6 +16,18 @@ WORKDIR /app
 # Caddy reverse proxy (static binary) for the combined single-port deployment.
 COPY --from=caddy:2 /usr/bin/caddy /usr/bin/caddy
 
+# The official Caddy image sets a cap_net_bind_service file capability on the
+# binary. Render runs containers with no_new_privs, under which a non-root user
+# (appuser) exec'ing a file that carries capabilities fails with
+# "Operation not permitted" (exit 126). Re-copy the binary so the
+# security.capability xattr is dropped — all internal ports are >1024, so the
+# capability is not needed.
+RUN cp /usr/bin/caddy /tmp/caddy \
+    && rm /usr/bin/caddy \
+    && cp /tmp/caddy /usr/bin/caddy \
+    && rm /tmp/caddy \
+    && chmod 0755 /usr/bin/caddy
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/* \

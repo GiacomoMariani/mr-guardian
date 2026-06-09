@@ -726,6 +726,10 @@ def _render_developer_detail_page(
     developer = detail.developer
     coding_score = _evaluation_average_score(developer, "coding")
     mr_structure_score = _evaluation_average_score(developer, "mr_structure")
+    # The "Average Score" card is a real average of the dimension scores it sits next to
+    # (coding + MR structure) — not the overall review-score average, which deducts every
+    # finding's penalty from 100 and so reads lower than the mean of the two.
+    average_score = _mean_score(coding_score, mr_structure_score)
     settings = get_settings()
     # Lead with the LLM developer profile (the headline artifact) — its scores plus the
     # AI write-up — then the activity metrics below it.
@@ -739,7 +743,7 @@ def _render_developer_detail_page(
                     [
                         _score_card(
                             "Average Score",
-                            developer.average_score,
+                            average_score,
                             settings.score_target_average,
                         ),
                         _score_card(
@@ -805,12 +809,13 @@ def _render_developer_detail_page(
         ),
     )
 
+    rule_catalog = _cached_rule_catalog(_POLICY_DIR, _policy_dir_mtime(_POLICY_DIR))
     _render_html(
         st,
         render_section(
             index=6,
             title="Developer Reviews",
-            body_html=_developer_reviews_table(detail.review_runs),
+            body_html=_developer_reviews_table(detail.review_runs, rule_catalog),
         ),
     )
 
@@ -832,6 +837,12 @@ def _evaluation_average_score(
         if evaluation_summary.evaluation == evaluation:
             return evaluation_summary.average_score
     return None
+
+
+def _mean_score(*scores: float | int | None) -> float | None:
+    """Arithmetic mean of the present (non-None) scores; None when none are present."""
+    present = [score for score in scores if score is not None]
+    return sum(present) / len(present) if present else None
 
 
 def _review_pager_slots(
@@ -992,13 +1003,35 @@ def _render_selected_report(
     _render_review_report_tabs(st, selected_run, theme)
 
 
+_SKIPPED_LLM_STATUSES = {"skipped", "failed", "rate_limited"}
+
+
+def _run_has_skipped_llm(run: ReviewRunRecord) -> bool:
+    """True when the report will render the "Code analysis was not completed" callout —
+    i.e. an LLM rule that did not complete (a skipped/failed/rate-limited metric, or a
+    skipped-LLM info finding). The report draws that as an extra section, so the height
+    estimate must reserve room for it. Uses ``getattr`` so it is safe on the lightweight
+    test mocks (which omit ``llm_metrics`` and use placeholder findings)."""
+    metrics = getattr(run, "llm_metrics", None) or []
+    if any(getattr(m, "status", None) in _SKIPPED_LLM_STATUSES for m in metrics):
+        return True
+    findings = getattr(run, "findings", None) or []
+    return any(
+        getattr(f, "rule_type", None) == "llm"
+        and getattr(f, "severity", None) == "info"
+        and str(getattr(f, "message", "")).startswith("LLM rule skipped:")
+        for f in findings
+    )
+
+
 def _review_report_height(run: ReviewRunRecord) -> int:
     """Estimate the embedded visual-report iframe height with only a small slack and
     no inner scrollbar. The dashboard block-container caps at 1280px, so the report's
     width — and therefore its content height — is stable on any desktop ≥1280px, which
     lets the estimate run tight (~30px slack). Calibrated against the rendered embedded
     reports: a passed report ≈650px, a 2-finding blocked one ≈950px; blocked reports
-    add the "why this is blocked" section. (Narrower/mobile viewports may scroll —
+    add the "why this is blocked" section, and a skipped-LLM review adds the "Code
+    analysis was not completed" callout. (Narrower/mobile viewports may scroll —
     tracked in the responsive backlog.)"""
     findings = (
         len(run.findings)
@@ -1006,7 +1039,8 @@ def _review_report_height(run: ReviewRunRecord) -> int:
         else run.blocking_count + run.high_count + run.warning_count + run.info_count
     )
     note = 80 if (run.llm_summary and run.llm_summary.text) else 0
-    height = 680 + 56 * findings + (210 if run.blocking_count else 0) + note
+    skipped = 170 if _run_has_skipped_llm(run) else 0
+    height = 680 + 56 * findings + (210 if run.blocking_count else 0) + note + skipped
     return min(2800, height)
 
 
@@ -1327,7 +1361,9 @@ def _lead_evaluations_table(developer: LeadDeveloperSummary) -> str:
     )
 
 
-def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
+def _developer_reviews_table(
+    runs: list[ReviewRunRecord], catalog: dict[str, PolicyRule] | None = None
+) -> str:
     return render_table(
         [
             "ID",
@@ -1358,7 +1394,7 @@ def _developer_reviews_table(runs: list[ReviewRunRecord]) -> str:
                 cell_text(run.info_count, align="right"),
                 cell_text(run.changed_file_count, align="right"),
                 cell_text(run.changed_line_count, align="right"),
-                _rule_chips(run.triggered_rule_ids),
+                _rule_chips(run.triggered_rule_ids, catalog),
             ]
             for run in runs
         ],
@@ -1595,11 +1631,26 @@ def _token_count(label: str, value: int | None) -> str:
     return f"{label} {value}"
 
 
-def _rule_chips(rule_ids: list[str], *, limit: int = 4) -> TableCell:
+def _rule_chips(
+    rule_ids: list[str],
+    catalog: dict[str, PolicyRule] | None = None,
+    *,
+    limit: int = 4,
+) -> TableCell:
+    # Each rule the catalog knows about becomes a link to its policy source (new tab)
+    # with the rule description as a hover tooltip; unknown/stale ids stay plain.
     visible_rules = rule_ids[:limit]
+    hrefs: list[str | None] = []
+    titles: list[str | None] = []
+    for rule_id in visible_rules:
+        rule = catalog.get(rule_id) if catalog else None
+        hrefs.append(_rule_source_url(rule.source) if rule else None)
+        titles.append(rule.description if rule else None)
     if len(rule_ids) > limit:
         visible_rules = [*visible_rules, f"+{len(rule_ids) - limit} more"]
-    return cell_chips(visible_rules)
+        hrefs.append(None)
+        titles.append(None)
+    return cell_chips(visible_rules, hrefs=hrefs, titles=titles)
 
 
 def _risk_pill(risk: RiskLevel) -> TableCell:
@@ -1665,9 +1716,9 @@ def _trend_label_tone(trend: str) -> tuple[str, Tone]:
         return "Improving", "pass"
     if trend == "declining":
         return "Declining", "blocking"
-    if trend == "stable":
-        return "Stable", "info"
-    return "-", "neutral"  # no trend yet — a dash reads cleaner than a wrapped sentence
+    # "stable", "insufficient_data", and anything unknown all read as Stable — a
+    # not-enough-data trend is treated as no concerning movement.
+    return "Stable", "info"
 
 
 def _trend_pill(trend: str) -> TableCell:

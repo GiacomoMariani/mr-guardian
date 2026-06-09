@@ -55,6 +55,59 @@ def stored_runs(*runs: ReviewRunCreate) -> list:
         store.close()
 
 
+def _trend_history_runs(now: datetime) -> list[ReviewRunCreate]:
+    """Two reviews outside a 3-day window, then four inside it.
+
+    Over the four windowed reviews alone the split-half delta is -5.5
+    (100,100 -> 95,94 = "declining"); over the full six-review history the
+    delta is ~-0.3 ("stable"). Used to prove the trend uses full history.
+    """
+    return [
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-1",
+            timestamp=now - timedelta(days=11),
+            risk="warning",
+            review_score=95,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-2",
+            timestamp=now - timedelta(days=10),
+            risk="warning",
+            review_score=95,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-3",
+            timestamp=now - timedelta(days=2, hours=12),
+            risk="none",
+            review_score=100,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-4",
+            timestamp=now - timedelta(days=2),
+            risk="none",
+            review_score=100,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-5",
+            timestamp=now - timedelta(days=1, hours=12),
+            risk="warning",
+            review_score=95,
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-6",
+            timestamp=now - timedelta(days=1),
+            risk="warning",
+            review_score=94,
+        ),
+    ]
+
+
 def test_lead_summary_groups_reviews_by_developer_and_ticket() -> None:
     start = datetime(2026, 5, 20, 10, tzinfo=timezone.utc)
     review_runs = stored_runs(
@@ -489,6 +542,48 @@ def test_load_lead_developer_detail_uses_selected_time_window(tmp_path: Path) ->
 
     assert detail is not None
     assert [run.ticket_key for run in detail.review_runs] == ["TK-NEW"]
+
+
+def test_load_lead_dashboard_summary_trend_uses_full_history(tmp_path: Path) -> None:
+    now = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    for run in _trend_history_runs(now):
+        store.store_review_run(run)
+    store.close()
+
+    summary = load_lead_dashboard_summary(
+        tmp_path / "history.sqlite",
+        days=3,
+        end_at=now,
+    )
+
+    jane = summary.developers[0]
+    # Only the four recent reviews fall in the 3-day window ...
+    assert jane.review_request_count == 4
+    # ... and those four alone would read "declining" (delta -5.5), but the
+    # trend is computed over the full six-review history -> "stable".
+    assert jane.trend_direction == "stable"
+
+
+def test_load_lead_developer_detail_trend_uses_full_history(tmp_path: Path) -> None:
+    now = datetime(2026, 5, 28, 10, tzinfo=timezone.utc)
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    for run in _trend_history_runs(now):
+        store.store_review_run(run)
+    store.close()
+
+    detail = load_lead_developer_detail(
+        tmp_path / "history.sqlite",
+        developer_id="Jane",
+        days=3,
+        end_at=now,
+    )
+
+    assert detail is not None
+    # The displayed review list stays windowed (four rows) ...
+    assert len(detail.review_runs) == 4
+    # ... while the trend pill reflects the full history -> "stable".
+    assert detail.developer.trend_direction == "stable"
 
 
 def test_lead_aggregation_stays_outside_streamlit() -> None:

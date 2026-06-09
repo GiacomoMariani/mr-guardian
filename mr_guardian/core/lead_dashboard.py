@@ -20,7 +20,13 @@ from mr_guardian.models.review import EVALUATION_ORDER, FindingCounts, ReviewEva
 from mr_guardian.storage import ReviewHistoryStore
 
 TREND_MIN_REVIEW_COUNT = 4
-TREND_SCORE_DELTA = 2.0
+TREND_SCORE_DELTA = 2.5
+
+# Trends are computed over a developer's FULL review history (up to the window
+# end), not just the selected window — a trend over the handful of reviews that
+# happen to fall in a short window is noise that flips direction run to run.
+# This far-past start fetches "all history up to end_at".
+_ALL_HISTORY_START = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def load_lead_dashboard_summary(
@@ -38,11 +44,17 @@ def load_lead_dashboard_summary(
             start_at=resolved_start_at,
             end_at=resolved_end_at,
         )
+        # Trend reflects the full trajectory, not just the windowed slice.
+        trend_review_runs = store.review_runs_between(
+            start_at=_ALL_HISTORY_START,
+            end_at=resolved_end_at,
+        )
     finally:
         store.close()
 
     return prepare_lead_dashboard_summary(
         review_runs=review_runs,
+        trend_review_runs=trend_review_runs,
         start_at=resolved_start_at,
         end_at=resolved_end_at,
     )
@@ -65,12 +77,19 @@ def load_lead_developer_detail(
             start_at=resolved_start_at,
             end_at=resolved_end_at,
         )
+        # Trend reflects the developer's full trajectory, not just the window.
+        trend_review_runs = store.review_runs_for_developer(
+            developer_id=developer_id,
+            start_at=_ALL_HISTORY_START,
+            end_at=resolved_end_at,
+        )
     finally:
         store.close()
 
     return prepare_lead_developer_detail(
         developer_id=developer_id,
         review_runs=review_runs,
+        trend_review_runs=trend_review_runs,
         start_at=resolved_start_at,
         end_at=resolved_end_at,
     )
@@ -82,6 +101,7 @@ def prepare_lead_developer_detail(
     review_runs: list[ReviewRunRecord],
     start_at: datetime,
     end_at: datetime,
+    trend_review_runs: list[ReviewRunRecord] | None = None,
 ) -> LeadDeveloperDetail | None:
     """Prepare the developer detail page data for a review-history window."""
     developer_runs = [
@@ -89,6 +109,12 @@ def prepare_lead_developer_detail(
     ]
     if not developer_runs:
         return None
+
+    trend_runs: list[ReviewRunRecord] | None = None
+    if trend_review_runs is not None:
+        trend_runs = [
+            run for run in trend_review_runs if run.developer_id == developer_id
+        ]
 
     sorted_runs = sorted(
         developer_runs,
@@ -101,6 +127,7 @@ def prepare_lead_developer_detail(
         developer=_developer_summary(
             developer_id=developer_id,
             review_runs=developer_runs,
+            trend_review_runs=trend_runs,
         ),
         review_runs=sorted_runs,
     )
@@ -111,22 +138,39 @@ def prepare_lead_dashboard_summary(
     review_runs: list[ReviewRunRecord],
     start_at: datetime,
     end_at: datetime,
+    trend_review_runs: list[ReviewRunRecord] | None = None,
 ) -> LeadDashboardSummary:
     """Prepare technical-lead review iteration and developer trend data."""
     return LeadDashboardSummary(
         start_at=start_at,
         end_at=end_at,
-        developers=_developer_summaries(review_runs),
+        developers=_developer_summaries(review_runs, trend_review_runs),
     )
 
 
-def _developer_summaries(review_runs: list[ReviewRunRecord]) -> list[LeadDeveloperSummary]:
+def _developer_summaries(
+    review_runs: list[ReviewRunRecord],
+    trend_review_runs: list[ReviewRunRecord] | None = None,
+) -> list[LeadDeveloperSummary]:
     runs_by_developer: dict[str, list[ReviewRunRecord]] = defaultdict(list)
     for run in review_runs:
         runs_by_developer[run.developer_id].append(run)
 
+    trend_runs_by_developer: dict[str, list[ReviewRunRecord]] = defaultdict(list)
+    if trend_review_runs is not None:
+        for run in trend_review_runs:
+            trend_runs_by_developer[run.developer_id].append(run)
+
     summaries = [
-        _developer_summary(developer_id=developer_id, review_runs=developer_runs)
+        _developer_summary(
+            developer_id=developer_id,
+            review_runs=developer_runs,
+            trend_review_runs=(
+                trend_runs_by_developer.get(developer_id)
+                if trend_review_runs is not None
+                else None
+            ),
+        )
         for developer_id, developer_runs in runs_by_developer.items()
     ]
     return sorted(
@@ -140,8 +184,13 @@ def _developer_summary(
     *,
     developer_id: str,
     review_runs: list[ReviewRunRecord],
+    trend_review_runs: list[ReviewRunRecord] | None = None,
 ) -> LeadDeveloperSummary:
     sorted_runs = sorted(review_runs, key=lambda run: (run.timestamp, run.review_id))
+    # Trend uses the full history when supplied; otherwise falls back to the
+    # windowed runs (keeps direct prepare_* callers and tests unchanged).
+    trend_source = trend_review_runs if trend_review_runs is not None else sorted_runs
+    trend_sorted = sorted(trend_source, key=lambda run: (run.timestamp, run.review_id))
     tickets = _ticket_attempts(sorted_runs)
     repeated_rules = _repeated_rules(sorted_runs)
     return LeadDeveloperSummary(
@@ -153,7 +202,7 @@ def _developer_summary(
         average_attempts_to_approval=_average_attempts_to_approval(tickets),
         average_score=_average_score(sorted_runs),
         latest_review_at=sorted_runs[-1].timestamp,
-        trend_direction=_trend_direction(sorted_runs),
+        trend_direction=_trend_direction(trend_sorted),
         multi_attempt_ticket_count=sum(1 for ticket in tickets if ticket.review_attempt_count > 1),
         repeated_rule_count=len(repeated_rules),
         unlinked_review_count=sum(1 for run in sorted_runs if run.ticket_key is None),

@@ -272,17 +272,19 @@ a {{
   border-bottom: 1px solid var(--line);
   display: flex;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 8px 18px;
 }}
 
 .mg-panel-head h2 {{
   color: var(--ink);
   font-family: var(--mg-display);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0;
   line-height: 1.2;
   margin: 0;
+  /* zero out Streamlit's default heading padding so the slimmed bar is actually tight */
+  padding: 0;
 }}
 
 .mg-panel-eyebrow {{
@@ -519,16 +521,17 @@ a {{
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .08em;
-  padding: 10px 14px;
+  /* tighter, and let long multi-word headers wrap (narrowing wide tables) rather than
+     forcing every column to the full header width on one line */
+  padding: 8px 10px;
   text-align: left;
   text-transform: uppercase;
-  white-space: nowrap;
 }}
 
 .mg-dashboard-table tbody td {{
   border-bottom: 1px solid var(--line);
   color: var(--ink-2);
-  padding: 11px 14px;
+  padding: 9px 10px;
   vertical-align: middle;
 }}
 
@@ -591,6 +594,33 @@ a {{
   white-space: nowrap;
 }}
 
+/* A rule chip that links to its policy source — clickable affordance (don't inherit the
+   browser's default link blue/underline; brighten on hover). */
+.mg-chip-link {{
+  color: var(--ink-2);
+  cursor: pointer;
+  text-decoration: none;
+}}
+.mg-chip-link:hover {{
+  border-color: var(--ink-3);
+  color: var(--ink);
+}}
+
+/* "Browse all policies" chips are st.popover triggers (Streamlit-native buttons). The
+   dark theme doesn't restyle Streamlit's default button, so they render as light pills
+   on the dark page. Match the .mg-chip look (theme variables -> correct in both themes)
+   so the policy catalog reads cleanly in dark mode. */
+[data-testid="stPopoverButton"] {{
+  background: var(--surface-2s) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--ink-2) !important;
+}}
+[data-testid="stPopoverButton"]:hover,
+[data-testid="stPopoverButton"][aria-expanded="true"] {{
+  border-color: var(--ink-3) !important;
+  color: var(--ink) !important;
+}}
+
 .mg-empty-state {{
   background: var(--surface);
   color: var(--ink-2);
@@ -622,17 +652,6 @@ a {{
 
 /* Streamlit adds vertical padding to markdown headings; drop it so the bar is tight. */
 #agent-review .mg-panel-head h2 {{
-  padding: 0;
-}}
-
-/* The developer-metrics panel is just a single compact row now, so its header is
-   slimmed down to match (tighter padding, smaller title). */
-#developer-metrics .mg-panel-head {{
-  padding: 8px 18px;
-}}
-/* zero out Streamlit's default heading padding so the slimmed bar is actually tight */
-#developer-metrics .mg-panel-head h2 {{
-  font-size: 15px;
   padding: 0;
 }}
 

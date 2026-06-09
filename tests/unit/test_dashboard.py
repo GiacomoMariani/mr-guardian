@@ -323,6 +323,14 @@ def test_review_report_height_scales_and_clamps() -> None:
         == 680 + 56 * 2 + 210
     )
     assert streamlit_app._review_report_height(run(findings=[1] * 100)) == 2800  # cap
+    # a skipped/rate-limited LLM metric adds the "Code analysis was not completed" callout
+    skipped_metric = SimpleNamespace(status="rate_limited")
+    assert (
+        streamlit_app._review_report_height(
+            run(findings=[1], llm_metrics=[skipped_metric])
+        )
+        == 680 + 56 + 170
+    )
 
 
 def test_trends_use_custom_chart_and_dynamic_report_height() -> None:
@@ -540,7 +548,9 @@ def test_metric_formatters_humanize_values() -> None:
     # trend enum maps to a friendly label + tone (never raw "insufficient_data")
     assert streamlit_app._trend_label_tone("improving") == ("Improving", "pass")
     assert streamlit_app._trend_label_tone("declining") == ("Declining", "blocking")
-    assert streamlit_app._trend_label_tone("insufficient_data") == ("-", "neutral")
+    # not-enough-data trend reads as Stable (same as an actually-stable trend)
+    assert streamlit_app._trend_label_tone("insufficient_data") == ("Stable", "info")
+    assert streamlit_app._trend_label_tone("stable") == ("Stable", "info")
 
 
 def test_developer_profile_panel_shows_no_info_when_missing() -> None:
@@ -559,6 +569,44 @@ def test_score_card_colours_against_target() -> None:
     assert below.detail is not None and "Target 80" in below.detail
     assert meets.tone == "pass"
     assert streamlit_app._score_card("Missing", None, 80).value == "-"
+
+
+def test_mean_score_is_a_real_average_of_dimensions() -> None:
+    import app.streamlit_app as streamlit_app
+
+    # the "Average Score" card now means the mean of the dimension scores
+    assert streamlit_app._mean_score(97.5, 90) == 93.75
+    assert streamlit_app._mean_score(100, 75) == 87.5
+    assert streamlit_app._mean_score(90, None) == 90  # only one dimension present
+    assert streamlit_app._mean_score(None, None) is None
+
+
+def test_rule_chips_link_to_source_with_tooltip() -> None:
+    import app.streamlit_app as streamlit_app
+    from mr_guardian.models.policy import PolicyRule
+
+    catalog = {
+        "UNITY-FIND-LLM-001": PolicyRule(
+            id="UNITY-FIND-LLM-001",
+            type="llm",
+            evaluation="coding",
+            enabled=True,
+            severity="warning",
+            source="unity-policy.yml#UNITY-FIND-LLM-001",
+            description="Flags Find/GetComponent calls in hot paths.",
+            prompt="Does the change add Find/GetComponent calls in a hot path?",
+        )
+    }
+    html = streamlit_app._rule_chips(["UNITY-FIND-LLM-001", "STALE-001"], catalog).html
+    # known rule -> link to source + description tooltip, new tab
+    assert 'class="mg-chip mg-chip-link"' in html
+    assert "unity-policy.yml" in html
+    assert 'title="Flags Find/GetComponent calls in hot paths."' in html
+    assert 'target="_blank"' in html
+    # unknown / stale id -> plain chip, no link
+    assert '<span class="mg-chip">STALE-001</span>' in html
+    # no catalog supplied -> all plain
+    assert "mg-chip-link" not in streamlit_app._rule_chips(["UNITY-FIND-LLM-001"]).html
 
 
 def test_dashboard_loads_eta_note_through_core() -> None:
