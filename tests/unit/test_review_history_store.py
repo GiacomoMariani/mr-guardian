@@ -118,7 +118,7 @@ def test_initializes_schema(tmp_path: Path) -> None:
     }.issubset(table_names(database_path))
 
 
-def test_stores_and_reads_latest_weekly_llm_review(tmp_path: Path) -> None:
+def test_stores_and_reads_weekly_llm_reviews(tmp_path: Path) -> None:
     store = ReviewHistoryStore(tmp_path / "history.sqlite")
 
     older = store.store_weekly_llm_review(
@@ -178,6 +178,9 @@ def test_stores_and_reads_latest_weekly_llm_review(tmp_path: Path) -> None:
     )
 
     found = store.latest_weekly_llm_review()
+    recent = store.recent_weekly_llm_reviews()
+    found_by_id = store.find_weekly_llm_review(older.weekly_review_id)
+    missing = store.find_weekly_llm_review(999)
     store.close()
 
     assert older.weekly_review_id == 1
@@ -189,6 +192,15 @@ def test_stores_and_reads_latest_weekly_llm_review(tmp_path: Path) -> None:
     assert found.currency == "USD"
     assert found.top_risks == ["One high-risk review remains."]
     assert found.recommended_actions == ["Prioritize the high-risk ticket."]
+    # recent_weekly_llm_reviews lists every stored review, newest first
+    assert [r.weekly_review_id for r in recent] == [
+        latest.weekly_review_id,
+        older.weekly_review_id,
+    ]
+    # find_weekly_llm_review returns the row, or None when it does not exist
+    assert found_by_id is not None
+    assert found_by_id.summary == "Older weekly review."
+    assert missing is None
 
 
 def test_reads_empty_weekly_llm_review_history() -> None:
@@ -555,6 +567,174 @@ def test_stores_llm_rule_metrics(tmp_path: Path) -> None:
     assert found_run.llm_metrics[1].status == "rate_limited"
     assert found_run.llm_metrics[1].input_tokens is None
     assert found_run.llm_metrics[1].error_message == "LLM provider rate limit reached."
+
+
+def test_stores_and_rolls_up_llm_cost(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+
+    record = store.store_review_run(
+        make_review_run(
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="PYTHON-DESIGN-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=1420,
+                    input_tokens=1200,
+                    output_tokens=80,
+                    total_tokens=1280,
+                    estimated_cost_usd=0.0006,
+                ),
+            ],
+            llm_summary=LlmReviewSummary(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=820,
+                text="Review summary.",
+                score=80,
+                input_tokens=300,
+                output_tokens=40,
+                total_tokens=340,
+                estimated_cost_usd=0.0002,
+            ),
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    assert found_run is not None
+    assert found_run.llm_metrics[0].estimated_cost_usd == 0.0006
+    assert found_run.llm_summary is not None
+    assert found_run.llm_summary.estimated_cost_usd == 0.0002
+    assert found_run.currency == "USD"
+    # Review-level rollup is the sum of every priced per-call cost.
+    assert found_run.estimated_cost_usd == 0.0008
+
+
+def test_rollup_is_none_without_priced_components(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    record = store.store_review_run(make_review_run())
+    store.close()
+
+    assert record.estimated_cost_usd is None
+    assert record.currency == "USD"
+
+
+def test_developer_profile_cost_adds_to_rollup(tmp_path: Path) -> None:
+    store = ReviewHistoryStore(tmp_path / "history.sqlite")
+    record = store.store_review_run(
+        make_review_run(
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="R1",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=10,
+                    input_tokens=100,
+                    output_tokens=10,
+                    total_tokens=110,
+                    estimated_cost_usd=0.0005,
+                ),
+            ],
+        )
+    )
+    # Before the profile is attached, the rollup covers only the rule metric.
+    assert record.estimated_cost_usd == 0.0005
+
+    updated = store.update_developer_profile(
+        review_id=record.review_id,
+        developer_profile=LlmDeveloperProfile(
+            status="succeeded",
+            provider="openai",
+            model="gpt-4.1-mini",
+            duration_ms=900,
+            lookback_days=30,
+            text="Profile.",
+            input_tokens=500,
+            output_tokens=60,
+            total_tokens=560,
+            estimated_cost_usd=0.0003,
+        ),
+    )
+    store.close()
+
+    assert updated.developer_profile is not None
+    assert updated.developer_profile.estimated_cost_usd == 0.0003
+    # Attaching the profile recomputes the rollup to include its cost.
+    assert updated.estimated_cost_usd == 0.0008
+
+
+def test_migrates_cost_columns_on_existing_database(tmp_path: Path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE review_runs (
+                review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                review_scope TEXT NOT NULL,
+                branch_name TEXT NOT NULL,
+                developer_id TEXT NOT NULL DEFAULT 'unknown',
+                mr_id TEXT,
+                commit_sha TEXT,
+                policy_version INTEGER NOT NULL,
+                risk TEXT NOT NULL,
+                blocking_count INTEGER NOT NULL,
+                high_count INTEGER NOT NULL,
+                warning_count INTEGER NOT NULL,
+                info_count INTEGER NOT NULL,
+                changed_file_count INTEGER NOT NULL,
+                changed_line_count INTEGER NOT NULL,
+                generated_review_report TEXT NOT NULL
+            );
+
+            CREATE TABLE review_llm_rule_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                review_id INTEGER NOT NULL,
+                rule_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                status TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                total_tokens INTEGER,
+                error_message TEXT,
+                FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
+            );
+            """
+        )
+
+    store = ReviewHistoryStore(database_path)
+    record = store.store_review_run(
+        make_review_run(
+            llm_metrics=[
+                LlmRuleMetric(
+                    rule_id="PYTHON-DESIGN-LLM-001",
+                    provider="openai",
+                    model="gpt-4.1-mini",
+                    status="succeeded",
+                    duration_ms=1420,
+                    input_tokens=1200,
+                    output_tokens=80,
+                    total_tokens=1280,
+                    estimated_cost_usd=0.0006,
+                ),
+            ],
+        )
+    )
+    found_run = store.review_run(record.review_id)
+    store.close()
+
+    # review_llm_rule_metrics gained estimated_cost_usd; review_runs gained the rollup +
+    # currency columns — all via additive migration on the pre-existing database.
+    assert found_run is not None
+    assert found_run.llm_metrics[0].estimated_cost_usd == 0.0006
+    assert found_run.estimated_cost_usd == 0.0006
+    assert found_run.currency == "USD"
 
 
 def test_stores_llm_review_summary(tmp_path: Path) -> None:
@@ -940,6 +1120,52 @@ def test_clears_review_history() -> None:
     assert removed_run_count == 2
     assert recent_runs == []
     assert stats == []
+
+
+def test_reset_all_clears_every_table() -> None:
+    store = ReviewHistoryStore(":memory:")
+    store.store_review_run(make_review_run())
+    store.store_weekly_llm_review(
+        WeeklyLlmReviewCreate(
+            week_start=date(2026, 6, 1),
+            week_end=date(2026, 6, 7),
+            result="on_track",
+            score=84,
+            summary="Week summary.",
+            mr_count=1,
+            developer_count=1,
+            ticket_count=1,
+            approved_ticket_count=1,
+            observed_ticket_count=0,
+            blocking_review_count=0,
+            high_risk_review_count=0,
+            warning_review_count=0,
+            info_review_count=0,
+            provider="openai",
+            model="gpt-4.1-mini",
+        )
+    )
+    store.set_eta_note(message="ETA note.")
+
+    counts = store.reset_all()
+
+    assert counts == {"reviews": 1, "weekly_reviews": 1, "eta_notes": 1}
+    assert store.recent_review_runs() == []
+    assert store.latest_weekly_llm_review() is None
+    assert store.get_eta_note() is None
+    store.close()
+
+
+def test_clear_history_also_clears_eta_notes() -> None:
+    store = ReviewHistoryStore(":memory:")
+    store.store_review_run(make_review_run())
+    store.set_eta_note(message="ETA note.")
+
+    removed_run_count = store.clear_history()
+
+    assert removed_run_count == 1
+    assert store.get_eta_note() is None
+    store.close()
 
 
 def test_reads_empty_eta_note() -> None:

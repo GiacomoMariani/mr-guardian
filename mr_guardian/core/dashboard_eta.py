@@ -151,4 +151,3 @@ def _optional_date(value: object) -> date | None:
     if value is None:
         return None
     return date.fromisoformat(str(value))
-

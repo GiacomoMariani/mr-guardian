@@ -1,48 +1,42 @@
 # Installation
 
-Use Python 3.10 or newer. From the repository root, install the mode that
-matches what you want to run.
+Use Python 3.10 or newer.
 
-## Recommended Local Development Install
+## Install
+
+From the repository root, install with the extras you need. Extras are additive — combine
+them with commas (e.g. `".[dashboard,ai]"`).
+
+| Extra | Command | Adds |
+|---|---|---|
+| _(none)_ | `python -m pip install -e .` | CLI runtime only |
+| `dashboard` | `python -m pip install -e ".[dashboard]"` | Streamlit dashboard |
+| `server` | `python -m pip install -e ".[server]"` | FastAPI / Uvicorn webhook + manual-review service |
+| `gitlab` | `python -m pip install -e ".[gitlab]"` | GitLab API client for posting MR review comments |
+| `ai` | `python -m pip install -e ".[ai]"` | OpenAI-backed LLM rules |
+| `dev` | `python -m pip install -e ".[dev]"` | Test, lint, and type-check tools |
+| `all` | `python -m pip install -e ".[all]"` | Everything except `dev` tools |
+
+**Recommended for local development** (everything):
 
 ```bash
 python -m pip install -e ".[dev,dashboard,server,ai]"
 ```
 
-This installs:
-
-- CLI runtime dependencies.
-- Test, lint, and type-check tools.
-- Streamlit dashboard dependencies.
-- FastAPI/Uvicorn server dependencies.
-- OpenAI dependency for LLM rules.
-
-## Minimal CLI Install
+The minimal install also exposes the `mr-guardian` console script:
 
 ```bash
 python -m pip install -e .
-```
-
-Use this when you only need:
-
-```bash
-python -m mr_guardian.cli.main review --base main
-```
-
-The console script is also installed:
-
-```bash
 mr-guardian review --base main
 ```
 
-Installed packages include default YAML policies. When `sources/yaml` exists in
-the current project, MR Guardian uses those repo-local policies. When that
-directory is missing or empty, it falls back to packaged default policies.
-Set `MR_GUARDIAN_POLICY_DIR` or pass `--policy-dir` to use team-specific
-policies.
+Installed packages include default YAML policies. When `sources/yaml` exists in the
+current project MR Guardian uses those repo-local policies; when it is missing or empty it
+falls back to packaged defaults. Set `MR_GUARDIAN_POLICY_DIR` or pass `--policy-dir` to use
+team-specific policies.
 
-On Windows, if `mr-guardian` is not found after installation, add the Python
-Scripts directory shown by pip to your user `PATH`. For example:
+On Windows, if `mr-guardian` is not found after installation, add the Python Scripts
+directory shown by pip to your user `PATH`:
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
@@ -54,48 +48,23 @@ Scripts directory shown by pip to your user `PATH`. For example:
 
 Then close and reopen PowerShell.
 
-## Feature-Specific Installs
+## Requirements Files
 
-Dashboard only:
+Editable extras are preferred while developing. For environments that use
+`pip install -r`, each extra has a matching requirements file:
 
-```bash
-python -m pip install -e ".[dashboard]"
-```
-
-FastAPI webhook server only:
-
-```bash
-python -m pip install -e ".[server]"
-```
-
-OpenAI-backed LLM rules:
+| Requirements file | Matches |
+|---|---|
+| `requirements.txt` | base CLI |
+| `requirements-dev.txt` | `dev` |
+| `requirements-dashboard.txt` | `dashboard` |
+| `requirements-server.txt` | `server` |
+| `requirements-ai.txt` | `ai` |
+| `requirements-all.txt` | `dev` + `dashboard` + `server` + `ai` |
 
 ```bash
-python -m pip install -e ".[ai]"
-```
-
-Everything except development tools:
-
-```bash
-python -m pip install -e ".[all]"
-```
-
-## Requirements File Installs
-
-Editable extras are preferred while developing this project. Requirements files
-are available for environments that use `pip install -r`:
-
-```bash
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-dev.txt
-python -m pip install -r requirements-dashboard.txt
-python -m pip install -r requirements-server.txt
-python -m pip install -r requirements-ai.txt
 python -m pip install -r requirements-all.txt
 ```
-
-`requirements-all.txt` includes development, dashboard, server, and AI
-dependencies.
 
 ## Environment Setup
 

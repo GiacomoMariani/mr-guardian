@@ -45,10 +45,11 @@ Successful response:
 
 ## Errors
 
-- `400`: invalid JSON, non-object payload, missing or non-boolean `final`, or a
-  non-positive review ID.
-- `401`: invalid admin token when `MR_GUARDIAN_ADMIN_TOKEN` is configured.
-- `404`: review ID does not exist.
+| Status | Condition |
+|---|---|
+| `400` | Invalid JSON, non-object payload, missing or non-boolean `final`, or a non-positive review ID. |
+| `401` | Invalid admin token when `MR_GUARDIAN_ADMIN_TOKEN` is configured. |
+| `404` | Review ID does not exist. |
 
 ## Optional Admin Token
 

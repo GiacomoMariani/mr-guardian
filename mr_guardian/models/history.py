@@ -44,6 +44,7 @@ class ReviewRunCreate(BaseModel):
     changed_file_count: int
     changed_line_count: int
     review_score: int | None = Field(default=None, ge=0, le=100)
+    currency: str = "USD"
     findings: list[Finding] = Field(default_factory=list)
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
@@ -78,6 +79,8 @@ class ReviewRunRecord(BaseModel):
     changed_file_count: int
     changed_line_count: int
     review_score: int = Field(default=100, ge=0, le=100)
+    estimated_cost_usd: float | None = None
+    currency: str = "USD"
     findings: list[Finding] = Field(default_factory=list)
     triggered_rule_ids: list[str]
     evaluations: list[ReviewEvaluation] = Field(default_factory=list)
@@ -132,6 +135,8 @@ def review_run_record_schema() -> dict[str, Any]:
         "changed_file_count",
         "changed_line_count",
         "review_score",
+        "estimated_cost_usd",
+        "currency",
         "llm_summary",
         "llm_summary_score",
         "llm_summary_status",
@@ -141,6 +146,7 @@ def review_run_record_schema() -> dict[str, Any]:
         "llm_summary_input_tokens",
         "llm_summary_output_tokens",
         "llm_summary_total_tokens",
+        "llm_summary_estimated_cost_usd",
         "llm_summary_error_message",
         "developer_profile",
         "developer_profile_status",
@@ -150,6 +156,7 @@ def review_run_record_schema() -> dict[str, Any]:
         "developer_profile_input_tokens",
         "developer_profile_output_tokens",
         "developer_profile_total_tokens",
+        "developer_profile_estimated_cost_usd",
         "developer_profile_error_message",
         "developer_profile_lookback_days",
         "generated_review_report",
@@ -169,6 +176,12 @@ def review_run_record_schema() -> dict[str, Any]:
         ),
         "developer_profile": (
             "Stored as SQLite columns and exposed as developer_profile on typed records."
+        ),
+        "estimated_cost_usd": (
+            "Review-level rollup of the estimated USD cost of every LLM call in the run "
+            "(per-rule metrics + summary + developer profile), recomputed from the stored "
+            "per-call costs. Per-call costs live on their own rows/columns; currency "
+            "defaults to USD."
         ),
     }
     return schema

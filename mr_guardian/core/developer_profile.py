@@ -4,6 +4,7 @@ from datetime import timedelta
 from time import perf_counter
 
 from mr_guardian.core.lead_dashboard import prepare_lead_developer_detail
+from mr_guardian.core.llm_pricing import estimate_cost_usd
 from mr_guardian.models.developer_profile import DeveloperProfileInput
 from mr_guardian.models.history import ReviewRunRecord
 from mr_guardian.models.review import LlmDeveloperProfile, LlmSummaryStatus
@@ -128,6 +129,8 @@ def _profile_result(
     error_message: str | None,
 ) -> LlmDeveloperProfile:
     usage = runner.last_token_usage
+    input_tokens = usage.input_tokens if usage is not None else None
+    output_tokens = usage.output_tokens if usage is not None else None
     return LlmDeveloperProfile(
         status=status,
         provider=runner.provider_name,
@@ -135,8 +138,14 @@ def _profile_result(
         duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
         lookback_days=lookback_days,
         text=text,
-        input_tokens=usage.input_tokens if usage is not None else None,
-        output_tokens=usage.output_tokens if usage is not None else None,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         total_tokens=usage.total_tokens if usage is not None else None,
+        estimated_cost_usd=estimate_cost_usd(
+            provider=runner.provider_name,
+            model=runner.model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        ),
         error_message=error_message,
     )

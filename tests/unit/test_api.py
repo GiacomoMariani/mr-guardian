@@ -1233,6 +1233,100 @@ def test_api_eta_note_post_appends_to_history(monkeypatch, tmp_path) -> None:
     assert [note.message for note in history] == ["Second ETA.", "First ETA."]
 
 
+def test_api_reset_clears_all_data(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    client().post("/reviews", json=review_run_payload())
+    client().post("/weekly-llm-reviews/manual", json=weekly_review_payload())
+    client().post("/dashboard/eta-note", json={"message": "Delivery ETA."})
+
+    response = client().post("/admin/reset", json={"confirm": True})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "reset",
+        "reviews": 1,
+        "weekly_reviews": 1,
+        "eta_notes": 1,
+    }
+    assert client().get("/dashboard/eta-note").json() is None
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        assert store.recent_review_runs() == []
+        assert store.latest_weekly_llm_review() is None
+    finally:
+        store.close()
+
+
+def test_api_reset_requires_confirmation(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    no_flag = client().post("/admin/reset", json={})
+    wrong_flag = client().post("/admin/reset", json={"confirm": "yes"})
+    non_object = client().post("/admin/reset", json=[])
+
+    assert no_flag.status_code == 400
+    assert "confirm" in no_flag.json()["detail"]
+    assert wrong_flag.status_code == 400
+    assert non_object.status_code == 400
+    assert non_object.json() == {"detail": "Expected JSON object payload."}
+
+
+def test_api_reset_admin_token_is_enforced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
+
+    response = client().post(
+        "/admin/reset",
+        headers={"x-mr-guardian-admin-token": "wrong-token"},
+        json={"confirm": True},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid MR Guardian admin token."}
+
+
+def test_api_lists_weekly_llm_reviews(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    older = weekly_review_payload()
+    older["week_start"] = "2026-05-25"
+    older["week_end"] = "2026-05-31"
+    older["summary"] = "Older week."
+    client().post("/weekly-llm-reviews/manual", json=older)
+    client().post("/weekly-llm-reviews/manual", json=weekly_review_payload())
+
+    response = client().get("/weekly-llm-reviews")
+
+    assert response.status_code == 200
+    weeks = [review["week_start"] for review in response.json()]
+    assert weeks == ["2026-06-01", "2026-05-25"]
+
+
+def test_api_gets_weekly_llm_review_by_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    weekly_id = client().post(
+        "/weekly-llm-reviews/manual",
+        json=weekly_review_payload(),
+    ).json()["weekly_review_id"]
+
+    found = client().get(f"/weekly-llm-reviews/{weekly_id}")
+    missing = client().get("/weekly-llm-reviews/999")
+
+    assert found.status_code == 200
+    assert found.json()["weekly_review_id"] == weekly_id
+    assert found.json()["result"] == "on_track"
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Weekly LLM review 999 was not found."}
+
+
 def client() -> TestClient:
     return TestClient(app)
 

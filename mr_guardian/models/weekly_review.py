@@ -139,8 +139,7 @@ def weekly_llm_review_payload_schema() -> dict[str, Any]:
     schema = WeeklyLlmReviewCreate.model_json_schema()
     schema["x-storage-notes"] = {
         "created_at": (
-            "Optional on ingestion. When omitted, MR Guardian stores the current "
-            "UTC timestamp."
+            "Optional on ingestion. When omitted, MR Guardian stores the current UTC timestamp."
         ),
         "weekly_review_id": "Assigned by SQLite after the weekly review is stored.",
         "week_start": "Must be a Monday.",

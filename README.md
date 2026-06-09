@@ -91,18 +91,25 @@ This is an agentic review layer that is traceable, bounded, testable, and useful
 ## Documentation
 
 - Architecture: [`Docs/architecture.md`](Docs/architecture.md)
-- Agent-assisted setup: [`Docs/agent-setup-prompt.md`](Docs/agent-setup-prompt.md)
 - Installation: [`Docs/installation.md`](Docs/installation.md)
+- Packaging notes: [`Docs/packaging.md`](Docs/packaging.md)
+- Agent-assisted setup: [`Docs/agent-setup-prompt.md`](Docs/agent-setup-prompt.md)
 - Rule generation prompt: [`Docs/rule-generation-prompt.md`](Docs/rule-generation-prompt.md)
 - LLM rule authoring: [`Docs/llm-rule-authoring.md`](Docs/llm-rule-authoring.md)
 - PM dashboard: [`Docs/pm-dashboard.md`](Docs/pm-dashboard.md)
 - Lead dashboard: [`Docs/lead-dashboard.md`](Docs/lead-dashboard.md)
 - Developer performance: [`Docs/developer-performance.md`](Docs/developer-performance.md)
+- Developer AI profiles: [`Docs/developer-ai-profiles.md`](Docs/developer-ai-profiles.md)
+- Weekly LLM review: [`Docs/weekly-llm-review.md`](Docs/weekly-llm-review.md)
 - Manual review submission: [`Docs/manual-review-submission.md`](Docs/manual-review-submission.md)
 - Ticket key conventions: [`Docs/ticket-key-conventions.md`](Docs/ticket-key-conventions.md)
+- Review history schema: [`Docs/review-history-schema.md`](Docs/review-history-schema.md)
 - Docker and Render notes: [`Docs/docker-deployment.md`](Docs/docker-deployment.md)
-- Packaging notes: [`Docs/packaging.md`](Docs/packaging.md)
-- Unity rule roadmap: [`Docs/unity-rule-roadmap.md`](Docs/unity-rule-roadmap.md)
+- API — review feeds: [`Docs/api-review-feeds.md`](Docs/api-review-feeds.md)
+- API — review finality: [`Docs/api-review-finality.md`](Docs/api-review-finality.md)
+- API — review deletion: [`Docs/api-review-deletion.md`](Docs/api-review-deletion.md)
+- API — dashboard ETA note: [`Docs/api-eta-note.md`](Docs/api-eta-note.md)
+- API — reset all data: [`Docs/api-reset.md`](Docs/api-reset.md)
 
 ## Roadmap
 

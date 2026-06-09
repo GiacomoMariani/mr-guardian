@@ -1,40 +1,40 @@
 # Weekly LLM Review
 
-MR Guardian can display one stored weekly LLM review on the first dashboard tab.
-This is separate from per-MR LLM summaries: page load only reads the latest stored
-weekly record and never regenerates it.
+MR Guardian displays stored weekly LLM reviews on the first dashboard tab. This is
+separate from per-MR LLM summaries: page load only reads stored weekly records and never
+regenerates them. The panel shows the latest week by default, with a selector to view
+previous weeks.
+
+![Weekly LLM Review panel — result pill, LLM-calculated score, weekly counts, top risks, and recommended actions](assets/weekly-llm-review.png)
 
 ## Purpose
 
-Use the weekly review to summarize the current delivery window in plain language:
+Use the weekly review to summarize the current delivery window in plain language: an
+overall result, an LLM-calculated score from `1` to `100`, the delivery `phase` it
+assesses (e.g. `Beta Phase`), MR/developer/ticket counts, blocking/high/warning/info
+review counts, top risks, recommended actions, and token usage with estimated cost.
 
-- whether the week is `optimal`, `on_track`, `needs_attention`, `at_risk`, or `blocked`
-- an LLM-calculated score from `1` to `100`
-- the delivery `phase` it assesses (e.g. `Beta Phase`)
-- MR, developer, and ticket counts for the week
-- blocking, high-risk, warning, and info review counts
-- top risks and recommended actions
-- token usage and estimated provider cost
+The overall result is one of five states, shown as a colored pill on the dashboard:
+
+| Result | Dashboard label | Tone |
+|---|---|---|
+| `optimal` | Optimal | pass |
+| `on_track` | On Track | pass |
+| `needs_attention` | Needs Attention | warning |
+| `at_risk` | At Risk | high |
+| `blocked` | Blocked | blocking |
 
 ## API
 
-Read the accepted JSON schema:
+| Endpoint | Purpose |
+|---|---|
+| `GET /weekly-llm-reviews/schema` | Read the accepted JSON schema. |
+| `GET /weekly-llm-reviews` | List recent reviews, newest first (`?limit=N`, default 20). |
+| `GET /weekly-llm-reviews/{weekly_review_id}` | Read one stored review by ID. |
+| `POST /weekly-llm-reviews/manual` | Store a manually generated weekly LLM review. |
 
-```text
-GET /weekly-llm-reviews/schema
-```
-
-Store a manually generated weekly LLM review:
-
-```text
-POST /weekly-llm-reviews/manual
-```
-
-If `MR_GUARDIAN_ADMIN_TOKEN` is configured, the POST request must include:
-
-```text
-x-mr-guardian-admin-token: <token>
-```
+If `MR_GUARDIAN_ADMIN_TOKEN` is configured, the `POST` request must include the
+`x-mr-guardian-admin-token: <token>` header.
 
 ## Example Payload
 

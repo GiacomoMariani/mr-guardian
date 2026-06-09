@@ -8,9 +8,11 @@ ticket as the current state.
 
 ## Status Model
 
-- `fail`: latest review risk is `blocking` or `high`
-- `pass_with_warnings`: latest review risk is `warning` or `info`
-- `pass`: latest review risk is `none`
+| Status | Latest review risk |
+|---|---|
+| `fail` | `blocking` or `high` |
+| `pass_with_warnings` | `warning` or `info` |
+| `pass` | `none` |
 
 Reviews without a ticket key are counted as unlinked reviews and excluded from
 ticket pass/fail totals.
@@ -22,8 +24,10 @@ failing: `pass` plus `pass_with_warnings`.
 
 Each ticket also has a delivery state:
 
-- `Approved`: one stored review for that ticket has been marked final.
-- `Observed`: no final review has been marked yet.
+| State | Meaning |
+|---|---|
+| `Approved` | One stored review for that ticket has been marked final. |
+| `Observed` | No final review has been marked yet. |
 
 Approved/Observed is separate from pass/fail risk. A ticket can still display a
 failing latest risk if the latest review is blocking or high-risk. Marking a

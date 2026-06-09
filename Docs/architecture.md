@@ -3,6 +3,8 @@
 MR Guardian is organized around one review pipeline shared by the CLI, GitLab
 webhook service, and Streamlit dashboard.
 
+![How it works: merge-request diff → deterministic policy checks + bounded LLM reasoning → single merge verdict](assets/how-it-works.png)
+
 ## Design Goals
 
 - Keep interfaces thin: CLI, FastAPI, and Streamlit call core services instead

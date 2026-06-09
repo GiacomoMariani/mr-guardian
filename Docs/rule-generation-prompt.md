@@ -60,6 +60,9 @@ Known deterministic implementations:
 - unity_per_frame_allocation
 - unity_runtime_instantiation
 - unity_resources_load
+- unity_raw_input_usage
+- unity_geometry_triangle_budget
+- unity_asset_memory_delta
 - csharp_debug_log
 - csharp_get_component
 - csharp_class_size

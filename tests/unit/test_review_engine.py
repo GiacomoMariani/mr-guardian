@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from mr_guardian.core import run_review
+from mr_guardian.core.llm_pricing import estimate_cost_usd
 from mr_guardian.models.policy import Policy, PolicyRule
 from mr_guardian.models.review import Finding
 from mr_guardian.models.review_input import ChangedFile, ReviewInput
@@ -240,6 +241,13 @@ def test_runs_enabled_llm_rules_with_configured_runner() -> None:
     assert result.llm_metrics[0].input_tokens == 10
     assert result.llm_metrics[0].output_tokens == 5
     assert result.llm_metrics[0].total_tokens == 15
+    assert result.llm_metrics[0].estimated_cost_usd is not None
+    assert result.llm_metrics[0].estimated_cost_usd == estimate_cost_usd(
+        provider="openai",
+        model="gpt-test",
+        input_tokens=10,
+        output_tokens=5,
+    )
 
 
 def test_does_not_run_disabled_llm_rules() -> None:

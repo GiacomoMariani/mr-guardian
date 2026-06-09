@@ -11,6 +11,11 @@ and never changes findings, risk, counts, or scores.
 LLM rules are never allowed to create blocking findings. Use deterministic rules
 for checks that must block a Merge Request.
 
+In a review report, an LLM rule's finding can be expanded to show the exact prompt behind
+it, so reviewers see the instruction that produced the advisory finding:
+
+![Expanded LLM finding in a review report, showing the rule's LLM prompt](assets/llm-rule-expanded-finding.png)
+
 Every LLM rule declares an evaluation dimension:
 
 - `coding` for implementation, runtime, design, maintainability, and Unity/C#/Python

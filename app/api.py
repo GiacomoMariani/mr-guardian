@@ -18,6 +18,7 @@ from mr_guardian.core.dashboard_eta import (
 )
 from mr_guardian.core.gitlab_reviews import review_gitlab_merge_request
 from mr_guardian.core.gitlab_webhooks import process_gitlab_webhook
+from mr_guardian.core.history_reset import reset_all_history
 from mr_guardian.core.manual_review import (
     ManualReviewError,
     ManualReviewPayload,
@@ -42,6 +43,8 @@ from mr_guardian.core.review_finality import (
 )
 from mr_guardian.core.webhook_jobs import WebhookReviewJob, webhook_review_jobs
 from mr_guardian.core.weekly_llm_review import (
+    load_recent_weekly_llm_reviews,
+    load_weekly_llm_review,
     manual_weekly_llm_review_payload_schema,
     store_weekly_llm_review_payload,
 )
@@ -102,6 +105,30 @@ async def review_schema() -> dict[str, Any]:
 async def weekly_llm_review_schema() -> dict[str, Any]:
     """Return the manual weekly LLM review submission JSON schema."""
     return manual_weekly_llm_review_payload_schema()
+
+
+@app.get("/weekly-llm-reviews")
+async def list_weekly_llm_reviews(limit: int = 20) -> Any:
+    """Return recent weekly LLM reviews, most recent first."""
+    return load_recent_weekly_llm_reviews(
+        database_path=get_settings().history_db_path,
+        limit=limit,
+    )
+
+
+@app.get("/weekly-llm-reviews/{weekly_review_id}")
+async def get_weekly_llm_review(weekly_review_id: int) -> Any:
+    """Return one stored weekly LLM review by ID."""
+    record = load_weekly_llm_review(
+        database_path=get_settings().history_db_path,
+        weekly_review_id=weekly_review_id,
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Weekly LLM review {weekly_review_id} was not found.",
+        )
+    return record
 
 
 @app.get("/dashboard/eta-note/schema")
@@ -589,6 +616,29 @@ async def feed_review_developer_profile_endpoint(
         if record.developer_profile is not None
         else None,
     }
+
+
+@app.post("/admin/reset")
+async def reset_all_data(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Delete ALL stored data — reviews, weekly reviews, and ETA notes (irreversible).
+
+    Admin-gated and guarded by an explicit confirmation flag: the request body must be
+    {"confirm": true}.
+    """
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    raw_payload = await _read_json_object(request)
+    if raw_payload.get("confirm") is not True:
+        raise HTTPException(
+            status_code=400,
+            detail='Reset requires {"confirm": true} in the request body.',
+        )
+
+    return reset_all_history(database_path=settings.history_db_path).model_dump()
 
 
 @app.post("/webhooks/gitlab", status_code=202)

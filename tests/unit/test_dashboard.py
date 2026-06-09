@@ -719,6 +719,15 @@ def test_weekly_llm_review_panel_renders_stored_summary() -> None:
     assert "On Track" in badge_html
 
 
+def test_weekly_llm_review_supports_week_selection() -> None:
+    import app.streamlit_app as streamlit_app
+
+    source = getsource(streamlit_app._render_weekly_llm_review)
+
+    assert "_cached_recent_weekly_reviews" in source
+    assert "st.selectbox" in source
+
+
 def test_weekly_llm_review_panel_renders_empty_state() -> None:
     import app.streamlit_app as streamlit_app
 

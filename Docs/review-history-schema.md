@@ -17,13 +17,14 @@ SQLite may store nested values across related tables or columns, while applicati
   "is_final": true,
   "policy_version": 1,
   "risk": "blocking",
+  "review_score": 38,
   "blocking_count": 1,
   "high_count": 0,
   "warning_count": 4,
   "info_count": 2,
   "changed_file_count": 6,
   "changed_line_count": 229,
-  "review_score": 38,
+  "triggered_rule_ids": ["MR-META-001"],
   "findings": [
     {
       "rule_id": "MR-META-001",
@@ -36,70 +37,15 @@ SQLite may store nested values across related tables or columns, while applicati
       "line_number": null
     }
   ],
-  "triggered_rule_ids": ["MR-META-001"],
-  "evaluations": [
-    {
-      "evaluation": "coding",
-      "risk": "info",
-      "counts": {
-        "blocking": 0,
-        "high": 0,
-        "warning": 0,
-        "info": 2
-      },
-      "triggered_rule_ids": ["PYTHON-DESIGN-LLM-001"]
-    }
-  ],
-  "llm_metrics": [
-    {
-      "rule_id": "PYTHON-DESIGN-LLM-001",
-      "provider": "openai",
-      "model": "gpt-4.1-mini",
-      "status": "succeeded",
-      "duration_ms": 1420,
-      "input_tokens": 1200,
-      "output_tokens": 80,
-      "total_tokens": 1280,
-      "error_message": null
-    }
-  ],
-  "llm_summary": {
-    "status": "succeeded",
-    "provider": "openai",
-    "model": "gpt-4.1-mini",
-    "duration_ms": 820,
-    "text": "The MR is blocked by missing review metadata.",
-    "score": 72,
-    "input_tokens": 300,
-    "output_tokens": 40,
-    "total_tokens": 340,
-    "error_message": null
-  },
-  "developer_profile": {
-    "status": "succeeded",
-    "provider": "openai",
-    "model": "gpt-4.1-mini",
-    "duration_ms": 950,
-    "lookback_days": 30,
-    "text": "Jane's recent reviews show improving readiness with recurring metadata misses.",
-    "input_tokens": 500,
-    "output_tokens": 60,
-    "total_tokens": 560,
-    "error_message": null
-  },
-  "policy_summaries": [
-    {
-      "policy_path": "sources/yaml/unity-policy.yml",
-      "policy_version": 1,
-      "enabled_rule_count": 30,
-      "disabled_rule_count": 0
-    }
-  ],
   "generated_review_report": "# MR Guardian Review\n\n...",
   "mr_id": "42",
   "commit_sha": "abc123"
 }
 ```
+
+Trimmed for brevity: the nested `evaluations`, `llm_metrics`, `llm_summary`,
+`developer_profile`, and `policy_summaries` blocks are described in the Field Reference
+below. Call `GET /reviews/schema` for the full generated JSON schema.
 
 ## Field Reference
 

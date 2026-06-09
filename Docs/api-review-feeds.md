@@ -134,12 +134,11 @@ PUT /reviews/1/developer-profile
 
 ## Errors
 
-- `400`: invalid JSON; wrong container type (`Expected JSON array payload.` /
-  `Expected JSON object payload.`); a body that fails model validation
-  (`Invalid <item> structure: ...`); or a non-positive review ID
-  (`Review ID must be a positive integer.`).
-- `401`: invalid admin token when `MR_GUARDIAN_ADMIN_TOKEN` is configured.
-- `404`: the target review ID does not exist.
+| Status | Condition |
+|---|---|
+| `400` | Invalid JSON; wrong container type (`Expected JSON array payload.` / `Expected JSON object payload.`); a body that fails model validation (`Invalid <item> structure: ...`); or a non-positive review ID (`Review ID must be a positive integer.`). |
+| `401` | Invalid admin token when `MR_GUARDIAN_ADMIN_TOKEN` is configured. |
+| `404` | The target review ID does not exist. |
 
 ## Optional Admin Token
 

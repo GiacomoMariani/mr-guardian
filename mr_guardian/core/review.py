@@ -6,6 +6,7 @@ from time import perf_counter
 from pydantic import BaseModel, ConfigDict
 
 from mr_guardian.core.engine import calculate_risk, count_findings, run_review
+from mr_guardian.core.llm_pricing import estimate_cost_usd
 from mr_guardian.models.policy import Policy
 from mr_guardian.models.review import (
     EngineReviewResult,
@@ -235,6 +236,8 @@ def _llm_summary_result(
     score: int | None = None,
 ) -> LlmReviewSummary:
     usage = runner.last_token_usage
+    input_tokens = usage.input_tokens if usage is not None else None
+    output_tokens = usage.output_tokens if usage is not None else None
     return LlmReviewSummary(
         status=status,
         provider=runner.provider_name,
@@ -242,9 +245,15 @@ def _llm_summary_result(
         duration_ms=max(0, round((perf_counter() - started_at) * 1000)),
         text=text,
         score=score,
-        input_tokens=usage.input_tokens if usage is not None else None,
-        output_tokens=usage.output_tokens if usage is not None else None,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         total_tokens=usage.total_tokens if usage is not None else None,
+        estimated_cost_usd=estimate_cost_usd(
+            provider=runner.provider_name,
+            model=runner.model_name,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        ),
         error_message=error_message,
     )
 

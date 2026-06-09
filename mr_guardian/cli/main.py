@@ -178,11 +178,11 @@ def clear_logs(
         Path | None,
         typer.Option("--db", help="Path to the SQLite review history database."),
     ] = None,
-    yes: Annotated[bool, typer.Option("--yes", help="Confirm deletion of review history.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Confirm deleting all stored data.")] = False,
 ) -> None:
-    """Remove all stored review history."""
+    """Remove all stored data: review runs, weekly reviews, and ETA notes."""
     if not yes:
-        raise typer.BadParameter("Pass --yes to confirm deleting review history.")
+        raise typer.BadParameter("Pass --yes to confirm deleting all stored data.")
 
     settings = get_settings()
     store = ReviewHistoryStore(db or settings.history_db_path)

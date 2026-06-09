@@ -10,6 +10,8 @@ It is intended for technical leads and senior reviewers who need to understand:
 - which rules recur for each developer
 - whether repeated review risk is coding-related or MR-structure-related
 
+![Lead Review View — per-developer review requests, attempts, scores, and trend pills](assets/lead-dashboard-team-table.png)
+
 ## Attempt Model
 
 Each stored review run counts as one review attempt.
@@ -39,12 +41,17 @@ review. Observed tickets do not contribute to average attempts to approval.
 
 ## Trend Model
 
-Trend direction is conservative:
+Trend direction is conservative. A developer's reviews are ordered oldest to newest and
+split in half by count; the direction comes from the gap between the earlier-half and
+later-half average scores. It is computed over the developer's **full review history**
+(not the selected dashboard window), so a short window cannot flip it run to run.
 
-- fewer than four review runs: `insufficient_data`
-- later average score more than two points above earlier average: `improving`
-- later average score more than two points below earlier average: `declining`
-- otherwise: `stable`
+| Condition | Direction |
+|---|---|
+| Fewer than 4 review runs | `insufficient_data` |
+| Later-half average more than **2.5** points above the earlier half | `improving` |
+| Later-half average more than **2.5** points below the earlier half | `declining` |
+| Gap within ±2.5 points | `stable` |
 
 ## Evaluation Dimensions
 

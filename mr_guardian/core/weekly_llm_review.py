@@ -35,6 +35,31 @@ def load_latest_weekly_llm_review(
         store.close()
 
 
+def load_recent_weekly_llm_reviews(
+    database_path: str | Path,
+    *,
+    limit: int = 20,
+) -> list[WeeklyLlmReviewRecord]:
+    """Load stored weekly LLM reviews, most recent first."""
+    store = ReviewHistoryStore(database_path)
+    try:
+        return store.recent_weekly_llm_reviews(limit=limit)
+    finally:
+        store.close()
+
+
+def load_weekly_llm_review(
+    database_path: str | Path,
+    weekly_review_id: int,
+) -> WeeklyLlmReviewRecord | None:
+    """Load one stored weekly LLM review by ID, or None if it does not exist."""
+    store = ReviewHistoryStore(database_path)
+    try:
+        return store.find_weekly_llm_review(weekly_review_id)
+    finally:
+        store.close()
+
+
 def manual_weekly_llm_review_payload_schema() -> dict[str, Any]:
     """Return the JSON schema for manual weekly LLM review ingestion."""
     return weekly_llm_review_payload_schema()

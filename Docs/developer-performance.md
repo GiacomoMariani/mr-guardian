@@ -20,14 +20,15 @@ Every stored review run includes:
 - `is_final`, when a review has been marked as the final review for that ticket
 - `review_score`
 
-The review score is calculated when the review is stored:
+The review score is calculated when the review is stored: start at `100`, subtract a
+penalty per finding by severity, then clamp the result to `0`–`100`.
 
-- start from `100`
-- subtract `35` per blocking finding
-- subtract `15` per high finding
-- subtract `5` per warning finding
-- subtract `1` per info finding
-- clamp between `0` and `100`
+| Severity | Penalty per finding |
+|---|---:|
+| Blocking | −35 |
+| High | −15 |
+| Warning | −5 |
+| Info | −1 |
 
 ## Summary Semantics
 

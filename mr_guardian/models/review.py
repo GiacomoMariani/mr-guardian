@@ -52,6 +52,7 @@ class LlmRuleMetric(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
     error_message: str | None = None
 
 
@@ -69,6 +70,7 @@ class LlmReviewSummary(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
     error_message: str | None = None
 
 
@@ -86,6 +88,7 @@ class LlmDeveloperProfile(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     total_tokens: int | None = None
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
     error_message: str | None = None
 
 

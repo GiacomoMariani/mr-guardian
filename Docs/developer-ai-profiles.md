@@ -33,4 +33,6 @@ The LLM receives a compact developer history window:
 
 The developer detail page shows the latest available profile snapshot for that developer, including status, provider, model, lookback window, duration, and token usage when available.
 
+![Latest LLM Developer Profile — average, coding, and MR-structure score cards above the AI-generated narrative](assets/developer-ai-profile.png)
+
 When profile generation is disabled, unavailable, malformed, failed, or rate-limited, MR Guardian keeps the review result and stores profile status metadata when generation was attempted.

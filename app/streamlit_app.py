@@ -75,7 +75,10 @@ from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_developer_detail,
 )
 from mr_guardian.core.pm_dashboard import load_pm_dashboard_summary  # noqa: E402
-from mr_guardian.core.weekly_llm_review import load_latest_weekly_llm_review  # noqa: E402
+from mr_guardian.core.weekly_llm_review import (  # noqa: E402
+    load_latest_weekly_llm_review,
+    load_recent_weekly_llm_reviews,
+)
 from mr_guardian.models.dashboard import DashboardEtaNote  # noqa: E402
 from mr_guardian.models.history import (  # noqa: E402
     ReviewRunRecord,
@@ -186,6 +189,11 @@ def _cached_developer_detail(
 @st.cache_data(show_spinner=False)
 def _cached_weekly_review(database_path: Path, db_mtime: float):
     return load_latest_weekly_llm_review(database_path)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_recent_weekly_reviews(database_path: Path, db_mtime: float):
+    return load_recent_weekly_llm_reviews(database_path)
 
 
 @st.cache_data(show_spinner=False)
@@ -486,14 +494,27 @@ def _eta_note_history_panel(notes: list[DashboardEtaNote]) -> str:
 
 
 def _render_weekly_llm_review(st, database_path: Path) -> None:
-    weekly_review = _cached_weekly_review(database_path, _db_mtime(database_path))
+    reviews = _cached_recent_weekly_reviews(database_path, _db_mtime(database_path))
+    selected = reviews[0] if reviews else None
+    # When more than one week is stored, let the user pick which to view (latest first).
+    if len(reviews) > 1:
+        selected_index = st.selectbox(
+            "Week",
+            list(range(len(reviews))),
+            index=0,
+            format_func=lambda i: (
+                f"{reviews[i].week_start.isoformat()} → {reviews[i].week_end.isoformat()}"
+            ),
+            key="weekly_review_week",
+        )
+        selected = reviews[selected_index]
     _render_html(
         st,
         render_section(
             index=3,
             title="Weekly LLM Review",
-            action_html=_weekly_llm_result_badge(weekly_review),
-            body_html=_weekly_llm_review_panel(weekly_review),
+            action_html=_weekly_llm_result_badge(selected),
+            body_html=_weekly_llm_review_panel(selected),
         ),
     )
 

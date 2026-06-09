@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS review_runs (
     changed_file_count INTEGER NOT NULL,
     changed_line_count INTEGER NOT NULL,
     review_score INTEGER NOT NULL DEFAULT 100,
+    estimated_cost_usd REAL,
+    currency TEXT NOT NULL DEFAULT 'USD',
     llm_summary TEXT,
     llm_summary_score INTEGER,
     llm_summary_status TEXT,
@@ -61,6 +63,7 @@ CREATE TABLE IF NOT EXISTS review_runs (
     llm_summary_input_tokens INTEGER,
     llm_summary_output_tokens INTEGER,
     llm_summary_total_tokens INTEGER,
+    llm_summary_estimated_cost_usd REAL,
     llm_summary_error_message TEXT,
     developer_profile TEXT,
     developer_profile_status TEXT,
@@ -70,6 +73,7 @@ CREATE TABLE IF NOT EXISTS review_runs (
     developer_profile_input_tokens INTEGER,
     developer_profile_output_tokens INTEGER,
     developer_profile_total_tokens INTEGER,
+    developer_profile_estimated_cost_usd REAL,
     developer_profile_error_message TEXT,
     developer_profile_lookback_days INTEGER,
     generated_review_report TEXT NOT NULL
@@ -116,6 +120,7 @@ CREATE TABLE IF NOT EXISTS review_llm_rule_metrics (
     input_tokens INTEGER,
     output_tokens INTEGER,
     total_tokens INTEGER,
+    estimated_cost_usd REAL,
     error_message TEXT,
     FOREIGN KEY (review_id) REFERENCES review_runs(review_id) ON DELETE CASCADE
 );
@@ -220,6 +225,7 @@ class ReviewHistoryStore:
         """Create storage tables when they do not already exist."""
         self._connection.executescript(SCHEMA)
         self._ensure_schema_columns()
+        self._ensure_llm_metric_columns()
         self._ensure_weekly_review_columns()
         self._ensure_schema_indexes()
         self._migrate_eta_notes()
@@ -256,6 +262,7 @@ class ReviewHistoryStore:
             "changed_file_count",
             "changed_line_count",
             "review_score",
+            "currency",
             "llm_summary",
             "llm_summary_score",
             "llm_summary_status",
@@ -265,6 +272,7 @@ class ReviewHistoryStore:
             "llm_summary_input_tokens",
             "llm_summary_output_tokens",
             "llm_summary_total_tokens",
+            "llm_summary_estimated_cost_usd",
             "llm_summary_error_message",
             "developer_profile",
             "developer_profile_status",
@@ -274,6 +282,7 @@ class ReviewHistoryStore:
             "developer_profile_input_tokens",
             "developer_profile_output_tokens",
             "developer_profile_total_tokens",
+            "developer_profile_estimated_cost_usd",
             "developer_profile_error_message",
             "developer_profile_lookback_days",
             "generated_review_report",
@@ -298,6 +307,7 @@ class ReviewHistoryStore:
             run.changed_file_count,
             run.changed_line_count,
             review_score,
+            run.currency,
             llm_summary.text if llm_summary is not None else None,
             llm_summary.score if llm_summary is not None else None,
             llm_summary.status if llm_summary is not None else None,
@@ -307,6 +317,7 @@ class ReviewHistoryStore:
             llm_summary.input_tokens if llm_summary is not None else None,
             llm_summary.output_tokens if llm_summary is not None else None,
             llm_summary.total_tokens if llm_summary is not None else None,
+            llm_summary.estimated_cost_usd if llm_summary is not None else None,
             llm_summary.error_message if llm_summary is not None else None,
             developer_profile.text if developer_profile is not None else None,
             developer_profile.status if developer_profile is not None else None,
@@ -316,6 +327,7 @@ class ReviewHistoryStore:
             developer_profile.input_tokens if developer_profile is not None else None,
             developer_profile.output_tokens if developer_profile is not None else None,
             developer_profile.total_tokens if developer_profile is not None else None,
+            developer_profile.estimated_cost_usd if developer_profile is not None else None,
             developer_profile.error_message if developer_profile is not None else None,
             developer_profile.lookback_days if developer_profile is not None else None,
             run.generated_review_report,
@@ -341,6 +353,7 @@ class ReviewHistoryStore:
         self._insert_policy_summaries(review_id, run.policy_summaries)
         self._insert_evaluations(review_id, run.evaluations)
         self._insert_llm_metrics(review_id, run.llm_metrics)
+        self._recompute_review_cost(review_id)
         self._connection.commit()
         return self._record_for_review_id(review_id)
 
@@ -393,6 +406,7 @@ class ReviewHistoryStore:
                 developer_profile_input_tokens = ?,
                 developer_profile_output_tokens = ?,
                 developer_profile_total_tokens = ?,
+                developer_profile_estimated_cost_usd = ?,
                 developer_profile_error_message = ?,
                 developer_profile_lookback_days = ?
             WHERE review_id = ?
@@ -406,11 +420,13 @@ class ReviewHistoryStore:
                 developer_profile.input_tokens,
                 developer_profile.output_tokens,
                 developer_profile.total_tokens,
+                developer_profile.estimated_cost_usd,
                 developer_profile.error_message,
                 developer_profile.lookback_days,
                 review_id,
             ),
         )
+        self._recompute_review_cost(review_id)
         self._connection.commit()
         return self._record_for_review_id(review_id)
 
@@ -500,6 +516,7 @@ class ReviewHistoryStore:
             (review_id,),
         )
         self._insert_llm_metrics(review_id, metrics)
+        self._recompute_review_cost(review_id)
         self._connection.commit()
         return self._record_for_review_id(review_id)
 
@@ -524,6 +541,7 @@ class ReviewHistoryStore:
                 llm_summary_input_tokens = ?,
                 llm_summary_output_tokens = ?,
                 llm_summary_total_tokens = ?,
+                llm_summary_estimated_cost_usd = ?,
                 llm_summary_error_message = ?
             WHERE review_id = ?
             """,
@@ -537,10 +555,12 @@ class ReviewHistoryStore:
                 llm_summary.input_tokens,
                 llm_summary.output_tokens,
                 llm_summary.total_tokens,
+                llm_summary.estimated_cost_usd,
                 llm_summary.error_message,
                 review_id,
             ),
         )
+        self._recompute_review_cost(review_id)
         self._connection.commit()
         return self._record_for_review_id(review_id)
 
@@ -705,11 +725,29 @@ class ReviewHistoryStore:
             return None
         return _weekly_llm_review_from_row(row)
 
-    def weekly_llm_review(
+    def recent_weekly_llm_reviews(
+        self,
+        *,
+        limit: int = 20,
+    ) -> list[WeeklyLlmReviewRecord]:
+        """Return stored weekly LLM reviews, most recent first."""
+        self.initialize_schema()
+        rows = self._connection.execute(
+            """
+            SELECT *
+            FROM weekly_llm_reviews
+            ORDER BY week_start DESC, created_at DESC, weekly_review_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [_weekly_llm_review_from_row(row) for row in rows]
+
+    def find_weekly_llm_review(
         self,
         weekly_review_id: int,
-    ) -> WeeklyLlmReviewRecord:
-        """Return one stored weekly LLM review by ID."""
+    ) -> WeeklyLlmReviewRecord | None:
+        """Return one stored weekly LLM review by ID, or None if it does not exist."""
         self.initialize_schema()
         row = self._connection.execute(
             """
@@ -720,9 +758,19 @@ class ReviewHistoryStore:
             (weekly_review_id,),
         ).fetchone()
         if row is None:
+            return None
+        return _weekly_llm_review_from_row(row)
+
+    def weekly_llm_review(
+        self,
+        weekly_review_id: int,
+    ) -> WeeklyLlmReviewRecord:
+        """Return one stored weekly LLM review by ID (raises if it does not exist)."""
+        record = self.find_weekly_llm_review(weekly_review_id)
+        if record is None:
             msg = f"Stored weekly LLM review {weekly_review_id} could not be read."
             raise RuntimeError(msg)
-        return _weekly_llm_review_from_row(row)
+        return record
 
     def set_review_finality(
         self,
@@ -871,11 +919,28 @@ class ReviewHistoryStore:
             for row in rows
         ]
 
-    def clear_history(self) -> int:
-        """Delete all stored review runs and return the removed run count."""
+    def reset_all(self) -> dict[str, int]:
+        """Delete all stored data and return per-group removed counts.
+
+        Clears review runs and their child tables, weekly LLM reviews, and ETA notes
+        (the append-only history table and the legacy singleton). Counts are captured
+        before deletion. This is the full "reset" used by the admin API.
+        """
         self.initialize_schema()
-        row = self._connection.execute("SELECT COUNT(*) AS run_count FROM review_runs").fetchone()
-        run_count = int(row["run_count"]) if row is not None else 0
+        reviews_row = self._connection.execute(
+            "SELECT COUNT(*) AS c FROM review_runs"
+        ).fetchone()
+        weekly_row = self._connection.execute(
+            "SELECT COUNT(*) AS c FROM weekly_llm_reviews"
+        ).fetchone()
+        eta_row = self._connection.execute(
+            "SELECT COUNT(*) AS c FROM dashboard_eta_notes"
+        ).fetchone()
+        counts = {
+            "reviews": int(reviews_row["c"]) if reviews_row is not None else 0,
+            "weekly_reviews": int(weekly_row["c"]) if weekly_row is not None else 0,
+            "eta_notes": int(eta_row["c"]) if eta_row is not None else 0,
+        }
         self._connection.execute("DELETE FROM triggered_rules")
         self._connection.execute("DELETE FROM review_findings")
         self._connection.execute("DELETE FROM review_policies")
@@ -884,8 +949,18 @@ class ReviewHistoryStore:
         self._connection.execute("DELETE FROM review_evaluations")
         self._connection.execute("DELETE FROM review_runs")
         self._connection.execute("DELETE FROM weekly_llm_reviews")
+        self._connection.execute("DELETE FROM dashboard_eta_notes")
+        self._connection.execute("DELETE FROM dashboard_eta_note")
         self._connection.commit()
-        return run_count
+        return counts
+
+    def clear_history(self) -> int:
+        """Delete all stored data and return the removed review-run count.
+
+        Retained for the CLI; delegates to :meth:`reset_all`, so clearing now also
+        removes weekly reviews and ETA notes (previously left behind).
+        """
+        return self.reset_all()["reviews"]
 
     def close(self) -> None:
         """Close the underlying SQLite connection."""
@@ -985,9 +1060,10 @@ class ReviewHistoryStore:
                 input_tokens,
                 output_tokens,
                 total_tokens,
+                estimated_cost_usd,
                 error_message
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1000,6 +1076,7 @@ class ReviewHistoryStore:
                     metric.input_tokens,
                     metric.output_tokens,
                     metric.total_tokens,
+                    metric.estimated_cost_usd,
                     metric.error_message,
                 )
                 for metric in metrics
@@ -1065,6 +1142,36 @@ class ReviewHistoryStore:
             msg = f"Review {review_id} was not found."
             raise KeyError(msg)
 
+    def _recompute_review_cost(self, review_id: int) -> None:
+        """Refresh the review-level cost rollup from the stored per-call costs.
+
+        Called after any LLM component changes (metrics, summary, profile). The total is the
+        sum of every non-null per-call ``estimated_cost_usd``; ``None`` when nothing in the
+        review has a priced cost.
+        """
+        metric_rows = self._connection.execute(
+            "SELECT estimated_cost_usd FROM review_llm_rule_metrics WHERE review_id = ?",
+            (review_id,),
+        ).fetchall()
+        run_row = self._connection.execute(
+            """
+            SELECT llm_summary_estimated_cost_usd, developer_profile_estimated_cost_usd
+            FROM review_runs
+            WHERE review_id = ?
+            """,
+            (review_id,),
+        ).fetchone()
+        costs = [_optional_float(row["estimated_cost_usd"]) for row in metric_rows]
+        if run_row is not None:
+            costs.append(_optional_float(run_row["llm_summary_estimated_cost_usd"]))
+            costs.append(_optional_float(run_row["developer_profile_estimated_cost_usd"]))
+        priced = [cost for cost in costs if cost is not None]
+        total = round(sum(priced), 6) if priced else None
+        self._connection.execute(
+            "UPDATE review_runs SET estimated_cost_usd = ? WHERE review_id = ?",
+            (total, review_id),
+        )
+
     def _record_for_review_id(self, review_id: int) -> ReviewRunRecord:
         row = self._connection.execute(
             """
@@ -1100,6 +1207,8 @@ class ReviewHistoryStore:
             changed_file_count=int(row["changed_file_count"]),
             changed_line_count=int(row["changed_line_count"]),
             review_score=int(row["review_score"]),
+            estimated_cost_usd=_optional_float(row["estimated_cost_usd"]),
+            currency=_optional_str(row["currency"]) or "USD",
             findings=self._findings(review_id),
             triggered_rule_ids=self._triggered_rule_ids(review_id),
             evaluations=self._evaluations(review_id),
@@ -1223,6 +1332,7 @@ class ReviewHistoryStore:
                 input_tokens=_optional_int(row["input_tokens"]),
                 output_tokens=_optional_int(row["output_tokens"]),
                 total_tokens=_optional_int(row["total_tokens"]),
+                estimated_cost_usd=_optional_float(row["estimated_cost_usd"]),
                 error_message=_optional_str(row["error_message"]),
             )
             for row in rows
@@ -1357,6 +1467,23 @@ class ReviewHistoryStore:
             self._connection.execute(
                 "ALTER TABLE review_runs ADD COLUMN developer_profile_lookback_days INTEGER"
             )
+        if "estimated_cost_usd" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN estimated_cost_usd REAL"
+            )
+        if "currency" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'"
+            )
+        if "llm_summary_estimated_cost_usd" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs ADD COLUMN llm_summary_estimated_cost_usd REAL"
+            )
+        if "developer_profile_estimated_cost_usd" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_runs "
+                "ADD COLUMN developer_profile_estimated_cost_usd REAL"
+            )
 
     def _ensure_schema_indexes(self) -> None:
         self._connection.execute(
@@ -1383,6 +1510,18 @@ class ReviewHistoryStore:
             self._connection.execute(
                 "ALTER TABLE weekly_llm_reviews "
                 "ADD COLUMN phase TEXT NOT NULL DEFAULT 'Beta Phase'"
+            )
+
+    def _ensure_llm_metric_columns(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self._connection.execute(
+                "PRAGMA table_info(review_llm_rule_metrics)"
+            ).fetchall()
+        }
+        if "estimated_cost_usd" not in columns:
+            self._connection.execute(
+                "ALTER TABLE review_llm_rule_metrics ADD COLUMN estimated_cost_usd REAL"
             )
 
     def _migrate_eta_notes(self) -> None:
@@ -1506,6 +1645,7 @@ def _llm_summary_from_row(row: sqlite3.Row) -> LlmReviewSummary | None:
         input_tokens=_optional_int(row["llm_summary_input_tokens"]),
         output_tokens=_optional_int(row["llm_summary_output_tokens"]),
         total_tokens=_optional_int(row["llm_summary_total_tokens"]),
+        estimated_cost_usd=_optional_float(row["llm_summary_estimated_cost_usd"]),
         error_message=_optional_str(row["llm_summary_error_message"]),
     )
 
@@ -1524,6 +1664,7 @@ def _developer_profile_from_row(row: sqlite3.Row) -> LlmDeveloperProfile | None:
         input_tokens=_optional_int(row["developer_profile_input_tokens"]),
         output_tokens=_optional_int(row["developer_profile_output_tokens"]),
         total_tokens=_optional_int(row["developer_profile_total_tokens"]),
+        estimated_cost_usd=_optional_float(row["developer_profile_estimated_cost_usd"]),
         error_message=_optional_str(row["developer_profile_error_message"]),
     )
 

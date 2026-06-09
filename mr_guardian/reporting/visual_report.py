@@ -83,9 +83,8 @@ def render_visual_review_report(
         )
 
     body_class = f"mg-{theme}" + (" mg-embedded" if embedded else "")
-    has_expandable = bool(rule_details) and any(
-        rule_details.get(finding.rule_id) for finding in findings
-    )
+    details = rule_details or {}
+    has_expandable = any(details.get(finding.rule_id) for finding in findings)
 
     return "\n".join(
         [
