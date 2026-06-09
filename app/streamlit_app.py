@@ -66,7 +66,10 @@ from app.streamlit_style import (  # noqa: E402
 )
 from mr_guardian.config import get_settings  # noqa: E402
 from mr_guardian.core.dashboard import DashboardData, load_dashboard_data  # noqa: E402
-from mr_guardian.core.dashboard_eta import load_dashboard_eta_note  # noqa: E402
+from mr_guardian.core.dashboard_eta import (  # noqa: E402
+    load_dashboard_eta_note,
+    recent_dashboard_eta_notes,
+)
 from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_dashboard_summary,
     load_lead_developer_detail,
@@ -103,6 +106,7 @@ DASHBOARD_TAB_LABELS = (
 )
 BEST_PRACTICES_URL = "https://github.com/GiacomoMariani/UnityBestPractices"
 SOURCE_URL = "https://github.com/GiacomoMariani/mr-guardian"
+DEFAULT_PHASE_LABEL = "Beta Phase"
 DEFAULT_THEME_LABEL = "Dark"
 THEME_STATE_KEY = "dashboard_theme"
 DEFAULT_RECENT_REVIEW_LIMIT = 50
@@ -187,6 +191,11 @@ def _cached_weekly_review(database_path: Path, db_mtime: float):
 @st.cache_data(show_spinner=False)
 def _cached_eta_note(database_path: Path, db_mtime: float):
     return load_dashboard_eta_note(database_path)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_recent_eta_notes(database_path: Path, db_mtime: float):
+    return recent_dashboard_eta_notes(database_path)
 
 
 @st.cache_data(show_spinner=False)
@@ -342,12 +351,9 @@ def _render_dashboard_tabs(
     )
 
     if selected_section == "Delivery Health":
-        readiness_percent = _render_pm_dashboard(st, database_path)
-        _render_eta_note(
-            st,
-            database_path,
-            readiness_percent=readiness_percent,
-        )
+        _render_pm_dashboard(st, database_path)
+        _render_eta_note(st, database_path)
+        _render_eta_note_history(st, database_path)
         _render_weekly_llm_review(st, database_path)
     elif selected_section == "Agent Review":
         _render_selected_report(st, database_path, data, theme)
@@ -386,34 +392,39 @@ def _render_html(st, html: str) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
-def _render_eta_note(
-    st,
-    database_path: Path,
-    *,
-    readiness_percent: float,
-) -> None:
-    note = _cached_eta_note(database_path, _db_mtime(database_path))
+def _render_eta_note(st, database_path: Path) -> None:
+    db_mtime = _db_mtime(database_path)
+    note = _cached_eta_note(database_path, db_mtime)
+    weekly_review = _cached_weekly_review(database_path, db_mtime)
+    phase_label = (
+        weekly_review.phase if weekly_review is not None else DEFAULT_PHASE_LABEL
+    )
     _render_html(
         st,
         render_section(
             index=2,
-            title="Beta Phase ETA",
-            action_html=_readiness_badge(readiness_percent),
-            body_html=_eta_note_panel(note),
+            title=f"{phase_label} ETA",
+            action_html=_readiness_badge(weekly_review),
+            body_html=_eta_note_panel(note, phase_label),
         ),
     )
 
 
-def _eta_note_panel(note: DashboardEtaNote | None) -> str:
+def _eta_note_panel(note: DashboardEtaNote | None, phase_label: str) -> str:
+    phase_lower = phase_label.lower()
     disclaimer = (
-        "Based on AI evaluation. Confirm beta phase dates and delivery risk "
+        f"Based on AI evaluation. Confirm {phase_lower} dates and delivery risk "
         "with the team."
     )
     if note is None:
         return "\n".join(
             [
                 '<div class="mg-eta-note empty">',
-                '<div class="mg-eta-message">No beta phase ETA note has been set yet.</div>',
+                (
+                    '<div class="mg-eta-message">'
+                    f"No {_html(phase_lower)} ETA note has been set yet."
+                    "</div>"
+                ),
                 f'<div class="mg-eta-disclaimer">{_html(disclaimer)}</div>',
                 "</div>",
             ]
@@ -434,13 +445,44 @@ def _eta_note_panel(note: DashboardEtaNote | None) -> str:
     )
 
 
-def _readiness_badge(readiness_percent: float) -> str:
+def _readiness_badge(weekly_review: WeeklyLlmReviewRecord | None) -> str:
+    value = f"{weekly_review.score}%" if weekly_review is not None else "—"
     return (
         '<div class="mg-readiness-badge">'
         '<span>Readiness</span>'
-        f"<strong>{readiness_percent:.0f}%</strong>"
+        f"<strong>{value}</strong>"
         "</div>"
     )
+
+
+def _render_eta_note_history(st, database_path: Path) -> None:
+    notes = _cached_recent_eta_notes(database_path, _db_mtime(database_path))
+    # The newest note is already shown above as the current ETA note.
+    previous = notes[1:]
+    if not previous:
+        return
+    with st.expander(f"Previous notes ({len(previous)})", expanded=False):
+        _render_html(st, _eta_note_history_panel(previous))
+
+
+def _eta_note_history_panel(notes: list[DashboardEtaNote]) -> str:
+    items: list[str] = []
+    for note in notes:
+        target = note.target_date.isoformat() if note.target_date is not None else "-"
+        items.append(
+            "\n".join(
+                [
+                    '<div class="mg-eta-note">',
+                    f'<div class="mg-eta-message">{_html(note.message)}</div>',
+                    '<div class="mg-eta-meta">',
+                    f"<span>Target <b>{_html(target)}</b></span>",
+                    f"<span>Updated <b>{_html(_format_datetime(note.updated_at))}</b></span>",
+                    "</div>",
+                    "</div>",
+                ]
+            )
+        )
+    return '<div class="mg-eta-history">' + "\n".join(items) + "</div>"
 
 
 def _render_weekly_llm_review(st, database_path: Path) -> None:
@@ -517,7 +559,7 @@ def _render_recent_reviews(st, database_path: Path) -> None:
     )
 
 
-def _render_pm_dashboard(st, database_path: Path) -> float:
+def _render_pm_dashboard(st, database_path: Path) -> None:
     lookback_days = DEFAULT_PM_LOOKBACK_DAYS
     summary = _cached_pm_summary(
         database_path,
@@ -552,7 +594,6 @@ def _render_pm_dashboard(st, database_path: Path) -> float:
             ),
         ),
     )
-    return summary.pass_rate
 
 
 def _render_lead_dashboard(st, database_path: Path) -> None:

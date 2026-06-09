@@ -10,6 +10,7 @@ Use the weekly review to summarize the current delivery window in plain language
 
 - whether the week is `optimal`, `on_track`, `needs_attention`, `at_risk`, or `blocked`
 - an LLM-calculated score from `1` to `100`
+- the delivery `phase` it assesses (e.g. `Beta Phase`)
 - MR, developer, and ticket counts for the week
 - blocking, high-risk, warning, and info review counts
 - top risks and recommended actions
@@ -44,6 +45,7 @@ x-mr-guardian-admin-token: <token>
   "result": "on_track",
   "score": 84,
   "summary": "The week is on track with one high-risk ticket still visible.",
+  "phase": "Beta Phase",
   "mr_count": 12,
   "developer_count": 4,
   "ticket_count": 7,
@@ -70,4 +72,12 @@ x-mr-guardian-admin-token: <token>
 ```
 
 `week_start` must be a Monday and `week_end` must be a Sunday. If `created_at`
-is omitted, MR Guardian stores the current UTC timestamp.
+is omitted, MR Guardian stores the current UTC timestamp. `phase` is optional and
+defaults to `Beta Phase`.
+
+## Dashboard ETA widget
+
+The latest weekly review also drives the dashboard's phase-ETA widget: its `phase`
+becomes the widget title (e.g. "Beta Phase ETA") and its `score` becomes the
+"Readiness" percentage. When no weekly review has been stored, the widget falls back
+to the "Beta Phase" label and shows `—` for readiness.

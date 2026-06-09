@@ -978,7 +978,7 @@ def test_eta_note_target_date_is_optional() -> None:
     assert found.target_date is None
 
 
-def test_eta_note_overwrites_singleton_row(tmp_path: Path) -> None:
+def test_eta_note_keeps_history(tmp_path: Path) -> None:
     database_path = tmp_path / "history.sqlite"
     store = ReviewHistoryStore(database_path)
 
@@ -988,17 +988,53 @@ def test_eta_note_overwrites_singleton_row(tmp_path: Path) -> None:
     )
     second = store.set_eta_note(message="Second ETA.")
     found = store.get_eta_note()
+    history = store.recent_eta_notes()
     store.close()
 
+    # get_eta_note returns the latest note; prior notes are retained as history.
     assert first.updated_at <= second.updated_at
     assert found == second
     assert second.message == "Second ETA."
     assert second.target_date is None
+    assert [note.message for note in history] == ["Second ETA.", "First ETA."]
 
     with sqlite3.connect(database_path) as connection:
-        row = connection.execute("SELECT COUNT(*) FROM dashboard_eta_note").fetchone()
+        row = connection.execute(
+            "SELECT COUNT(*) FROM dashboard_eta_notes"
+        ).fetchone()
     assert row is not None
-    assert row[0] == 1
+    assert row[0] == 2
+
+
+def test_eta_note_migrates_legacy_singleton(tmp_path: Path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    # Seed a legacy singleton row, as older deployments stored it.
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dashboard_eta_note (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                message TEXT NOT NULL,
+                target_date TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO dashboard_eta_note (id, message, target_date, updated_at) "
+            "VALUES (1, 'Legacy ETA.', '2026-06-05', '2026-06-03T10:30:00+00:00')"
+        )
+        connection.commit()
+
+    store = ReviewHistoryStore(database_path)
+    note = store.get_eta_note()
+    history = store.recent_eta_notes()
+    store.close()
+
+    assert note is not None
+    assert note.message == "Legacy ETA."
+    assert note.target_date == date(2026, 6, 5)
+    assert len(history) == 1
 
 
 def test_eta_note_rejects_empty_message() -> None:

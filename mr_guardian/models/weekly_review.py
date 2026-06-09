@@ -25,6 +25,7 @@ class WeeklyLlmReviewCreate(BaseModel):
     result: WeeklyLlmReviewResult
     score: int = Field(ge=1, le=100)
     summary: str
+    phase: str = "Beta Phase"
     mr_count: int = Field(ge=0)
     developer_count: int = Field(ge=0)
     ticket_count: int = Field(ge=0)
@@ -44,7 +45,7 @@ class WeeklyLlmReviewCreate(BaseModel):
     estimated_cost_usd: float | None = Field(default=None, ge=0)
     currency: str = "USD"
 
-    @field_validator("summary", "provider", "model")
+    @field_validator("summary", "provider", "model", "phase")
     @classmethod
     def validate_non_empty_text(cls, value: str) -> str:
         """Trim and reject empty text fields."""
@@ -112,6 +113,7 @@ class WeeklyLlmReviewRecord(BaseModel):
     result: WeeklyLlmReviewResult
     score: int = Field(ge=1, le=100)
     summary: str
+    phase: str = "Beta Phase"
     mr_count: int = Field(ge=0)
     developer_count: int = Field(ge=0)
     ticket_count: int = Field(ge=0)
@@ -144,6 +146,10 @@ def weekly_llm_review_payload_schema() -> dict[str, Any]:
         "week_start": "Must be a Monday.",
         "week_end": "Must be the following Sunday.",
         "score": "LLM-calculated weekly assessment from 1 to 100.",
+        "phase": (
+            "Delivery phase this review assesses (e.g. 'Beta Phase'). Drives the "
+            "dashboard ETA widget title; defaults to 'Beta Phase' when omitted."
+        ),
         "estimated_cost_usd": (
             "Estimated provider cost for generating this weekly review; token "
             "counts remain the primary usage metric."

@@ -422,8 +422,9 @@ def test_dashboard_main_page_uses_radio_section_nav() -> None:
     assert "st.sidebar" not in source
     assert 'selected_section == "Delivery Health"' in source
     assert 'selected_section == "Agent Review"' in source
-    assert "readiness_percent = _render_pm_dashboard(st, database_path)" in source
-    assert "readiness_percent=readiness_percent" in source
+    assert "_render_pm_dashboard(st, database_path)" in source
+    assert "_render_eta_note(st, database_path)" in source
+    assert "_render_eta_note_history(st, database_path)" in source
     assert "_render_weekly_llm_review(st, database_path)" in source
     assert "Project Health" not in streamlit_app._dashboard_tab_labels()
     assert "_render_project_health" not in source
@@ -449,7 +450,9 @@ def test_delivery_health_first_tab_is_summary_only() -> None:
     assert "_pm_tickets_table" not in source
     assert "_pm_blockers_table" not in source
     assert "Recurring Blockers" not in source
-    assert "return summary.pass_rate" in source
+    # pass_rate is still computed for the Pass Rate card, just no longer returned
+    # (readiness now comes from the weekly review score).
+    assert "summary.pass_rate" in source
 
 
 def test_beta_phase_eta_uses_readiness_eyebrow() -> None:
@@ -457,20 +460,47 @@ def test_beta_phase_eta_uses_readiness_eyebrow() -> None:
 
     source = getsource(streamlit_app._render_eta_note)
 
-    assert "action_html=_readiness_badge(readiness_percent)" in source
+    assert "action_html=_readiness_badge(weekly_review)" in source
+    assert 'title=f"{phase_label} ETA"' in source
+
+
+def _weekly_review_record(*, score: int = 84) -> WeeklyLlmReviewRecord:
+    return WeeklyLlmReviewRecord(
+        weekly_review_id=1,
+        week_start=date(2026, 6, 1),
+        week_end=date(2026, 6, 7),
+        created_at=datetime(2026, 6, 7, 18, tzinfo=timezone.utc),
+        result="on_track",
+        score=score,
+        summary="Weekly summary.",
+        phase="Beta Phase",
+        mr_count=12,
+        developer_count=4,
+        ticket_count=7,
+        approved_ticket_count=5,
+        observed_ticket_count=2,
+        blocking_review_count=0,
+        high_risk_review_count=1,
+        warning_review_count=3,
+        info_review_count=8,
+        provider="openai",
+        model="gpt-4.1-mini",
+    )
 
 
 def test_readiness_badge_is_prominent() -> None:
     import app.streamlit_app as streamlit_app
     from app.streamlit_style import dashboard_css
 
-    html = streamlit_app._readiness_badge(75.0)
+    html = streamlit_app._readiness_badge(_weekly_review_record(score=75))
     css = dashboard_css("dark")
 
     assert "mg-readiness-badge" in html
     assert "<strong>75%</strong>" in html
     assert ".mg-readiness-badge" in css
     assert "font-size: 22px;" in css
+    # No weekly review yet -> readiness is unknown, not a misleading 0%.
+    assert "<strong>—</strong>" in streamlit_app._readiness_badge(None)
 
 
 def test_dashboard_exposes_source_and_best_practices_links() -> None:
@@ -507,7 +537,7 @@ def test_dashboard_exposes_source_and_best_practices_links() -> None:
 def test_eta_note_panel_renders_empty_state_with_disclaimer() -> None:
     import app.streamlit_app as streamlit_app
 
-    html = streamlit_app._eta_note_panel(None)
+    html = streamlit_app._eta_note_panel(None, "Beta Phase")
 
     assert "No beta phase ETA note has been set yet." in html
     assert "Confirm beta phase dates" in html
@@ -521,13 +551,40 @@ def test_eta_note_panel_renders_note_with_target_and_updated_timestamp() -> None
             message="Milestone looks merge-ready by Friday.",
             target_date=date(2026, 6, 5),
             updated_at=datetime(2026, 6, 3, 10, 30, tzinfo=timezone.utc),
-        )
+        ),
+        "Beta Phase",
     )
 
     assert "Milestone looks merge-ready by Friday." in html
     assert "2026-06-05" in html
     assert "2026-06-03 10:30" in html  # human-formatted, not raw ISO
     assert "Confirm beta phase dates" in html
+
+
+def test_eta_note_panel_uses_custom_phase_label() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._eta_note_panel(None, "Release Candidate")
+
+    assert "No release candidate ETA note has been set yet." in html
+    assert "Confirm release candidate dates" in html
+
+
+def test_eta_note_history_panel_lists_previous_notes() -> None:
+    import app.streamlit_app as streamlit_app
+
+    html = streamlit_app._eta_note_history_panel(
+        [
+            DashboardEtaNote(
+                message="Older ETA note.",
+                target_date=date(2026, 6, 1),
+                updated_at=datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc),
+            )
+        ]
+    )
+
+    assert "Older ETA note." in html
+    assert "2026-06-01" in html
 
 
 def test_metric_formatters_humanize_values() -> None:

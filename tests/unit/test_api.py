@@ -162,6 +162,7 @@ def test_api_returns_weekly_llm_review_schema() -> None:
     assert body["title"] == "WeeklyLlmReviewCreate"
     assert "week_start" in body["properties"]
     assert "score" in body["properties"]
+    assert "phase" in body["properties"]
     assert body["x-storage-notes"]["week_start"] == "Must be a Monday."
 
 
@@ -1158,6 +1159,78 @@ def test_api_feed_llm_summary_rejects_non_object(monkeypatch, tmp_path) -> None:
     assert non_object.json() == {"detail": "Expected JSON object payload."}
     assert bad_struct.status_code == 400
     assert "Invalid LLM summary structure" in bad_struct.json()["detail"]
+
+
+def test_api_weekly_review_accepts_and_stores_phase(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    payload = weekly_review_payload()
+    payload["phase"] = "Release Candidate"
+    response = client().post("/weekly-llm-reviews/manual", json=payload)
+
+    assert response.status_code == 201
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.latest_weekly_llm_review()
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.phase == "Release Candidate"
+
+
+def test_api_weekly_review_phase_defaults_to_beta_phase(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    # weekly_review_payload() omits phase -> the model default applies.
+    client().post("/weekly-llm-reviews/manual", json=weekly_review_payload())
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.latest_weekly_llm_review()
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.phase == "Beta Phase"
+
+
+def test_api_eta_note_history_returns_recent_notes(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    client().post("/dashboard/eta-note", json={"message": "First ETA."})
+    client().post("/dashboard/eta-note", json={"message": "Second ETA."})
+
+    response = client().get("/dashboard/eta-note/history")
+
+    assert response.status_code == 200
+    messages = [note["message"] for note in response.json()]
+    assert messages == ["Second ETA.", "First ETA."]
+
+
+def test_api_eta_note_post_appends_to_history(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    client().post("/dashboard/eta-note", json={"message": "First ETA."})
+    client().post("/dashboard/eta-note", json={"message": "Second ETA."})
+
+    # GET returns the latest; both are retained.
+    assert client().get("/dashboard/eta-note").json()["message"] == "Second ETA."
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        history = store.recent_eta_notes()
+    finally:
+        store.close()
+    assert [note.message for note in history] == ["Second ETA.", "First ETA."]
 
 
 def client() -> TestClient:

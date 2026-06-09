@@ -16,6 +16,13 @@ CREATE TABLE IF NOT EXISTS dashboard_eta_note (
     target_date TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS dashboard_eta_notes (
+    eta_note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    target_date TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -44,24 +51,41 @@ def dashboard_eta_note_payload_schema() -> dict[str, Any]:
 
 
 def load_dashboard_eta_note(database_path: str | Path) -> DashboardEtaNote | None:
-    """Read the current dashboard ETA note from storage."""
+    """Read the most recent dashboard ETA note from storage."""
     with _connect(database_path) as connection:
         _initialize_eta_schema(connection)
         row = connection.execute(
             """
-            SELECT message, target_date, updated_at
-            FROM dashboard_eta_note
-            WHERE id = 1
+            SELECT message, target_date, created_at
+            FROM dashboard_eta_notes
+            ORDER BY eta_note_id DESC
+            LIMIT 1
             """
         ).fetchone()
 
     if row is None:
         return None
-    return DashboardEtaNote(
-        message=str(row["message"]),
-        target_date=_optional_date(row["target_date"]),
-        updated_at=datetime.fromisoformat(str(row["updated_at"])),
-    )
+    return _eta_note_from_row(row)
+
+
+def recent_dashboard_eta_notes(
+    database_path: str | Path,
+    *,
+    limit: int = 20,
+) -> list[DashboardEtaNote]:
+    """Read stored dashboard ETA notes, most recent first."""
+    with _connect(database_path) as connection:
+        _initialize_eta_schema(connection)
+        rows = connection.execute(
+            """
+            SELECT message, target_date, created_at
+            FROM dashboard_eta_notes
+            ORDER BY eta_note_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [_eta_note_from_row(row) for row in rows]
 
 
 def set_dashboard_eta_note(
@@ -69,30 +93,19 @@ def set_dashboard_eta_note(
     *,
     database_path: str | Path,
 ) -> DashboardEtaNote:
-    """Store the dashboard ETA note, replacing any previous value."""
-    updated_at = datetime.now(timezone.utc)
+    """Append a new dashboard ETA note (prior notes are retained as history)."""
+    created_at = datetime.now(timezone.utc)
     with _connect(database_path) as connection:
         _initialize_eta_schema(connection)
         connection.execute(
             """
-            INSERT INTO dashboard_eta_note (
-                id,
-                message,
-                target_date,
-                updated_at
-            )
-            VALUES (1, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                message = excluded.message,
-                target_date = excluded.target_date,
-                updated_at = excluded.updated_at
+            INSERT INTO dashboard_eta_notes (message, target_date, created_at)
+            VALUES (?, ?, ?)
             """,
             (
                 payload.message,
-                payload.target_date.isoformat()
-                if payload.target_date is not None
-                else None,
-                updated_at.isoformat(),
+                payload.target_date.isoformat() if payload.target_date is not None else None,
+                created_at.isoformat(),
             ),
         )
         connection.commit()
@@ -100,7 +113,7 @@ def set_dashboard_eta_note(
     return DashboardEtaNote(
         message=payload.message,
         target_date=payload.target_date,
-        updated_at=updated_at,
+        updated_at=created_at,
     )
 
 
@@ -113,7 +126,25 @@ def _connect(database_path: str | Path) -> sqlite3.Connection:
 def _initialize_eta_schema(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(ETA_SCHEMA)
+    # Port the legacy singleton note into the append-only history table once.
+    connection.execute(
+        """
+        INSERT INTO dashboard_eta_notes (message, target_date, created_at)
+        SELECT message, target_date, updated_at
+        FROM dashboard_eta_note
+        WHERE id = 1
+          AND NOT EXISTS (SELECT 1 FROM dashboard_eta_notes)
+        """
+    )
     connection.commit()
+
+
+def _eta_note_from_row(row: sqlite3.Row) -> DashboardEtaNote:
+    return DashboardEtaNote(
+        message=str(row["message"]),
+        target_date=_optional_date(row["target_date"]),
+        updated_at=datetime.fromisoformat(str(row["created_at"])),
+    )
 
 
 def _optional_date(value: object) -> date | None:

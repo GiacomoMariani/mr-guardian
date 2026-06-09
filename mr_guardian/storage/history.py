@@ -168,6 +168,13 @@ CREATE TABLE IF NOT EXISTS dashboard_eta_note (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dashboard_eta_notes (
+    eta_note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    target_date TEXT,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS weekly_llm_reviews (
     weekly_review_id INTEGER PRIMARY KEY AUTOINCREMENT,
     week_start TEXT NOT NULL,
@@ -176,6 +183,7 @@ CREATE TABLE IF NOT EXISTS weekly_llm_reviews (
     result TEXT NOT NULL,
     score INTEGER NOT NULL,
     summary TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'Beta Phase',
     mr_count INTEGER NOT NULL,
     developer_count INTEGER NOT NULL,
     ticket_count INTEGER NOT NULL,
@@ -212,7 +220,9 @@ class ReviewHistoryStore:
         """Create storage tables when they do not already exist."""
         self._connection.executescript(SCHEMA)
         self._ensure_schema_columns()
+        self._ensure_weekly_review_columns()
         self._ensure_schema_indexes()
+        self._migrate_eta_notes()
         self._connection.commit()
 
     def store_review_run(self, run: ReviewRunCreate) -> ReviewRunRecord:
@@ -548,22 +558,33 @@ class ReviewHistoryStore:
         return cursor.rowcount > 0
 
     def get_eta_note(self) -> DashboardEtaNote | None:
-        """Return the singleton dashboard ETA note, if one has been stored."""
+        """Return the most recent dashboard ETA note, if one has been stored."""
         self.initialize_schema()
         row = self._connection.execute(
             """
-            SELECT message, target_date, updated_at
-            FROM dashboard_eta_note
-            WHERE id = 1
+            SELECT message, target_date, created_at
+            FROM dashboard_eta_notes
+            ORDER BY eta_note_id DESC
+            LIMIT 1
             """
         ).fetchone()
         if row is None:
             return None
-        return DashboardEtaNote(
-            message=str(row["message"]),
-            target_date=_optional_date(row["target_date"]),
-            updated_at=datetime.fromisoformat(str(row["updated_at"])),
-        )
+        return _eta_note_from_row(row)
+
+    def recent_eta_notes(self, *, limit: int = 20) -> list[DashboardEtaNote]:
+        """Return stored dashboard ETA notes, most recent first."""
+        self.initialize_schema()
+        rows = self._connection.execute(
+            """
+            SELECT message, target_date, created_at
+            FROM dashboard_eta_notes
+            ORDER BY eta_note_id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [_eta_note_from_row(row) for row in rows]
 
     def set_eta_note(
         self,
@@ -571,39 +592,30 @@ class ReviewHistoryStore:
         message: str,
         target_date: date | None = None,
     ) -> DashboardEtaNote:
-        """Overwrite the singleton dashboard ETA note."""
+        """Append a new dashboard ETA note (prior notes are retained as history)."""
         self.initialize_schema()
         clean_message = message.strip()
         if not clean_message:
             msg = "ETA note message must not be empty."
             raise ValueError(msg)
 
-        updated_at = datetime.now(timezone.utc)
+        created_at = datetime.now(timezone.utc)
         self._connection.execute(
             """
-            INSERT INTO dashboard_eta_note (
-                id,
-                message,
-                target_date,
-                updated_at
-            )
-            VALUES (1, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                message = excluded.message,
-                target_date = excluded.target_date,
-                updated_at = excluded.updated_at
+            INSERT INTO dashboard_eta_notes (message, target_date, created_at)
+            VALUES (?, ?, ?)
             """,
             (
                 clean_message,
                 target_date.isoformat() if target_date is not None else None,
-                updated_at.isoformat(),
+                created_at.isoformat(),
             ),
         )
         self._connection.commit()
         return DashboardEtaNote(
             message=clean_message,
             target_date=target_date,
-            updated_at=updated_at,
+            updated_at=created_at,
         )
 
     def store_weekly_llm_review(
@@ -622,6 +634,7 @@ class ReviewHistoryStore:
                 result,
                 score,
                 summary,
+                phase,
                 mr_count,
                 developer_count,
                 ticket_count,
@@ -641,7 +654,7 @@ class ReviewHistoryStore:
                 estimated_cost_usd,
                 currency
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 review.week_start.isoformat(),
@@ -650,6 +663,7 @@ class ReviewHistoryStore:
                 review.result,
                 review.score,
                 review.summary,
+                review.phase,
                 review.mr_count,
                 review.developer_count,
                 review.ticket_count,
@@ -1358,6 +1372,31 @@ class ReviewHistoryStore:
             """
         )
 
+    def _ensure_weekly_review_columns(self) -> None:
+        columns = {
+            str(row["name"])
+            for row in self._connection.execute(
+                "PRAGMA table_info(weekly_llm_reviews)"
+            ).fetchall()
+        }
+        if "phase" not in columns:
+            self._connection.execute(
+                "ALTER TABLE weekly_llm_reviews "
+                "ADD COLUMN phase TEXT NOT NULL DEFAULT 'Beta Phase'"
+            )
+
+    def _migrate_eta_notes(self) -> None:
+        # Port the legacy singleton ETA note into the append-only history table once.
+        self._connection.execute(
+            """
+            INSERT INTO dashboard_eta_notes (message, target_date, created_at)
+            SELECT message, target_date, updated_at
+            FROM dashboard_eta_note
+            WHERE id = 1
+              AND NOT EXISTS (SELECT 1 FROM dashboard_eta_notes)
+            """
+        )
+
     def _review_run_columns(self) -> set[str]:
         return {
             str(row["name"])
@@ -1393,6 +1432,14 @@ def _optional_date(value: object) -> date | None:
     raise TypeError(msg)
 
 
+def _eta_note_from_row(row: sqlite3.Row) -> DashboardEtaNote:
+    return DashboardEtaNote(
+        message=str(row["message"]),
+        target_date=_optional_date(row["target_date"]),
+        updated_at=datetime.fromisoformat(str(row["created_at"])),
+    )
+
+
 def _json_text(values: Sequence[str]) -> str:
     return json.dumps(list(values), separators=(",", ":"))
 
@@ -1416,6 +1463,7 @@ def _weekly_llm_review_from_row(row: sqlite3.Row) -> WeeklyLlmReviewRecord:
         result=cast(WeeklyLlmReviewResult, row["result"]),
         score=int(row["score"]),
         summary=str(row["summary"]),
+        phase=str(row["phase"]),
         mr_count=int(row["mr_count"]),
         developer_count=int(row["developer_count"]),
         ticket_count=int(row["ticket_count"]),

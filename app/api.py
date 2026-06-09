@@ -13,6 +13,7 @@ from mr_guardian.core.dashboard_eta import (
     DashboardEtaNotePayload,
     dashboard_eta_note_payload_schema,
     load_dashboard_eta_note,
+    recent_dashboard_eta_notes,
     set_dashboard_eta_note,
 )
 from mr_guardian.core.gitlab_reviews import review_gitlab_merge_request
@@ -113,6 +114,15 @@ async def eta_note_schema() -> dict[str, Any]:
 async def get_eta_note() -> Any:
     """Return the current dashboard ETA note."""
     return load_dashboard_eta_note(database_path=get_settings().history_db_path)
+
+
+@app.get("/dashboard/eta-note/history")
+async def get_eta_note_history(limit: int = 20) -> Any:
+    """Return recent dashboard ETA notes, most recent first."""
+    return recent_dashboard_eta_notes(
+        database_path=get_settings().history_db_path,
+        limit=limit,
+    )
 
 
 @app.post("/dashboard/eta-note")
