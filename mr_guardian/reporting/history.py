@@ -53,10 +53,7 @@ def render_review_history(
 
     if most_triggered_rules:
         lines.extend(["", "Most Triggered Rules", ""])
-        rule_rows = [
-            [stat.rule_id, str(stat.trigger_count)]
-            for stat in most_triggered_rules
-        ]
+        rule_rows = [[stat.rule_id, str(stat.trigger_count)] for stat in most_triggered_rules]
         lines.extend(_render_table(["Rule ID", "Count"], rule_rows))
 
     return "\n".join(lines)
@@ -69,8 +66,7 @@ def render_clear_history_result(removed_run_count: int) -> str:
 
 def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     widths = [
-        max(len(header), *(len(row[index]) for row in rows))
-        for index, header in enumerate(headers)
+        max(len(header), *(len(row[index]) for row in rows)) for index, header in enumerate(headers)
     ]
     separator = "  ".join("-" * width for width in widths)
     rendered_rows = [
@@ -78,7 +74,6 @@ def _render_table(headers: list[str], rows: list[list[str]]) -> list[str]:
         separator,
     ]
     rendered_rows.extend(
-        "  ".join(value.ljust(widths[index]) for index, value in enumerate(row))
-        for row in rows
+        "  ".join(value.ljust(widths[index]) for index, value in enumerate(row)) for row in rows
     )
     return rendered_rows

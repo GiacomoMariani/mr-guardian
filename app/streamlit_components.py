@@ -43,8 +43,7 @@ def render_page_header(
 ) -> str:
     """Render the standalone-style dashboard header."""
     meta_html = "".join(
-        f"<span>{_html(label)} <b>{_html(value)}</b></span>"
-        for label, value in meta_items
+        f"<span>{_html(label)} <b>{_html(value)}</b></span>" for label, value in meta_items
     )
     links_html = (
         '<div class="mg-hero-links">'
@@ -93,16 +92,12 @@ def render_section(
     the title in the head.
     """
     eyebrow_html = (
-        f'<span class="mg-panel-eyebrow">{_html(eyebrow)}</span>'
-        if eyebrow is not None
-        else ""
+        f'<span class="mg-panel-eyebrow">{_html(eyebrow)}</span>' if eyebrow is not None else ""
     )
     action = action_html or ""
     section_id = f' id="{_html(anchor_id)}"' if anchor_id else ""
     subtitle_html = (
-        f'<span class="mg-panel-subtitle">{_html(subtitle)}</span>'
-        if subtitle is not None
-        else ""
+        f'<span class="mg-panel-subtitle">{_html(subtitle)}</span>' if subtitle is not None else ""
     )
     return "\n".join(
         [
@@ -142,14 +137,11 @@ def render_table(
 
     first_row = rows[0]
     header_html = "".join(
-        _render_header_cell(
-            header, first_row[index] if index < len(first_row) else None
-        )
+        _render_header_cell(header, first_row[index] if index < len(first_row) else None)
         for index, header in enumerate(headers)
     )
     row_html = "\n".join(
-        _render_row(row, is_active=index == active_row_index)
-        for index, row in enumerate(rows)
+        _render_row(row, is_active=index == active_row_index) for index, row in enumerate(rows)
     )
     return (
         '<div class="mg-table-wrap">'
@@ -287,22 +279,12 @@ def cell_text(value: object, *, align: Alignment = "left", mono: bool = False) -
 
 def cell_link(label: str, href: str) -> TableCell:
     """Create an escaped link cell."""
-    return TableCell(
-        html=(
-            f'<a class="mg-table-link" href="{_html(href)}">'
-            f"{_html(label)}</a>"
-        )
-    )
+    return TableCell(html=(f'<a class="mg-table-link" href="{_html(href)}">{_html(label)}</a>'))
 
 
 def cell_pill(label: str, tone: Tone) -> TableCell:
     """Create a severity/status pill cell."""
-    return TableCell(
-        html=(
-            f'<span class="mg-status-pill {tone}">'
-            f"{_html(label)}</span>"
-        )
-    )
+    return TableCell(html=(f'<span class="mg-status-pill {tone}">{_html(label)}</span>'))
 
 
 def cell_chips(

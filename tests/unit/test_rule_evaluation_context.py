@@ -52,9 +52,7 @@ def test_run_review_forwards_repo_root_to_context(tmp_path: Path) -> None:
         def rule_id(self) -> str:
             return "PROBE-001"
 
-        def evaluate(
-            self, context: RuleEvaluationContext, rule: PolicyRule
-        ) -> list[Finding]:
+        def evaluate(self, context: RuleEvaluationContext, rule: PolicyRule) -> list[Finding]:
             seen["repo_root"] = context.repo_root
             seen["rule_id"] = rule.id
             return []

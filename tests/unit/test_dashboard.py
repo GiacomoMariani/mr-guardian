@@ -66,9 +66,7 @@ def test_dashboard_data_preparation_works_with_seeded_history() -> None:
     )
 
     assert [run.review_id for run in data.recent_reviews] == [2, 1]
-    assert {risk_count.risk: risk_count.count for risk_count in data.risk_counts}[
-        "blocking"
-    ] == 1
+    assert {risk_count.risk: risk_count.count for risk_count in data.risk_counts}["blocking"] == 1
     assert data.ai_code_risk_frequency == 1
     assert [point.date for point in data.trend_points] == ["2026-05-24", "2026-05-25"]
     assert data.developer_activity[0].developer_id == "Test User"
@@ -221,9 +219,7 @@ def test_agent_review_tab_is_second_and_opens_by_default() -> None:
 def test_review_pager_shows_all_ids_with_disabled_arrows_when_they_fit() -> None:
     import app.streamlit_app as streamlit_app
 
-    slots = streamlit_app._review_pager_slots(
-        [3, 4, 5, 6, 7], window_start=0, page_size=10
-    )
+    slots = streamlit_app._review_pager_slots([3, 4, 5, 6, 7], window_start=0, page_size=10)
     assert slots[0] == ("prev", True)  # present but disabled — nothing to page
     assert slots[-1] == ("next", True)
     assert [value for kind, value in slots if kind == "id"] == [3, 4, 5, 6, 7]
@@ -253,9 +249,7 @@ def test_review_pager_at_start_disables_prev() -> None:
 def test_review_pager_in_the_middle_enables_both_arrows() -> None:
     import app.streamlit_app as streamlit_app
 
-    slots = streamlit_app._review_pager_slots(
-        list(range(1, 31)), window_start=10, page_size=10
-    )
+    slots = streamlit_app._review_pager_slots(list(range(1, 31)), window_start=10, page_size=10)
     assert slots[0] == ("prev", False)
     assert slots[-1] == ("next", False)
     assert [value for kind, value in slots if kind == "id"] == list(range(11, 21))
@@ -326,9 +320,7 @@ def test_review_report_height_scales_and_clamps() -> None:
     # a skipped/rate-limited LLM metric adds the "Code analysis was not completed" callout
     skipped_metric = SimpleNamespace(status="rate_limited")
     assert (
-        streamlit_app._review_report_height(
-            run(findings=[1], llm_metrics=[skipped_metric])
-        )
+        streamlit_app._review_report_height(run(findings=[1], llm_metrics=[skipped_metric]))
         == 680 + 56 + 170
     )
 
@@ -339,9 +331,7 @@ def test_trends_use_custom_chart_and_dynamic_report_height() -> None:
     assert "st.line_chart(" not in source
     assert "st.altair_chart(" not in source
     assert "import altair" not in source
-    assert "stVegaLiteChart" not in Path("app/streamlit_style.py").read_text(
-        encoding="utf-8"
-    )
+    assert "stVegaLiteChart" not in Path("app/streamlit_style.py").read_text(encoding="utf-8")
     assert "_render_trend_chart" in source
     assert "render_trend_chart(" in source
     assert "height=_review_report_height(selected_run)" in source
@@ -597,9 +587,7 @@ def test_metric_formatters_humanize_values() -> None:
     assert streamlit_app._score(None) == "-"
     # datetimes render human-readable, not as a raw ISO string
     assert (
-        streamlit_app._format_datetime(
-            datetime(2026, 6, 2, 10, 53, 25, tzinfo=timezone.utc)
-        )
+        streamlit_app._format_datetime(datetime(2026, 6, 2, 10, 53, 25, tzinfo=timezone.utc))
         == "2026-06-02 10:53"
     )
     # trend enum maps to a friendly label + tone (never raw "insufficient_data")
@@ -608,34 +596,6 @@ def test_metric_formatters_humanize_values() -> None:
     # not-enough-data trend reads as Stable (same as an actually-stable trend)
     assert streamlit_app._trend_label_tone("insufficient_data") == ("Stable", "info")
     assert streamlit_app._trend_label_tone("stable") == ("Stable", "info")
-
-
-def test_developer_profile_panel_shows_no_info_when_missing() -> None:
-    import app.streamlit_app as streamlit_app
-
-    # no profile (or a failed generation) -> a "No info found." note, not a blank slot
-    assert "No info found." in streamlit_app._developer_profile_panel(None)
-
-
-def test_score_card_colours_against_target() -> None:
-    import app.streamlit_app as streamlit_app
-
-    below = streamlit_app._score_card("Average Score", 75, 80)
-    meets = streamlit_app._score_card("Coding Score", 100, 80)
-    assert below.tone == "warning"
-    assert below.detail is not None and "Target 80" in below.detail
-    assert meets.tone == "pass"
-    assert streamlit_app._score_card("Missing", None, 80).value == "-"
-
-
-def test_mean_score_is_a_real_average_of_dimensions() -> None:
-    import app.streamlit_app as streamlit_app
-
-    # the "Average Score" card now means the mean of the dimension scores
-    assert streamlit_app._mean_score(97.5, 90) == 93.75
-    assert streamlit_app._mean_score(100, 75) == 87.5
-    assert streamlit_app._mean_score(90, None) == 90  # only one dimension present
-    assert streamlit_app._mean_score(None, None) is None
 
 
 def test_rule_chips_link_to_source_with_tooltip() -> None:
@@ -716,7 +676,78 @@ def test_weekly_llm_review_panel_renders_stored_summary() -> None:
     assert "gpt-4.1-mini" in html
     assert "input 1200" in html
     assert "0.0031 USD" in html
+    assert "LLM Tokens" in html
+    assert "1,440" in html
+    assert "est. 0.0031 USD" in html
     assert "On Track" in badge_html
+
+
+def test_developer_llm_review_panel_renders_stored_review() -> None:
+    import app.streamlit_app as streamlit_app
+    from mr_guardian.models.developer_review import DeveloperLlmReviewRecord
+
+    record = DeveloperLlmReviewRecord(
+        developer_review_id=1,
+        developer_id="Jack",
+        period_start=date(2026, 6, 1),
+        period_end=date(2026, 6, 14),
+        created_at=datetime(2026, 6, 14, 18, tzinfo=timezone.utc),
+        result="on_track",
+        score=94,
+        summary="Strong fortnight; warnings cleared.",
+        review_request_count=5,
+        ticket_count=4,
+        approved_ticket_count=3,
+        observed_ticket_count=1,
+        blocking_review_count=0,
+        high_risk_review_count=0,
+        warning_review_count=2,
+        info_review_count=3,
+        top_risks=["Recurring pattern: hardcoded gameplay constants."],
+        recommended_actions=["Maintain current review hygiene."],
+        provider="openai",
+        model="gpt-4.1-mini",
+        input_tokens=1500,
+        output_tokens=300,
+        total_tokens=1800,
+        estimated_cost_usd=0.0011,
+    )
+
+    html = streamlit_app._developer_llm_review_panel(record)
+    badge = streamlit_app._developer_llm_review_badge(record)
+
+    assert "Developer assessment" in html
+    assert "94/100" in html
+    assert "2026-06-01" in html
+    assert "2026-06-14" in html
+    assert "Strong fortnight; warnings cleared." in html
+    assert "LLM Tokens" in html
+    assert "1,800" in html
+    assert "est. 0.0011 USD" in html
+    assert "Estimated cost" in html  # cost is in the provenance footer too, not just the card
+    assert "input 1500" in html  # footer token usage, mirroring the weekly panel
+    assert "Recurring pattern: hardcoded gameplay constants." in html
+    assert "On Track" in badge
+
+
+def test_developer_llm_review_panel_empty_state() -> None:
+    import app.streamlit_app as streamlit_app
+
+    assert "No developer LLM review has been stored yet." in (
+        streamlit_app._developer_llm_review_panel(None)
+    )
+
+
+def test_llm_score_tone_bands() -> None:
+    import app.streamlit_app as streamlit_app
+
+    # Score colour is by band, independent of the result label: >90 green, 75-90 amber, <75 red.
+    assert streamlit_app._llm_score_tone(98) == "pass"
+    assert streamlit_app._llm_score_tone(91) == "pass"
+    assert streamlit_app._llm_score_tone(90) == "warning"
+    assert streamlit_app._llm_score_tone(88) == "warning"
+    assert streamlit_app._llm_score_tone(75) == "warning"
+    assert streamlit_app._llm_score_tone(74) == "blocking"
 
 
 def test_weekly_llm_review_supports_week_selection() -> None:
@@ -816,49 +847,6 @@ def test_developer_detail_tables_render_real_ticket_and_rule_data() -> None:
     assert "mg-chip" in reviews_html
 
 
-def test_developer_profile_panel_renders_latest_profile_snapshot() -> None:
-    import app.streamlit_app as streamlit_app
-
-    store = ReviewHistoryStore(":memory:")
-    old_record = store.store_review_run(
-        make_review_run(
-            developer_id="Jane",
-            timestamp=datetime(2026, 5, 28, tzinfo=timezone.utc),
-        )
-    )
-    latest_record = store.store_review_run(
-        make_review_run(
-            developer_id="Jane",
-            timestamp=datetime(2026, 5, 29, tzinfo=timezone.utc),
-            developer_profile=LlmDeveloperProfile(
-                status="succeeded",
-                provider="openai",
-                model="gpt-4.1-mini",
-                duration_ms=1234,
-                lookback_days=30,
-                text="Jane is improving <fast>.",
-                input_tokens=10,
-                output_tokens=20,
-                total_tokens=30,
-            ),
-        )
-    )
-    store.close()
-
-    selected_run = streamlit_app._latest_developer_profile_run(
-        [latest_record, old_record]
-    )
-    html = streamlit_app._developer_profile_panel(selected_run)
-
-    assert selected_run == latest_record
-    assert "Latest LLM Developer Profile" in html
-    assert "Jane is improving &lt;fast&gt;." in html
-    assert "Succeeded" in html
-    assert "30 day window" in html
-    assert "gpt-4.1-mini" in html
-    assert "input 10" in html
-
-
 def test_developer_view_query_param_is_detected() -> None:
     import app.streamlit_app as streamlit_app
 
@@ -884,10 +872,10 @@ def test_dashboard_theme_css_supports_light_and_dark_modes() -> None:
     assert "mg-hero-top-link" in light_css
     assert "mg-hero-links" in light_css
     assert "mg-pager-label" in light_css
-    assert "[data-testid=\"stTextInput\"] input" in light_css
+    assert '[data-testid="stTextInput"] input' in light_css
     assert "-webkit-text-fill-color: var(--ink)" in light_css
-    assert "[data-baseweb=\"tab-list\"]" in light_css
-    assert "[data-testid=\"stSidebar\"]" in light_css
+    assert '[data-baseweb="tab-list"]' in light_css
+    assert '[data-testid="stSidebar"]' in light_css
     assert "display: none;" in light_css
     assert ".mg-readonly-value" in light_css
     assert "pointer-events: none;" in light_css

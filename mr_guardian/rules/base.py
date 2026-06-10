@@ -43,4 +43,3 @@ class DeterministicRule(Protocol):
 
     def evaluate(self, context: RuleEvaluationContext, rule: PolicyRule) -> list[Finding]:
         """Evaluate the rule and return any findings."""
-

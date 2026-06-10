@@ -92,10 +92,7 @@ def validate_manual_review_payload(payload: ManualReviewPayload) -> None:
     counts = count_findings(payload.findings)
     expected_risk = calculate_risk(counts)
     if payload.risk != expected_risk:
-        msg = (
-            f"Manual review risk '{payload.risk}' does not match findings risk "
-            f"'{expected_risk}'."
-        )
+        msg = f"Manual review risk '{payload.risk}' does not match findings risk '{expected_risk}'."
         raise ManualReviewValidationError(msg)
 
     _validate_evaluations(payload.evaluations, payload.findings)

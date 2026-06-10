@@ -104,17 +104,13 @@ def prepare_lead_developer_detail(
     trend_review_runs: list[ReviewRunRecord] | None = None,
 ) -> LeadDeveloperDetail | None:
     """Prepare the developer detail page data for a review-history window."""
-    developer_runs = [
-        run for run in review_runs if run.developer_id == developer_id
-    ]
+    developer_runs = [run for run in review_runs if run.developer_id == developer_id]
     if not developer_runs:
         return None
 
     trend_runs: list[ReviewRunRecord] | None = None
     if trend_review_runs is not None:
-        trend_runs = [
-            run for run in trend_review_runs if run.developer_id == developer_id
-        ]
+        trend_runs = [run for run in trend_review_runs if run.developer_id == developer_id]
 
     sorted_runs = sorted(
         developer_runs,
@@ -144,8 +140,32 @@ def prepare_lead_dashboard_summary(
     return LeadDashboardSummary(
         start_at=start_at,
         end_at=end_at,
+        total_estimated_cost_usd=_total_estimated_cost(review_runs),
+        total_tokens=_total_tokens(review_runs),
         developers=_developer_summaries(review_runs, trend_review_runs),
     )
+
+
+def _total_estimated_cost(review_runs: list[ReviewRunRecord]) -> float | None:
+    """Total estimated LLM spend across the window, or None when nothing is priced."""
+    costs = [run.estimated_cost_usd for run in review_runs if run.estimated_cost_usd is not None]
+    return round(sum(costs), 6) if costs else None
+
+
+def _total_tokens(review_runs: list[ReviewRunRecord]) -> int | None:
+    """Total LLM tokens across the window (rule metrics + summary + developer profile);
+    None when no call reported usage."""
+    total = 0
+    seen = False
+    for run in review_runs:
+        for art in (run.llm_summary, run.developer_profile, *run.llm_metrics):
+            if art is None:
+                continue
+            tokens = art.total_tokens or (art.input_tokens or 0) + (art.output_tokens or 0)
+            if tokens:
+                total += tokens
+                seen = True
+    return total if seen else None
 
 
 def _developer_summaries(
@@ -166,9 +186,7 @@ def _developer_summaries(
             developer_id=developer_id,
             review_runs=developer_runs,
             trend_review_runs=(
-                trend_runs_by_developer.get(developer_id)
-                if trend_review_runs is not None
-                else None
+                trend_runs_by_developer.get(developer_id) if trend_review_runs is not None else None
             ),
         )
         for developer_id, developer_runs in runs_by_developer.items()
@@ -201,6 +219,8 @@ def _developer_summary(
         approved_ticket_count=sum(1 for ticket in tickets if ticket.is_approved),
         average_attempts_to_approval=_average_attempts_to_approval(tickets),
         average_score=_average_score(sorted_runs),
+        total_estimated_cost_usd=_total_estimated_cost(sorted_runs),
+        total_tokens=_total_tokens(sorted_runs),
         latest_review_at=sorted_runs[-1].timestamp,
         trend_direction=_trend_direction(trend_sorted),
         multi_attempt_ticket_count=sum(1 for ticket in tickets if ticket.review_attempt_count > 1),
@@ -264,9 +284,7 @@ def _average_attempts_to_approval(
     tickets: list[LeadTicketAttemptSummary],
 ) -> float | None:
     approved_attempts = [
-        ticket.attempts_to_approval
-        for ticket in tickets
-        if ticket.attempts_to_approval is not None
+        ticket.attempts_to_approval for ticket in tickets if ticket.attempts_to_approval is not None
     ]
     if not approved_attempts:
         return None

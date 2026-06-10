@@ -10,7 +10,7 @@ from mr_guardian.rules import default_rule_registry
 
 @pytest.fixture
 def passing_review_input() -> ReviewInput:
-    return make_review_input('        transform.position += Vector3.right;\n')
+    return make_review_input("        transform.position += Vector3.right;\n")
 
 
 @pytest.fixture

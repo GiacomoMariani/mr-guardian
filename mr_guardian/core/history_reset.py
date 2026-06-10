@@ -16,11 +16,12 @@ class HistoryResetResult(BaseModel):
     status: Literal["reset"] = "reset"
     reviews: int
     weekly_reviews: int
+    developer_reviews: int
     eta_notes: int
 
 
 def reset_all_history(*, database_path: str | Path) -> HistoryResetResult:
-    """Delete all stored data (reviews, weekly reviews, ETA notes) and return counts."""
+    """Delete all stored data (reviews, weekly + developer reviews, ETA notes) and return counts."""
     store = ReviewHistoryStore(database_path)
     try:
         counts = store.reset_all()
@@ -29,5 +30,6 @@ def reset_all_history(*, database_path: str | Path) -> HistoryResetResult:
     return HistoryResetResult(
         reviews=counts["reviews"],
         weekly_reviews=counts["weekly_reviews"],
+        developer_reviews=counts["developer_reviews"],
         eta_notes=counts["eta_notes"],
     )

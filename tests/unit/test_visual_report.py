@@ -3,7 +3,12 @@ from pathlib import Path
 
 from mr_guardian.models.history import ReviewPolicySummary, ReviewRunRecord
 from mr_guardian.models.policy import PolicyRule
-from mr_guardian.models.review import Finding, LlmReviewSummary, LlmRuleMetric
+from mr_guardian.models.review import (
+    Finding,
+    LlmDeveloperProfile,
+    LlmReviewSummary,
+    LlmRuleMetric,
+)
 from mr_guardian.reporting.visual_report import render_visual_review_report
 
 
@@ -82,12 +87,12 @@ def test_renders_blocked_visual_report_with_metadata_checklist() -> None:
 
     assert "<h1>MR Guardian Review</h1>" in html
     assert "Merge blocked - 1 required action" in html
-    assert "<span class=\"v-tag\">BLOCKED</span>" in html
+    assert '<span class="v-tag">BLOCKED</span>' in html
     assert "Why this is blocked" in html
-    assert "<span class=\"name\">Test Plan</span>" in html
-    assert "<span class=\"code\">MR-META-001</span>" in html
-    assert "<span class=\"sev\">Blocking</span>" in html
-    assert "<span class=\"name\">Summary</span>" in html
+    assert '<span class="name">Test Plan</span>' in html
+    assert '<span class="code">MR-META-001</span>' in html
+    assert '<span class="sev">Blocking</span>' in html
+    assert '<span class="name">Summary</span>' in html
     assert "Missing required section: Test Plan" in html
     assert "unity-policy.yml#MR-META-001" in html
     assert "python-policy.yml - 2 rules enabled" in html
@@ -104,9 +109,80 @@ def test_renders_passed_visual_report() -> None:
     )
 
     assert "Review passed - no required actions" in html
-    assert "<span class=\"v-tag\">PASSED</span>" in html
+    assert '<span class="v-tag">PASSED</span>' in html
     assert "No findings were triggered." in html
     assert "No immediate action required." in html
+
+
+def test_renders_token_usage_excluding_developer_profile() -> None:
+    record = make_record(
+        risk="warning",
+        blocking_count=0,
+        warning_count=1,
+        llm_metrics=[
+            LlmRuleMetric(
+                rule_id="PYTHON-DESIGN-LLM-001",
+                provider="openai",
+                model="gpt-4.1-mini",
+                status="succeeded",
+                duration_ms=1000,
+                input_tokens=1000,
+                output_tokens=100,
+                total_tokens=1100,
+                estimated_cost_usd=0.0030,
+            ),
+        ],
+        llm_summary=LlmReviewSummary(
+            status="succeeded",
+            provider="openai",
+            model="gpt-4.1-mini",
+            duration_ms=800,
+            text="Summary.",
+            score=80,
+            input_tokens=300,
+            output_tokens=40,
+            total_tokens=340,
+            estimated_cost_usd=0.0008,
+        ),
+    ).model_copy(
+        update={
+            "developer_profile": LlmDeveloperProfile(
+                status="succeeded",
+                provider="openai",
+                model="gpt-4.1-mini",
+                duration_ms=1500,
+                lookback_days=30,
+                text="Profile.",
+                input_tokens=1100,
+                output_tokens=300,
+                total_tokens=1400,
+                estimated_cost_usd=0.0013,
+            ),
+            "estimated_cost_usd": 0.0051,
+            "currency": "USD",
+        }
+    )
+
+    html = render_visual_review_report(record)
+
+    # Tokens lead; the MR-review total is LLM rules + AI summary only.
+    assert "Token usage" in html
+    assert "1,440 tokens" in html
+    assert "LLM rules 1,100" in html
+    assert "AI summary 340" in html
+    # Cost is secondary and also excludes the developer profile.
+    assert "est. 0.0038 USD" in html
+    # The developer profile is developer-level, not part of the MR review — excluded entirely.
+    assert "developer profile" not in html
+    assert "1,400" not in html
+    assert "0.0013" not in html
+    assert "0.0051" not in html
+
+
+def test_hides_token_usage_when_no_llm_calls() -> None:
+    html = render_visual_review_report(make_record())
+
+    assert "Token usage" not in html
 
 
 def test_renders_dark_visual_report_theme() -> None:
@@ -299,9 +375,7 @@ def test_finding_rows_expand_with_rule_details() -> None:
         )
     }
     html = render_visual_review_report(
-        make_record(
-            risk="warning", blocking_count=0, warning_count=1, findings=[_print_finding()]
-        ),
+        make_record(risk="warning", blocking_count=0, warning_count=1, findings=[_print_finding()]),
         rule_details=catalog,
     )
 
@@ -315,9 +389,7 @@ def test_finding_rows_expand_with_rule_details() -> None:
 
 def test_finding_rows_stay_plain_without_rule_details() -> None:
     html = render_visual_review_report(
-        make_record(
-            risk="warning", blocking_count=0, warning_count=1, findings=[_print_finding()]
-        )
+        make_record(risk="warning", blocking_count=0, warning_count=1, findings=[_print_finding()])
     )
 
     # no catalog -> classic static rows, no disclosure markup or toggle script
@@ -348,9 +420,7 @@ def test_llm_rule_detail_includes_prompt() -> None:
         )
     }
     html = render_visual_review_report(
-        make_record(
-            risk="warning", blocking_count=0, warning_count=1, findings=[finding]
-        ),
+        make_record(risk="warning", blocking_count=0, warning_count=1, findings=[finding]),
         rule_details=catalog,
     )
 

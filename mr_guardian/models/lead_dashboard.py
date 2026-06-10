@@ -62,6 +62,9 @@ class LeadDeveloperSummary(BaseModel):
     approved_ticket_count: int = Field(ge=0)
     average_attempts_to_approval: float | None = None
     average_score: float | None = None
+    total_estimated_cost_usd: float | None = None
+    total_tokens: int | None = None
+    currency: str = "USD"
     latest_review_at: datetime
     trend_direction: TrendDirection
     multi_attempt_ticket_count: int = Field(ge=0)
@@ -79,6 +82,9 @@ class LeadDashboardSummary(BaseModel):
 
     start_at: datetime
     end_at: datetime
+    total_estimated_cost_usd: float | None = None
+    total_tokens: int | None = None
+    currency: str = "USD"
     developers: list[LeadDeveloperSummary]
 
 

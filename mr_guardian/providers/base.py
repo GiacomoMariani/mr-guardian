@@ -10,4 +10,3 @@ class ReviewInputProvider(Protocol):
 
     def collect(self, base_ref: str) -> ReviewInput:
         """Collect changed files and diff information compared with a base ref."""
-

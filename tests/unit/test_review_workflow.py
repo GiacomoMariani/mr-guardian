@@ -226,9 +226,7 @@ def test_review_merge_request_attaches_llm_summary_without_changing_review_resul
 
     assert result.risk == "warning"
     assert result.engine_result.counts.warning == 1
-    assert [finding.rule_id for finding in result.engine_result.findings] == [
-        "PYTHON-PRINT-001"
-    ]
+    assert [finding.rule_id for finding in result.engine_result.findings] == ["PYTHON-PRINT-001"]
     assert result.llm_summary is not None
     assert result.llm_summary.status == "succeeded"
     assert result.llm_summary.text == "Review summary."

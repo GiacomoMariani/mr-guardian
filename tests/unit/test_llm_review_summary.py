@@ -76,9 +76,7 @@ def make_large_summary_input() -> ReviewSummaryInput:
 
 
 def test_parses_valid_llm_review_summary_output() -> None:
-    output = parse_llm_review_summary_output(
-        '{"summary": "Review looks ready.", "score": 92}'
-    )
+    output = parse_llm_review_summary_output('{"summary": "Review looks ready.", "score": 92}')
 
     assert output.summary == "Review looks ready."
     assert output.score == 92
@@ -138,9 +136,7 @@ def test_openai_review_summary_runner_captures_usage_and_truncates(
         def create(self, **kwargs: object) -> SimpleNamespace:
             captured["request"] = kwargs
             return SimpleNamespace(
-                output_text=(
-                    '{"summary": "This summary is longer than allowed.", "score": 88}'
-                ),
+                output_text=('{"summary": "This summary is longer than allowed.", "score": 88}'),
                 usage=SimpleNamespace(
                     input_tokens=100,
                     output_tokens=20,

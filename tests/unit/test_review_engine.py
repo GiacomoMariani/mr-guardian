@@ -407,9 +407,7 @@ def test_computes_evaluation_summaries() -> None:
         rule_registry=registry,
     )
 
-    evaluation_by_name = {
-        evaluation.evaluation: evaluation for evaluation in result.evaluations
-    }
+    evaluation_by_name = {evaluation.evaluation: evaluation for evaluation in result.evaluations}
 
     assert result.risk == "high"
     assert evaluation_by_name["coding"].risk == "warning"

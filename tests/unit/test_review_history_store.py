@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from mr_guardian.models.developer_review import DeveloperLlmReviewCreate
 from mr_guardian.models.history import ReviewPolicySummary, ReviewRunCreate
 from mr_guardian.models.review import (
     Finding,
@@ -446,9 +447,7 @@ def test_stores_ticket_key_and_review_score(tmp_path: Path) -> None:
 def test_stores_review_finality_flag(tmp_path: Path) -> None:
     store = ReviewHistoryStore(tmp_path / "history.sqlite")
 
-    stored = store.store_review_run(
-        make_review_run(ticket_key="TK-234", is_final=True)
-    )
+    stored = store.store_review_run(make_review_run(ticket_key="TK-234", is_final=True))
     found = store.review_run(stored.review_id)
     store.close()
 
@@ -463,9 +462,7 @@ def test_sets_review_finality_and_clears_other_final_ticket_reviews(
     store = ReviewHistoryStore(tmp_path / "history.sqlite")
     first = store.store_review_run(make_review_run(ticket_key="TK-234", is_final=True))
     second = store.store_review_run(make_review_run(ticket_key="TK-234"))
-    other_ticket = store.store_review_run(
-        make_review_run(ticket_key="TK-999", is_final=True)
-    )
+    other_ticket = store.store_review_run(make_review_run(ticket_key="TK-999", is_final=True))
 
     updated, cleared_review_ids = store.set_review_finality(
         review_id=second.review_id,
@@ -929,9 +926,7 @@ def test_reads_review_runs_for_developer_in_time_window(tmp_path: Path) -> None:
     start = datetime(2026, 5, 20, tzinfo=timezone.utc)
     inside = start + timedelta(days=1)
     outside = start - timedelta(days=1)
-    store.store_review_run(
-        make_review_run(developer_id="Jane Developer", timestamp=outside)
-    )
+    store.store_review_run(make_review_run(developer_id="Jane Developer", timestamp=outside))
     expected = store.store_review_run(
         make_review_run(
             developer_id="Jane Developer",
@@ -939,9 +934,7 @@ def test_reads_review_runs_for_developer_in_time_window(tmp_path: Path) -> None:
             timestamp=inside,
         )
     )
-    store.store_review_run(
-        make_review_run(developer_id="Other Developer", timestamp=inside)
-    )
+    store.store_review_run(make_review_run(developer_id="Other Developer", timestamp=inside))
 
     runs = store.review_runs_for_developer(
         developer_id="Jane Developer",
@@ -957,9 +950,7 @@ def test_reads_developer_activity_sorted_by_latest_review(tmp_path: Path) -> Non
     store = ReviewHistoryStore(tmp_path / "history.sqlite")
     old_timestamp = datetime(2026, 5, 21, tzinfo=timezone.utc)
     new_timestamp = old_timestamp + timedelta(days=1)
-    store.store_review_run(
-        make_review_run(developer_id="Older Developer", timestamp=old_timestamp)
-    )
+    store.store_review_run(make_review_run(developer_id="Older Developer", timestamp=old_timestamp))
     store.store_review_run(
         make_review_run(developer_id="Recent Developer", timestamp=new_timestamp)
     )
@@ -1025,9 +1016,7 @@ def test_deletes_one_review_run_and_dependent_rows(tmp_path: Path) -> None:
             ],
         )
     )
-    second = store.store_review_run(
-        make_review_run(triggered_rule_ids=["CSHARP-DEBUG-001"])
-    )
+    second = store.store_review_run(make_review_run(triggered_rule_ids=["CSHARP-DEBUG-001"]))
 
     deleted = store.delete_review_run(first.review_id)
     missing_deleted = store.review_run(first.review_id)
@@ -1039,9 +1028,7 @@ def test_deletes_one_review_run_and_dependent_rows(tmp_path: Path) -> None:
     assert missing_deleted is None
     assert remaining is not None
     assert remaining.review_id == second.review_id
-    assert [(stat.rule_id, stat.trigger_count) for stat in stats] == [
-        ("CSHARP-DEBUG-001", 1)
-    ]
+    assert [(stat.rule_id, stat.trigger_count) for stat in stats] == [("CSHARP-DEBUG-001", 1)]
 
     with sqlite3.connect(database_path) as connection:
         for table_name in (
@@ -1145,13 +1132,39 @@ def test_reset_all_clears_every_table() -> None:
             model="gpt-4.1-mini",
         )
     )
+    store.store_developer_llm_review(
+        DeveloperLlmReviewCreate(
+            developer_id="Jane",
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 14),
+            result="on_track",
+            score=92,
+            summary="Fortnight summary.",
+            review_request_count=2,
+            ticket_count=2,
+            approved_ticket_count=2,
+            observed_ticket_count=0,
+            blocking_review_count=0,
+            high_risk_review_count=0,
+            warning_review_count=0,
+            info_review_count=0,
+            provider="openai",
+            model="gpt-4.1-mini",
+        )
+    )
     store.set_eta_note(message="ETA note.")
 
     counts = store.reset_all()
 
-    assert counts == {"reviews": 1, "weekly_reviews": 1, "eta_notes": 1}
+    assert counts == {
+        "reviews": 1,
+        "weekly_reviews": 1,
+        "developer_reviews": 1,
+        "eta_notes": 1,
+    }
     assert store.recent_review_runs() == []
     assert store.latest_weekly_llm_review() is None
+    assert store.recent_developer_llm_reviews() == []
     assert store.get_eta_note() is None
     store.close()
 
@@ -1225,9 +1238,7 @@ def test_eta_note_keeps_history(tmp_path: Path) -> None:
     assert [note.message for note in history] == ["Second ETA.", "First ETA."]
 
     with sqlite3.connect(database_path) as connection:
-        row = connection.execute(
-            "SELECT COUNT(*) FROM dashboard_eta_notes"
-        ).fetchone()
+        row = connection.execute("SELECT COUNT(*) FROM dashboard_eta_notes").fetchone()
     assert row is not None
     assert row[0] == 2
 

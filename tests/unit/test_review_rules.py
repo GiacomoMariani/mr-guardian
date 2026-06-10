@@ -39,7 +39,6 @@ def test_rule_source_url_maps_to_repo_file() -> None:
     from app.streamlit_app import _rule_source_url
 
     assert _rule_source_url("unity-policy.yml#UNITY-INPUT-001") == (
-        "https://github.com/GiacomoMariani/mr-guardian"
-        "/blob/main/sources/yaml/unity-policy.yml"
+        "https://github.com/GiacomoMariani/mr-guardian/blob/main/sources/yaml/unity-policy.yml"
     )
     assert _rule_source_url("local-all-policies") is None

@@ -53,5 +53,8 @@ class PmDashboardSummary(BaseModel):
     pass_rate: float = Field(ge=0, le=100)
     blocked_ticket_count: int = Field(ge=0)
     unlinked_review_count: int = Field(ge=0)
+    total_estimated_cost_usd: float | None = None
+    total_tokens: int | None = None
+    currency: str = "USD"
     tickets: list[PmTicketStatus]
     recurring_blockers: list[PmRecurringBlocker]

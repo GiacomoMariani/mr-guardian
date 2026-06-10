@@ -30,9 +30,7 @@ METADATA_MESSAGE_PREFIX = "MR metadata is missing required section(s): "
 def render_review_report(result: ReviewResult) -> str:
     """Render a completed review result as a concise Markdown report."""
     findings = sorted(result.engine_result.findings, key=_finding_sort_key)
-    skipped_llm_findings = [
-        finding for finding in findings if _is_skipped_llm_finding(finding)
-    ]
+    skipped_llm_findings = [finding for finding in findings if _is_skipped_llm_finding(finding)]
     skipped_llm_metrics = _skipped_llm_metrics(result.engine_result.llm_metrics)
     skipped_rule_ids = _skipped_llm_rule_ids(skipped_llm_findings, skipped_llm_metrics)
     counts = result.engine_result.counts
@@ -135,13 +133,9 @@ def _render_llm_summary(summary: LlmReviewSummary) -> list[str]:
 
 def _render_blocked_section(findings: list[Finding]) -> list[str]:
     actionable_findings = [
-        finding
-        for finding in findings
-        if finding.severity in {"blocking", "high", "warning"}
+        finding for finding in findings if finding.severity in {"blocking", "high", "warning"}
     ]
-    metadata_findings = [
-        finding for finding in actionable_findings if _metadata_sections(finding)
-    ]
+    metadata_findings = [finding for finding in actionable_findings if _metadata_sections(finding)]
     lines: list[str] = []
 
     if actionable_findings and len(actionable_findings) == len(metadata_findings):
@@ -152,9 +146,7 @@ def _render_blocked_section(findings: list[Finding]) -> list[str]:
         )
         lines.append("")
     else:
-        lines.append(
-            "This merge request has blocking findings that must be resolved before merge."
-        )
+        lines.append("This merge request has blocking findings that must be resolved before merge.")
         lines.append("")
 
     if metadata_findings:
@@ -222,9 +214,7 @@ def _render_all_findings(
     if not findings:
         return ["No findings were triggered."]
 
-    normal_findings = [
-        finding for finding in findings if not _is_skipped_llm_finding(finding)
-    ]
+    normal_findings = [finding for finding in findings if not _is_skipped_llm_finding(finding)]
     lines = _render_finding_table(normal_findings)
 
     if skipped_llm_findings:
@@ -278,8 +268,7 @@ def _render_next_steps(
     metadata_findings = [
         finding
         for finding in findings
-        if finding.severity in {"blocking", "high", "warning"}
-        and _metadata_sections(finding)
+        if finding.severity in {"blocking", "high", "warning"} and _metadata_sections(finding)
     ]
     blocking_sections = [
         section
@@ -305,17 +294,14 @@ def _render_next_steps(
 
     if warning_sections:
         steps.append(
-            "Add "
-            + _format_section_list(warning_sections)
-            + " to clear the metadata warnings."
+            "Add " + _format_section_list(warning_sections) + " to clear the metadata warnings."
         )
     elif counts.high or counts.warning:
         steps.append("Resolve or explicitly acknowledge the high and warning findings.")
 
     if skipped_llm_rule_ids:
         steps.append(
-            "Re-run the review once the LLM provider is available so skipped checks "
-            "can complete."
+            "Re-run the review once the LLM provider is available so skipped checks can complete."
         )
 
     if not steps:
@@ -370,7 +356,7 @@ def _render_llm_metric_table(metrics: list[LlmRuleMetric]) -> list[str]:
             f"{_table_cell(metric.status)} | "
             f"{metric.duration_ms / 1000:.2f}s | "
             f"{_format_tokens(metric)} | "
-            f"{_table_cell(metric.error_message or '-') } |"
+            f"{_table_cell(metric.error_message or '-')} |"
         )
     return lines
 
@@ -419,9 +405,7 @@ def _skipped_reason(
         *(metric.error_message or "" for metric in skipped_metrics),
         *(finding.message for finding in skipped_findings),
     ]
-    if "rate_limited" in statuses or any(
-        "rate limit" in message.lower() for message in messages
-    ):
+    if "rate_limited" in statuses or any("rate limit" in message.lower() for message in messages):
         return "a rate limit"
     if "failed" in statuses:
         return "an error"
@@ -469,11 +453,7 @@ def _format_section_list(sections: list[str]) -> str:
         return f"the {unique_sections[0]} section"
     if len(unique_sections) == 2:
         return f"the {unique_sections[0]} and {unique_sections[1]} sections"
-    return (
-        "the "
-        + ", ".join(unique_sections[:-1])
-        + f", and {unique_sections[-1]} sections"
-    )
+    return "the " + ", ".join(unique_sections[:-1]) + f", and {unique_sections[-1]} sections"
 
 
 def _table_cell(value: str) -> str:
@@ -501,11 +481,7 @@ def _format_location(finding: Finding) -> str:
 
 
 def _count_changed_lines(review_input: ReviewInput) -> int:
-    return sum(
-        1
-        for line in _diff_lines(review_input)
-        if line.kind in {"addition", "deletion"}
-    )
+    return sum(1 for line in _diff_lines(review_input) if line.kind in {"addition", "deletion"})
 
 
 def _diff_lines(review_input: ReviewInput) -> Iterable[DiffLine]:

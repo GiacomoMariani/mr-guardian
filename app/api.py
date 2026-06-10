@@ -16,6 +16,12 @@ from mr_guardian.core.dashboard_eta import (
     recent_dashboard_eta_notes,
     set_dashboard_eta_note,
 )
+from mr_guardian.core.developer_review import (
+    load_developer_llm_review,
+    load_recent_developer_llm_reviews,
+    manual_developer_llm_review_payload_schema,
+    store_developer_llm_review_payload,
+)
 from mr_guardian.core.gitlab_reviews import review_gitlab_merge_request
 from mr_guardian.core.gitlab_webhooks import process_gitlab_webhook
 from mr_guardian.core.history_reset import reset_all_history
@@ -48,6 +54,7 @@ from mr_guardian.core.weekly_llm_review import (
     manual_weekly_llm_review_payload_schema,
     store_weekly_llm_review_payload,
 )
+from mr_guardian.models.developer_review import DeveloperLlmReviewCreate
 from mr_guardian.models.gitlab import GitLabMergeRequestWebhook
 from mr_guardian.models.history import (
     ReviewPolicySummary,
@@ -67,7 +74,6 @@ from mr_guardian.providers.gitlab_api import GitLabMergeRequestCommenter
 from mr_guardian.providers.gitlab_sync import GitLabRepositorySyncError
 from mr_guardian.storage import ReviewHistoryStore
 from mr_guardian.summarizer_ai import (
-    create_llm_developer_profile_runner,
     create_llm_review_summary_runner,
     create_llm_rule_runner,
 )
@@ -127,6 +133,37 @@ async def get_weekly_llm_review(weekly_review_id: int) -> Any:
         raise HTTPException(
             status_code=404,
             detail=f"Weekly LLM review {weekly_review_id} was not found.",
+        )
+    return record
+
+
+@app.get("/developer-llm-reviews/schema")
+async def developer_llm_review_schema() -> dict[str, Any]:
+    """Return the manual developer LLM review submission JSON schema."""
+    return manual_developer_llm_review_payload_schema()
+
+
+@app.get("/developer-llm-reviews")
+async def list_developer_llm_reviews(developer: str | None = None, limit: int = 20) -> Any:
+    """Return recent developer LLM reviews, most recent first (optionally one developer)."""
+    return load_recent_developer_llm_reviews(
+        database_path=get_settings().history_db_path,
+        developer_id=developer,
+        limit=limit,
+    )
+
+
+@app.get("/developer-llm-reviews/{developer_review_id}")
+async def get_developer_llm_review(developer_review_id: int) -> Any:
+    """Return one stored developer LLM review by ID."""
+    record = load_developer_llm_review(
+        database_path=get_settings().history_db_path,
+        developer_review_id=developer_review_id,
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Developer LLM review {developer_review_id} was not found.",
         )
     return record
 
@@ -322,6 +359,46 @@ async def submit_weekly_llm_review(
         "weekly_review_id": record.weekly_review_id,
         "week_start": record.week_start.isoformat(),
         "week_end": record.week_end.isoformat(),
+        "result": record.result,
+        "score": record.score,
+    }
+
+
+@app.post("/developer-llm-reviews/manual", status_code=201)
+async def submit_developer_llm_review(
+    request: Request,
+    x_mr_guardian_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Validate and store an externally generated biweekly developer LLM review."""
+    settings = get_settings()
+    _verify_admin_token(settings, x_mr_guardian_admin_token)
+
+    try:
+        raw_payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload.") from exc
+
+    if not isinstance(raw_payload, dict):
+        raise HTTPException(status_code=400, detail="Expected JSON object payload.")
+
+    try:
+        payload = DeveloperLlmReviewCreate.model_validate(raw_payload)
+        record = store_developer_llm_review_payload(
+            payload,
+            database_path=settings.history_db_path,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid developer LLM review structure: {exc}",
+        ) from exc
+
+    return {
+        "status": "stored",
+        "developer_review_id": record.developer_review_id,
+        "developer_id": record.developer_id,
+        "period_start": record.period_start.isoformat(),
+        "period_end": record.period_end.isoformat(),
         "result": record.result,
         "score": record.score,
     }
@@ -723,16 +800,6 @@ def _run_gitlab_review_job(job_id: str, mr: GitLabMergeRequestWebhook) -> None:
                     openai_max_retries=settings.openai_max_retries,
                 ),
                 llm_summary_max_chars=settings.llm_summary_max_chars,
-                developer_profile_runner=create_llm_developer_profile_runner(
-                    enabled=settings.developer_profile_enabled,
-                    provider=settings.llm_provider,
-                    openai_api_key=settings.openai_api_key,
-                    openai_model=settings.openai_model,
-                    openai_timeout_seconds=settings.openai_timeout_seconds,
-                    openai_max_retries=settings.openai_max_retries,
-                ),
-                developer_profile_lookback_days=settings.developer_profile_lookback_days,
-                developer_profile_max_chars=settings.developer_profile_max_chars,
                 review_commenter=_review_commenter(settings),
             )
         except GitLabRepositorySyncError:

@@ -106,6 +106,34 @@ def weekly_review_payload() -> dict[str, Any]:
     }
 
 
+def developer_review_payload() -> dict[str, Any]:
+    return {
+        "developer_id": "Jack",
+        "period_start": "2026-06-01",
+        "period_end": "2026-06-14",
+        "result": "on_track",
+        "score": 92,
+        "summary": "Steady fortnight; one warning cleared.",
+        "review_request_count": 4,
+        "ticket_count": 3,
+        "approved_ticket_count": 2,
+        "observed_ticket_count": 1,
+        "blocking_review_count": 0,
+        "high_risk_review_count": 0,
+        "warning_review_count": 2,
+        "info_review_count": 3,
+        "top_risks": ["UNITY-ODIN-FIELD-LLM-001"],
+        "recommended_actions": ["Maintain current review hygiene."],
+        "provider": "openai",
+        "model": "gpt-4.1-mini",
+        "input_tokens": 1500,
+        "output_tokens": 300,
+        "total_tokens": 1800,
+        "estimated_cost_usd": 0.0011,
+        "currency": "usd",
+    }
+
+
 def review_run_payload() -> dict[str, Any]:
     return {
         "review_scope": "import-review",
@@ -394,6 +422,54 @@ def test_api_rejects_invalid_weekly_llm_review_json(monkeypatch, tmp_path) -> No
     assert non_object_response.json() == {"detail": "Expected JSON object payload."}
 
 
+def test_api_stores_valid_developer_llm_review(monkeypatch, tmp_path) -> None:
+    database_path = tmp_path / "history.sqlite"
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    response = client().post(
+        "/developer-llm-reviews/manual",
+        json=developer_review_payload(),
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "status": "stored",
+        "developer_review_id": 1,
+        "developer_id": "Jack",
+        "period_start": "2026-06-01",
+        "period_end": "2026-06-14",
+        "result": "on_track",
+        "score": 92,
+    }
+
+    store = ReviewHistoryStore(database_path)
+    try:
+        record = store.latest_developer_llm_review("Jack")
+    finally:
+        store.close()
+
+    assert record is not None
+    assert record.result == "on_track"
+    assert record.currency == "USD"
+    assert record.estimated_cost_usd == 0.0011
+    assert record.top_risks == ["UNITY-ODIN-FIELD-LLM-001"]
+
+
+def test_api_rejects_invalid_developer_llm_review_payload(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
+    monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
+
+    payload = developer_review_payload()
+    payload["period_start"] = "2026-06-02"  # not a Monday
+
+    response = client().post("/developer-llm-reviews/manual", json=payload)
+
+    assert response.status_code == 400
+    assert "Invalid developer LLM review structure" in response.json()["detail"]
+    assert "period_start must be a Monday" in response.json()["detail"]
+
+
 def test_api_deletes_existing_review(monkeypatch, tmp_path) -> None:
     database_path = tmp_path / "history.sqlite"
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
@@ -479,14 +555,22 @@ def test_api_sets_review_finality_and_clears_previous_final_review(
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
     monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
 
-    first_review_id = client().post(
-        "/reviews/manual",
-        json=manual_review_payload(),
-    ).json()["review_id"]
-    second_review_id = client().post(
-        "/reviews/manual",
-        json=manual_review_payload(),
-    ).json()["review_id"]
+    first_review_id = (
+        client()
+        .post(
+            "/reviews/manual",
+            json=manual_review_payload(),
+        )
+        .json()["review_id"]
+    )
+    second_review_id = (
+        client()
+        .post(
+            "/reviews/manual",
+            json=manual_review_payload(),
+        )
+        .json()["review_id"]
+    )
     first_response = client().post(
         f"/reviews/{first_review_id}/finality",
         json={"final": True},
@@ -526,9 +610,7 @@ def test_api_unsets_review_finality(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
     monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
 
-    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()[
-        "review_id"
-    ]
+    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()["review_id"]
     client().post(f"/reviews/{review_id}/finality", json={"final": True})
     response = client().post(f"/reviews/{review_id}/finality", json={"final": False})
 
@@ -582,9 +664,7 @@ def test_api_accepts_valid_admin_token_for_review_finality(
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(database_path))
     monkeypatch.setenv("MR_GUARDIAN_ADMIN_TOKEN", "expected-token")
 
-    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()[
-        "review_id"
-    ]
+    review_id = client().post("/reviews/manual", json=manual_review_payload()).json()["review_id"]
     response = client().post(
         f"/reviews/{review_id}/finality",
         headers={"x-mr-guardian-admin-token": "expected-token"},
@@ -1240,6 +1320,7 @@ def test_api_reset_clears_all_data(monkeypatch, tmp_path) -> None:
 
     client().post("/reviews", json=review_run_payload())
     client().post("/weekly-llm-reviews/manual", json=weekly_review_payload())
+    client().post("/developer-llm-reviews/manual", json=developer_review_payload())
     client().post("/dashboard/eta-note", json={"message": "Delivery ETA."})
 
     response = client().post("/admin/reset", json={"confirm": True})
@@ -1249,6 +1330,7 @@ def test_api_reset_clears_all_data(monkeypatch, tmp_path) -> None:
         "status": "reset",
         "reviews": 1,
         "weekly_reviews": 1,
+        "developer_reviews": 1,
         "eta_notes": 1,
     }
     assert client().get("/dashboard/eta-note").json() is None
@@ -1257,6 +1339,7 @@ def test_api_reset_clears_all_data(monkeypatch, tmp_path) -> None:
     try:
         assert store.recent_review_runs() == []
         assert store.latest_weekly_llm_review() is None
+        assert store.recent_developer_llm_reviews() == []
     finally:
         store.close()
 
@@ -1312,10 +1395,14 @@ def test_api_gets_weekly_llm_review_by_id(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MR_GUARDIAN_HISTORY_DB_PATH", str(tmp_path / "history.sqlite"))
     monkeypatch.delenv("MR_GUARDIAN_ADMIN_TOKEN", raising=False)
 
-    weekly_id = client().post(
-        "/weekly-llm-reviews/manual",
-        json=weekly_review_payload(),
-    ).json()["weekly_review_id"]
+    weekly_id = (
+        client()
+        .post(
+            "/weekly-llm-reviews/manual",
+            json=weekly_review_payload(),
+        )
+        .json()["weekly_review_id"]
+    )
 
     found = client().get(f"/weekly-llm-reviews/{weekly_id}")
     missing = client().get("/weekly-llm-reviews/999")

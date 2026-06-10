@@ -9,6 +9,11 @@ from typing import cast
 
 from mr_guardian.core.review_score import calculate_review_score
 from mr_guardian.models.dashboard import DashboardEtaNote
+from mr_guardian.models.developer_review import (
+    DeveloperLlmReviewCreate,
+    DeveloperLlmReviewRecord,
+    DeveloperLlmReviewResult,
+)
 from mr_guardian.models.history import (
     ReviewPolicySummary,
     ReviewRunCreate,
@@ -211,7 +216,38 @@ CREATE TABLE IF NOT EXISTS weekly_llm_reviews (
 
 CREATE INDEX IF NOT EXISTS idx_weekly_llm_reviews_week_start
 ON weekly_llm_reviews(week_start DESC);
-""" 
+
+CREATE TABLE IF NOT EXISTS developer_llm_reviews (
+    developer_review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    developer_id TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    result TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    review_request_count INTEGER NOT NULL,
+    ticket_count INTEGER NOT NULL,
+    approved_ticket_count INTEGER NOT NULL,
+    observed_ticket_count INTEGER NOT NULL,
+    blocking_review_count INTEGER NOT NULL,
+    high_risk_review_count INTEGER NOT NULL,
+    warning_review_count INTEGER NOT NULL,
+    info_review_count INTEGER NOT NULL,
+    top_risks TEXT NOT NULL DEFAULT '[]',
+    recommended_actions TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    total_tokens INTEGER,
+    estimated_cost_usd REAL,
+    currency TEXT NOT NULL DEFAULT 'USD'
+);
+
+CREATE INDEX IF NOT EXISTS idx_developer_llm_reviews_developer_period
+ON developer_llm_reviews(developer_id, period_start DESC);
+"""
 
 
 class ReviewHistoryStore:
@@ -772,6 +808,156 @@ class ReviewHistoryStore:
             raise RuntimeError(msg)
         return record
 
+    def store_developer_llm_review(
+        self,
+        review: DeveloperLlmReviewCreate,
+    ) -> DeveloperLlmReviewRecord:
+        """Persist one externally generated biweekly developer LLM review."""
+        self.initialize_schema()
+        created_at = review.created_at or datetime.now(timezone.utc)
+        cursor = self._connection.execute(
+            """
+            INSERT INTO developer_llm_reviews (
+                developer_id,
+                period_start,
+                period_end,
+                created_at,
+                result,
+                score,
+                summary,
+                review_request_count,
+                ticket_count,
+                approved_ticket_count,
+                observed_ticket_count,
+                blocking_review_count,
+                high_risk_review_count,
+                warning_review_count,
+                info_review_count,
+                top_risks,
+                recommended_actions,
+                provider,
+                model,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                estimated_cost_usd,
+                currency
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review.developer_id,
+                review.period_start.isoformat(),
+                review.period_end.isoformat(),
+                created_at.isoformat(),
+                review.result,
+                review.score,
+                review.summary,
+                review.review_request_count,
+                review.ticket_count,
+                review.approved_ticket_count,
+                review.observed_ticket_count,
+                review.blocking_review_count,
+                review.high_risk_review_count,
+                review.warning_review_count,
+                review.info_review_count,
+                _json_text(review.top_risks),
+                _json_text(review.recommended_actions),
+                review.provider,
+                review.model,
+                review.input_tokens,
+                review.output_tokens,
+                review.total_tokens,
+                review.estimated_cost_usd,
+                review.currency,
+            ),
+        )
+        if cursor.lastrowid is None:
+            msg = "SQLite did not return a developer review ID for the inserted review."
+            raise RuntimeError(msg)
+        self._connection.commit()
+        return self.developer_llm_review(cursor.lastrowid)
+
+    def latest_developer_llm_review(
+        self,
+        developer_id: str,
+    ) -> DeveloperLlmReviewRecord | None:
+        """Return the latest stored developer LLM review for one developer, if any."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT *
+            FROM developer_llm_reviews
+            WHERE developer_id = ?
+            ORDER BY period_start DESC, created_at DESC, developer_review_id DESC
+            LIMIT 1
+            """,
+            (developer_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _developer_llm_review_from_row(row)
+
+    def recent_developer_llm_reviews(
+        self,
+        *,
+        developer_id: str | None = None,
+        limit: int = 20,
+    ) -> list[DeveloperLlmReviewRecord]:
+        """Return stored developer LLM reviews, most recent first (optionally one developer)."""
+        self.initialize_schema()
+        if developer_id is None:
+            rows = self._connection.execute(
+                """
+                SELECT *
+                FROM developer_llm_reviews
+                ORDER BY period_start DESC, created_at DESC, developer_review_id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = self._connection.execute(
+                """
+                SELECT *
+                FROM developer_llm_reviews
+                WHERE developer_id = ?
+                ORDER BY period_start DESC, created_at DESC, developer_review_id DESC
+                LIMIT ?
+                """,
+                (developer_id, limit),
+            ).fetchall()
+        return [_developer_llm_review_from_row(row) for row in rows]
+
+    def find_developer_llm_review(
+        self,
+        developer_review_id: int,
+    ) -> DeveloperLlmReviewRecord | None:
+        """Return one stored developer LLM review by ID, or None if it does not exist."""
+        self.initialize_schema()
+        row = self._connection.execute(
+            """
+            SELECT *
+            FROM developer_llm_reviews
+            WHERE developer_review_id = ?
+            """,
+            (developer_review_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _developer_llm_review_from_row(row)
+
+    def developer_llm_review(
+        self,
+        developer_review_id: int,
+    ) -> DeveloperLlmReviewRecord:
+        """Return one stored developer LLM review by ID (raises if it does not exist)."""
+        record = self.find_developer_llm_review(developer_review_id)
+        if record is None:
+            msg = f"Stored developer LLM review {developer_review_id} could not be read."
+            raise RuntimeError(msg)
+        return record
+
     def set_review_finality(
         self,
         *,
@@ -806,10 +992,7 @@ class ReviewHistoryStore:
                 """,
                 (ticket_key, review_id),
             ).fetchall()
-            cleared_review_ids = [
-                int(cleared_row["review_id"])
-                for cleared_row in cleared_rows
-            ]
+            cleared_review_ids = [int(cleared_row["review_id"]) for cleared_row in cleared_rows]
             self._connection.execute(
                 """
                 UPDATE review_runs
@@ -922,23 +1105,27 @@ class ReviewHistoryStore:
     def reset_all(self) -> dict[str, int]:
         """Delete all stored data and return per-group removed counts.
 
-        Clears review runs and their child tables, weekly LLM reviews, and ETA notes
-        (the append-only history table and the legacy singleton). Counts are captured
-        before deletion. This is the full "reset" used by the admin API.
+        Clears review runs and their child tables, weekly LLM reviews, biweekly developer
+        LLM reviews, and ETA notes (the append-only history table and the legacy singleton).
+        Counts are captured before deletion. This is the full "reset" used by the admin API.
         """
         self.initialize_schema()
-        reviews_row = self._connection.execute(
-            "SELECT COUNT(*) AS c FROM review_runs"
-        ).fetchone()
+        reviews_row = self._connection.execute("SELECT COUNT(*) AS c FROM review_runs").fetchone()
         weekly_row = self._connection.execute(
             "SELECT COUNT(*) AS c FROM weekly_llm_reviews"
         ).fetchone()
         eta_row = self._connection.execute(
             "SELECT COUNT(*) AS c FROM dashboard_eta_notes"
         ).fetchone()
+        developer_reviews_row = self._connection.execute(
+            "SELECT COUNT(*) AS c FROM developer_llm_reviews"
+        ).fetchone()
         counts = {
             "reviews": int(reviews_row["c"]) if reviews_row is not None else 0,
             "weekly_reviews": int(weekly_row["c"]) if weekly_row is not None else 0,
+            "developer_reviews": (
+                int(developer_reviews_row["c"]) if developer_reviews_row is not None else 0
+            ),
             "eta_notes": int(eta_row["c"]) if eta_row is not None else 0,
         }
         self._connection.execute("DELETE FROM triggered_rules")
@@ -949,6 +1136,7 @@ class ReviewHistoryStore:
         self._connection.execute("DELETE FROM review_evaluations")
         self._connection.execute("DELETE FROM review_runs")
         self._connection.execute("DELETE FROM weekly_llm_reviews")
+        self._connection.execute("DELETE FROM developer_llm_reviews")
         self._connection.execute("DELETE FROM dashboard_eta_notes")
         self._connection.execute("DELETE FROM dashboard_eta_note")
         self._connection.commit()
@@ -1010,9 +1198,7 @@ class ReviewHistoryStore:
                     finding.source,
                     finding.evaluation,
                     finding.rule_type,
-                    finding.file_path.as_posix()
-                    if finding.file_path is not None
-                    else None,
+                    finding.file_path.as_posix() if finding.file_path is not None else None,
                     finding.line_number,
                 )
                 for finding in findings
@@ -1342,8 +1528,7 @@ class ReviewHistoryStore:
         columns = self._review_run_columns()
         if "developer_id" not in columns:
             self._connection.execute(
-                "ALTER TABLE review_runs "
-                "ADD COLUMN developer_id TEXT NOT NULL DEFAULT 'unknown'"
+                "ALTER TABLE review_runs ADD COLUMN developer_id TEXT NOT NULL DEFAULT 'unknown'"
             )
         if "review_scope" not in columns:
             self._connection.execute(
@@ -1359,13 +1544,11 @@ class ReviewHistoryStore:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN ticket_key TEXT")
         if "is_final" not in columns:
             self._connection.execute(
-                "ALTER TABLE review_runs "
-                "ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0"
+                "ALTER TABLE review_runs ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0"
             )
         if "review_score" not in columns:
             self._connection.execute(
-                "ALTER TABLE review_runs "
-                "ADD COLUMN review_score INTEGER NOT NULL DEFAULT 100"
+                "ALTER TABLE review_runs ADD COLUMN review_score INTEGER NOT NULL DEFAULT 100"
             )
             self._connection.execute(
                 """
@@ -1398,9 +1581,7 @@ class ReviewHistoryStore:
         if "llm_summary" not in columns:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary TEXT")
         if "llm_summary_score" not in columns:
-            self._connection.execute(
-                "ALTER TABLE review_runs ADD COLUMN llm_summary_score INTEGER"
-            )
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_score INTEGER")
         if "llm_summary_status" not in columns:
             self._connection.execute("ALTER TABLE review_runs ADD COLUMN llm_summary_status TEXT")
         if "llm_summary_provider" not in columns:
@@ -1428,9 +1609,7 @@ class ReviewHistoryStore:
                 "ALTER TABLE review_runs ADD COLUMN llm_summary_error_message TEXT"
             )
         if "developer_profile" not in columns:
-            self._connection.execute(
-                "ALTER TABLE review_runs ADD COLUMN developer_profile TEXT"
-            )
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN developer_profile TEXT")
         if "developer_profile_status" not in columns:
             self._connection.execute(
                 "ALTER TABLE review_runs ADD COLUMN developer_profile_status TEXT"
@@ -1468,9 +1647,7 @@ class ReviewHistoryStore:
                 "ALTER TABLE review_runs ADD COLUMN developer_profile_lookback_days INTEGER"
             )
         if "estimated_cost_usd" not in columns:
-            self._connection.execute(
-                "ALTER TABLE review_runs ADD COLUMN estimated_cost_usd REAL"
-            )
+            self._connection.execute("ALTER TABLE review_runs ADD COLUMN estimated_cost_usd REAL")
         if "currency" not in columns:
             self._connection.execute(
                 "ALTER TABLE review_runs ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'"
@@ -1481,8 +1658,7 @@ class ReviewHistoryStore:
             )
         if "developer_profile_estimated_cost_usd" not in columns:
             self._connection.execute(
-                "ALTER TABLE review_runs "
-                "ADD COLUMN developer_profile_estimated_cost_usd REAL"
+                "ALTER TABLE review_runs ADD COLUMN developer_profile_estimated_cost_usd REAL"
             )
 
     def _ensure_schema_indexes(self) -> None:
@@ -1502,14 +1678,11 @@ class ReviewHistoryStore:
     def _ensure_weekly_review_columns(self) -> None:
         columns = {
             str(row["name"])
-            for row in self._connection.execute(
-                "PRAGMA table_info(weekly_llm_reviews)"
-            ).fetchall()
+            for row in self._connection.execute("PRAGMA table_info(weekly_llm_reviews)").fetchall()
         }
         if "phase" not in columns:
             self._connection.execute(
-                "ALTER TABLE weekly_llm_reviews "
-                "ADD COLUMN phase TEXT NOT NULL DEFAULT 'Beta Phase'"
+                "ALTER TABLE weekly_llm_reviews ADD COLUMN phase TEXT NOT NULL DEFAULT 'Beta Phase'"
             )
 
     def _ensure_llm_metric_columns(self) -> None:
@@ -1605,6 +1778,36 @@ def _weekly_llm_review_from_row(row: sqlite3.Row) -> WeeklyLlmReviewRecord:
         phase=str(row["phase"]),
         mr_count=int(row["mr_count"]),
         developer_count=int(row["developer_count"]),
+        ticket_count=int(row["ticket_count"]),
+        approved_ticket_count=int(row["approved_ticket_count"]),
+        observed_ticket_count=int(row["observed_ticket_count"]),
+        blocking_review_count=int(row["blocking_review_count"]),
+        high_risk_review_count=int(row["high_risk_review_count"]),
+        warning_review_count=int(row["warning_review_count"]),
+        info_review_count=int(row["info_review_count"]),
+        top_risks=_json_list(row["top_risks"]),
+        recommended_actions=_json_list(row["recommended_actions"]),
+        provider=str(row["provider"]),
+        model=str(row["model"]),
+        input_tokens=_optional_int(row["input_tokens"]),
+        output_tokens=_optional_int(row["output_tokens"]),
+        total_tokens=_optional_int(row["total_tokens"]),
+        estimated_cost_usd=_optional_float(row["estimated_cost_usd"]),
+        currency=str(row["currency"]),
+    )
+
+
+def _developer_llm_review_from_row(row: sqlite3.Row) -> DeveloperLlmReviewRecord:
+    return DeveloperLlmReviewRecord(
+        developer_review_id=int(row["developer_review_id"]),
+        developer_id=str(row["developer_id"]),
+        period_start=date.fromisoformat(str(row["period_start"])),
+        period_end=date.fromisoformat(str(row["period_end"])),
+        created_at=datetime.fromisoformat(str(row["created_at"])),
+        result=cast(DeveloperLlmReviewResult, row["result"]),
+        score=int(row["score"]),
+        summary=str(row["summary"]),
+        review_request_count=int(row["review_request_count"]),
         ticket_count=int(row["ticket_count"]),
         approved_ticket_count=int(row["approved_ticket_count"]),
         observed_ticket_count=int(row["observed_ticket_count"]),

@@ -16,7 +16,22 @@ never convert tokens into a cost. The weekly LLM review already carries an estim
 individual reviews do not, so the per-review review-cost question can't be answered from the
 stored data.
 
-**Status (2026-06-09): open — not started.** Scope below; awaiting implementation.
+**Status (2026-06-09): implemented (storage only).** Added `mr_guardian/core/llm_pricing.py`
+(typed `provider -> model` rates per 1M tokens, generic fallback logged server-side, `None`
+when both token counts are missing). `estimated_cost_usd` now lives on `LlmRuleMetric`,
+`LlmReviewSummary`, `LlmDeveloperProfile`; the engine/summary/profile builders compute it
+from token usage. `review_runs` gained `estimated_cost_usd` (a rollup recomputed from the
+per-call costs by `_recompute_review_cost`) + `currency`, and per-call cost columns; all are
+added by additive migration on existing DBs. Covered by `test_llm_pricing.py`, engine +
+storage round-trip/rollup/migration tests; documented in
+[api-review-feeds.md](api-review-feeds.md) + [review-history-schema.md](review-history-schema.md);
+staged-observability note added to CLAUDE.md and AGENTS.md. **No UI surfaces cost** (report
+and dashboards untouched), per the staged rollout. `pytest`, `ruff check .`, `mypy
+mr_guardian` all pass.
+
+Implementation note vs. the original scope: the review-level total is **derived** (recomputed
+from the stored per-call costs) rather than supplied verbatim on `POST /reviews`, so cost is
+never accepted as a free-standing review-level input — it always reflects the per-call rows.
 
 ## Current state
 
@@ -111,11 +126,11 @@ Add columns + **additive `ALTER TABLE … ADD COLUMN` migrations**, mirroring th
 ### 6. "How to load data to the DB" docs (add cost instructions)
 The existing DB-loading instructions must explain the new cost fields:
 
-- [Docs/api-review-feeds.md](api-review-feeds.md): the `POST /reviews`,
-  `POST /reviews/{id}/llm-metrics`, `PUT /reviews/{id}/llm-summary`, and
-  `PUT /reviews/{id}/developer-profile` payloads now accept an optional `estimated_cost_usd`
-  (and review-level `currency`); document that it is stored verbatim when supplied and
-  computed otherwise.
+- [Docs/api-review-feeds.md](api-review-feeds.md): the `POST /reviews/{id}/llm-metrics`,
+  `PUT /reviews/{id}/llm-summary`, and `PUT /reviews/{id}/developer-profile` payloads now
+  accept an optional per-call `estimated_cost_usd`; `POST /reviews` accepts review-level
+  `currency`. The review-level total is derived (recomputed from the per-call costs), not
+  accepted directly.
 - [Docs/review-history-schema.md](review-history-schema.md): add the cost fields to the
   Field Reference and the SQLite Mapping Notes.
 - **AGENTS.md → "Bloomkeeper Weekly MR Drip"**: the demo-data loader must fabricate a
@@ -159,8 +174,8 @@ Before marking complete, run `pytest`, `ruff check .`, `ruff format .`, `mypy mr
 - **Unknown / unpriced model = a standard generic fallback rate**, computed and stored like
   any other cost, with a **server-side log** of the fallback (not silent) and **no frontend
   signal** that a fallback was used (per decision). Missing token *counts* → `NULL` cost
-  (cannot price an absent quantity). _**Confirm** this reading of "store a standard generic
-  fallback without silently / do not tell anyone, especially on the frontend."_
+  (cannot price an absent quantity). _Implemented per this reading of "store a standard
+  generic fallback without silently / do not tell anyone, especially on the frontend."_
 - **Rates per 1,000,000 tokens**; cost rounded to a fixed precision.
 - **Compute-then-store** (not compute-on-read) so historical rows keep their as-of price,
   matching the weekly model.

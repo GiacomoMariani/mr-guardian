@@ -59,8 +59,7 @@ def render_visual_review_report(
     metadata_findings = [
         finding
         for finding in findings
-        if finding.severity in {"blocking", "high", "warning"}
-        and _metadata_sections(finding)
+        if finding.severity in {"blocking", "high", "warning"} and _metadata_sections(finding)
     ]
 
     # When the blocked section already lists the blocking findings as a table, drop
@@ -71,7 +70,9 @@ def render_visual_review_report(
         other_findings = [f for f in findings if f.severity != "blocking"]
         findings_section = (
             _render_findings_section(
-                other_findings, skipped_findings, title="Other findings",
+                other_findings,
+                skipped_findings,
+                title="Other findings",
                 rule_details=rule_details,
             )
             if other_findings or skipped_findings
@@ -103,13 +104,12 @@ def render_visual_review_report(
             _render_llm_note(run),
             _render_stats(run),
             _render_scope(run),
+            _render_usage(run),
             "<main>",
             _render_blocked_section(metadata_findings, findings, rule_details)
             if run.blocking_count
             else "",
-            _render_skipped_section(skipped_rule_ids, skipped_metrics)
-            if skipped_rule_ids
-            else "",
+            _render_skipped_section(skipped_rule_ids, skipped_metrics) if skipped_rule_ids else "",
             findings_section,
             "</main>",
             _render_footer(run, skipped_rule_ids),
@@ -509,15 +509,60 @@ def _render_scope(run: ReviewRunRecord) -> str:
     )
 
 
+def _render_usage(run: ReviewRunRecord) -> str:
+    """Token-usage line for this MR review: LLM rules + AI summary only. The developer profile
+    is a developer-level artifact (not part of reviewing this MR), so it is excluded here.
+    Tokens lead; the estimated cost is shown secondarily. Returns '' when the review made no
+    token-bearing LLM calls (e.g. deterministic-only reviews). A generic fallback rate (for
+    unpriced models) is never flagged."""
+    rule_tokens = sum(
+        (m.total_tokens or (m.input_tokens or 0) + (m.output_tokens or 0))
+        for m in run.llm_metrics
+    )
+    rule_cost = sum((m.estimated_cost_usd or 0.0) for m in run.llm_metrics)
+    summary = run.llm_summary
+    summary_tokens = (
+        (summary.total_tokens or (summary.input_tokens or 0) + (summary.output_tokens or 0))
+        if summary is not None
+        else 0
+    )
+    summary_cost = (summary.estimated_cost_usd or 0.0) if summary is not None else 0.0
+
+    total_tokens = rule_tokens + summary_tokens
+    if total_tokens <= 0:
+        return ""
+    total_cost = round(rule_cost + summary_cost, 6)
+
+    parts: list[str] = []
+    if rule_tokens > 0:
+        parts.append(f"LLM rules {rule_tokens:,}")
+    if summary_tokens > 0:
+        parts.append(f"AI summary {summary_tokens:,}")
+    breakdown = " &middot; ".join(_html(part) for part in parts)
+    cost_suffix = (
+        f"&nbsp;&nbsp;-&nbsp;&nbsp;est. {_html(_cost_text(total_cost, run.currency))}"
+        if total_cost > 0
+        else ""
+    )
+    return (
+        '<div class="diffline">'
+        f"Token usage&nbsp;&nbsp;<b>{total_tokens:,} tokens</b>"
+        f"&nbsp;&nbsp;-&nbsp;&nbsp;{breakdown}{cost_suffix}"
+        "</div>"
+    )
+
+
+def _cost_text(amount: float, currency: str) -> str:
+    return f"{amount:.4f} {currency}"
+
+
 def _render_blocked_section(
     metadata_findings: list[Finding],
     findings: list[Finding],
     rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
     actionable_findings = [
-        finding
-        for finding in findings
-        if finding.severity in {"blocking", "high", "warning"}
+        finding for finding in findings if finding.severity in {"blocking", "high", "warning"}
     ]
     if actionable_findings and len(metadata_findings) == len(actionable_findings):
         lede = (
@@ -568,9 +613,7 @@ def _render_blocking_table(
     findings: list[Finding],
     rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
-    blocking_findings = [
-        finding for finding in findings if finding.severity == "blocking"
-    ]
+    blocking_findings = [finding for finding in findings if finding.severity == "blocking"]
     return _render_findings_table(blocking_findings, rule_details=rule_details)
 
 
@@ -626,15 +669,11 @@ def _render_findings_table(
     rule_details: Mapping[str, PolicyRule] | None = None,
 ) -> str:
     skipped = skipped_findings or []
-    normal_findings = [
-        finding for finding in findings if not _is_skipped_llm_finding(finding)
-    ]
+    normal_findings = [finding for finding in findings if not _is_skipped_llm_finding(finding)]
     if not normal_findings and not skipped:
         return '<p class="lede">No findings were triggered.</p>'
 
-    rows = "".join(
-        _render_finding_row(finding, rule_details) for finding in normal_findings
-    )
+    rows = "".join(_render_finding_row(finding, rule_details) for finding in normal_findings)
     if skipped:
         rows += _render_skipped_findings_row(skipped)
     return f"""
@@ -686,11 +725,7 @@ def _render_rule_detail_row(rule: PolicyRule) -> str:
             '<div class="fd-prompt"><span class="fd-plabel">LLM prompt</span>'
             f"<pre>{_html(rule.prompt.strip())}</pre></div>"
         )
-    return (
-        '<tr class="fdetail"><td colspan="5">'
-        f'<div class="fd-body">{body}</div>'
-        "</td></tr>"
-    )
+    return f'<tr class="fdetail"><td colspan="5"><div class="fd-body">{body}</div></td></tr>'
 
 
 def _render_skipped_findings_row(findings: list[Finding]) -> str:
@@ -743,10 +778,7 @@ def _policy_lines(run: ReviewRunRecord) -> list[str]:
     if not run.policy_summaries:
         return [_html(f"Policy version {run.policy_version}")]
     return [
-        _html(
-            f"{Path(policy.policy_path).name} - "
-            f"{policy.enabled_rule_count} rules enabled"
-        )
+        _html(f"{Path(policy.policy_path).name} - {policy.enabled_rule_count} rules enabled")
         for policy in run.policy_summaries
     ]
 

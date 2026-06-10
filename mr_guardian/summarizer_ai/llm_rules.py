@@ -289,8 +289,7 @@ def _build_llm_prompt(*, rule: PolicyRule, review_input: ReviewInput) -> str:
     if include_changed_files:
         sections.extend(["", "Changed files:"])
         sections.extend(
-            f"- {changed_file.path.as_posix()}"
-            for changed_file in review_input.changed_files
+            f"- {changed_file.path.as_posix()}" for changed_file in review_input.changed_files
         )
 
     if include_diff:

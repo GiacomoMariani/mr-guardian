@@ -33,9 +33,7 @@ def test_renders_review_history_table() -> None:
                 generated_review_report="## MR Guardian Review\n",
             )
         ],
-        most_triggered_rules=[
-            TriggeredRuleStat(rule_id="PYTHON-PRINT-001", trigger_count=3)
-        ],
+        most_triggered_rules=[TriggeredRuleStat(rule_id="PYTHON-PRINT-001", trigger_count=3)],
     )
 
     assert "ID  Timestamp" in report

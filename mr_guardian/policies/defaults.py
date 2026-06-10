@@ -26,7 +26,5 @@ def _contains_yaml(directory: Path) -> bool:
     if not directory.is_dir():
         return False
     return any(
-        path.is_file()
-        for pattern in ("*.yml", "*.yaml")
-        for path in directory.glob(pattern)
+        path.is_file() for pattern in ("*.yml", "*.yaml") for path in directory.glob(pattern)
     )

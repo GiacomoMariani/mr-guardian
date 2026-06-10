@@ -247,8 +247,7 @@ def test_collapses_skipped_llm_findings() -> None:
     assert "Skipped rules: `AI-CODE-LLM-001`, `PYTHON-DESIGN-LLM-001`" in report
     assert "| `AI-CODE-LLM-001` | rate_limited | 0.38s" in report
     assert (
-        "| `Info x2` | `LLM skipped checks` | LLM rules skipped - a rate limit | "
-        "llm | multiple |"
+        "| `Info x2` | `LLM skipped checks` | LLM rules skipped - a rate limit | llm | multiple |"
     ) in report
     assert "Re-run the review once the LLM provider is available" in report
 

@@ -799,6 +799,23 @@ a {{
   padding-top: 12px;
 }}
 
+.mg-card-subhead {{
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--mg-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  margin: 18px 0 12px;
+  padding-top: 14px;
+  text-transform: uppercase;
+}}
+
+.mg-card-subhead span {{
+  color: var(--ink-3);
+  font-weight: 600;
+}}
+
 .mg-weekly-score {{
   background: var(--accent-bg);
   border: 1px solid var(--line);

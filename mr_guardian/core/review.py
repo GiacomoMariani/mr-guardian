@@ -158,21 +158,13 @@ def _review_policy(
 
 
 def _combine_engine_results(results: list[EngineReviewResult]) -> EngineReviewResult:
-    findings = [
-        finding
-        for result in results
-        for finding in result.findings
-    ]
+    findings = [finding for result in results for finding in result.findings]
     counts = count_findings(findings)
     return EngineReviewResult(
         risk=calculate_risk(counts),
         findings=findings,
         counts=counts,
-        llm_metrics=[
-            metric
-            for result in results
-            for metric in result.llm_metrics
-        ],
+        llm_metrics=[metric for result in results for metric in result.llm_metrics],
         evaluations=summarize_review_evaluations(findings),
     )
 

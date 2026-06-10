@@ -131,6 +131,12 @@ PUT /reviews/1/developer-profile
   Feeding findings or evaluations afterward does **not** recompute them — keep the
   parent totals consistent in the creation payload.
 - **Replacing evaluations** also clears their `triggered_rule_ids` children.
+- **LLM cost.** Each LLM component payload may carry an optional `estimated_cost_usd`: items
+  in `llm-metrics`, and the `llm-summary` / `developer-profile` objects. The review-level
+  `estimated_cost_usd` on `review_runs` is **derived** — recomputed as the sum of the stored
+  per-call costs whenever any LLM component is fed — so it is not read from the `POST
+  /reviews` body. `currency` (default `USD`) is stored at the review level. These costs are
+  persisted but not shown in any UI.
 
 ## Errors
 

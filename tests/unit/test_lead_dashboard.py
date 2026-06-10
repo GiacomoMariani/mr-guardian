@@ -8,7 +8,7 @@ from mr_guardian.core.lead_dashboard import (
     prepare_lead_developer_detail,
 )
 from mr_guardian.models.history import ReviewRunCreate
-from mr_guardian.models.review import FindingCounts, ReviewEvaluation, RiskLevel
+from mr_guardian.models.review import FindingCounts, LlmRuleMetric, ReviewEvaluation, RiskLevel
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -22,6 +22,7 @@ def make_review_run(
     triggered_rule_ids: list[str] | None = None,
     evaluations: list[ReviewEvaluation] | None = None,
     is_final: bool = False,
+    llm_metrics: list[LlmRuleMetric] | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or (["RULE-001"] if risk != "none" else [])
     return ReviewRunCreate(
@@ -40,6 +41,7 @@ def make_review_run(
         changed_file_count=2,
         changed_line_count=12,
         review_score=review_score,
+        llm_metrics=llm_metrics or [],
         triggered_rule_ids=rule_ids,
         evaluations=evaluations or [],
         generated_review_report="## MR Guardian Review\n",
@@ -53,6 +55,124 @@ def stored_runs(*runs: ReviewRunCreate) -> list:
         return [store.store_review_run(run) for run in runs]
     finally:
         store.close()
+
+
+def _metric(cost: float) -> LlmRuleMetric:
+    return LlmRuleMetric(
+        rule_id="LLM-1",
+        provider="openai",
+        model="gpt-4.1-mini",
+        status="succeeded",
+        duration_ms=100,
+        input_tokens=100,
+        output_tokens=10,
+        total_tokens=110,
+        estimated_cost_usd=cost,
+    )
+
+
+def test_lead_summary_totals_estimated_cost() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-1",
+            timestamp=base_time,
+            risk="warning",
+            review_score=90,
+            llm_metrics=[_metric(0.0030)],
+        ),
+        make_review_run(
+            developer_id="Dan",
+            ticket_key="TK-2",
+            timestamp=base_time,
+            risk="none",
+            review_score=100,
+            llm_metrics=[_metric(0.0008)],
+        ),
+        make_review_run(
+            developer_id="Dan",
+            ticket_key="TK-3",
+            timestamp=base_time,
+            risk="none",
+            review_score=100,
+        ),
+    )
+
+    summary = prepare_lead_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+
+    assert summary.total_estimated_cost_usd == 0.0038
+    assert summary.total_tokens == 220
+    assert summary.currency == "USD"
+
+
+def test_lead_summary_cost_is_none_without_priced_reviews() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-1",
+            timestamp=base_time,
+            risk="none",
+            review_score=100,
+        ),
+    )
+
+    summary = prepare_lead_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+
+    assert summary.total_estimated_cost_usd is None
+    assert summary.total_tokens is None
+
+
+def test_lead_developer_summary_totals_estimated_cost() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-1",
+            timestamp=base_time,
+            risk="warning",
+            review_score=90,
+            llm_metrics=[_metric(0.0030)],
+        ),
+        make_review_run(
+            developer_id="Jane",
+            ticket_key="TK-2",
+            timestamp=base_time + timedelta(hours=1),
+            risk="none",
+            review_score=100,
+            llm_metrics=[_metric(0.0005)],
+        ),
+        make_review_run(
+            developer_id="Dan",
+            ticket_key="TK-3",
+            timestamp=base_time,
+            risk="none",
+            review_score=100,
+            llm_metrics=[_metric(0.0008)],
+        ),
+    )
+
+    summary = prepare_lead_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+    by_developer = {dev.developer_id: dev for dev in summary.developers}
+
+    assert by_developer["Jane"].total_estimated_cost_usd == 0.0035
+    assert by_developer["Dan"].total_estimated_cost_usd == 0.0008
+    assert by_developer["Jane"].total_tokens == 220
+    assert by_developer["Dan"].total_tokens == 110
+    assert by_developer["Jane"].currency == "USD"
 
 
 def _trend_history_runs(now: datetime) -> list[ReviewRunCreate]:

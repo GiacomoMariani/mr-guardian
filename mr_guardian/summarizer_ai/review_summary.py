@@ -246,10 +246,7 @@ def _finding_lines(findings: list[Finding]) -> Iterable[str]:
     for finding in findings:
         location = _format_location(finding)
         location_text = f" at {location}" if location else ""
-        yield (
-            f"- [{finding.severity}] {finding.rule_id}{location_text}: "
-            f"{finding.message}"
-        )
+        yield (f"- [{finding.severity}] {finding.rule_id}{location_text}: {finding.message}")
 
 
 def _changed_file_lines(review_input: ReviewInput) -> Iterable[str]:

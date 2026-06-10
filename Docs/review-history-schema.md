@@ -64,6 +64,8 @@ below. Call `GET /reviews/schema` for the full generated JSON schema.
 | `policy_version` | integer | no | supplied | Policy version from the evaluated YAML policy set. |
 | `risk` | enum | no | derived or validated | Overall review risk: `none`, `info`, `warning`, `high`, or `blocking`. |
 | `review_score` | integer | no | derived | Deterministic score from review counts, constrained to `0..100`. |
+| `estimated_cost_usd` | number | yes | derived | Rolled-up estimated USD cost of all LLM calls in the run (sum of per-call costs); `null` when nothing is priced. Not shown in any UI. |
+| `currency` | string | no | derived | Currency for the cost fields; defaults to `USD`. |
 | `blocking_count` | integer | no | derived or validated | Count of blocking findings. |
 | `high_count` | integer | no | derived or validated | Count of high findings. |
 | `warning_count` | integer | no | derived or validated | Count of warning findings. |
@@ -73,7 +75,7 @@ below. Call `GET /reviews/schema` for the full generated JSON schema.
 | `findings` | array | no | derived or supplied | Structured findings with rule ID, severity, message, source, evaluation, type, and optional location. |
 | `triggered_rule_ids` | string array | no | derived | Rule IDs that produced findings. |
 | `evaluations` | array | no | derived or validated | MR-level summaries for `coding` and `mr_structure`. |
-| `llm_metrics` | array | no | LLM-generated metadata | Per-LLM-rule status, duration, token usage, and error details. |
+| `llm_metrics` | array | no | LLM-generated metadata | Per-LLM-rule status, duration, token usage, estimated cost, and error details. |
 | `llm_summary` | object | yes | LLM-generated | Optional per-review LLM note and score. |
 | `llm_summary.score` | integer | yes | LLM-generated | Advisory LLM score for the review, stored in SQLite as `llm_summary_score`. |
 | `developer_profile` | object | yes | LLM-generated | Optional profile snapshot for the review's developer over the configured lookback window. |
@@ -84,11 +86,11 @@ below. Call `GET /reviews/schema` for the full generated JSON schema.
 
 The typed model is the integration contract. SQLite storage uses tables and columns optimized for querying:
 
-- `review_runs` stores scalar review fields, the `is_final` marker, generated report text, LLM summary columns, and developer profile columns.
+- `review_runs` stores scalar review fields, the `is_final` marker, generated report text, LLM summary columns, developer profile columns, and cost columns (`estimated_cost_usd` rollup + `currency`, plus `llm_summary_estimated_cost_usd` and `developer_profile_estimated_cost_usd`).
 - `triggered_rules` stores top-level triggered rule IDs.
 - `review_findings` stores structured findings.
 - `review_policies` stores evaluated policy summaries.
-- `review_llm_rule_metrics` stores per-rule LLM runtime and token metadata.
+- `review_llm_rule_metrics` stores per-rule LLM runtime, token, and estimated-cost metadata.
 - `review_evaluations` stores coding and MR-structure summary rows.
 - `review_evaluation_triggered_rules` stores rule IDs attached to each evaluation summary.
 - `weekly_llm_reviews` stores externally supplied weekly LLM dashboard summaries,

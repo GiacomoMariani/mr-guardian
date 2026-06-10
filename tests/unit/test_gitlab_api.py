@@ -36,8 +36,7 @@ def test_posts_merge_request_note_to_gitlab_api() -> None:
     )
 
     assert captured["url"] == (
-        "https://gitlab.example.com/api/v4/projects/team%2FMRGuardian/"
-        "merge_requests/7/notes"
+        "https://gitlab.example.com/api/v4/projects/team%2FMRGuardian/merge_requests/7/notes"
     )
     assert captured["timeout"] == 3.5
     assert captured["body"] == b"body=%23+MR+Guardian+Review"

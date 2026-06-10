@@ -23,7 +23,7 @@ DEFAULT_ALLOCATION_TOKENS = (
     ".ToList(",
     ".ToArray(",
     "string.Format(",
-    "$\"",
+    '$"',
 )
 DEFAULT_POOLING_TOKENS = ("Instantiate(", "Destroy(")
 DEFAULT_RUNTIME_METHOD_NAME_TOKENS = (

@@ -308,9 +308,7 @@ def test_source_yaml_policies_explicitly_classify_every_rule() -> None:
         assert all("evaluation" in rule for rule in rules)
 
         policy = load_policy(policy_path)
-        assert {rule.evaluation for rule in policy.rules}.issubset(
-            {"coding", "mr_structure"}
-        )
+        assert {rule.evaluation for rule in policy.rules}.issubset({"coding", "mr_structure"})
 
 
 def test_unity_policy_loads_lifecycle_llm_rule() -> None:

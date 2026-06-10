@@ -128,9 +128,7 @@ def _review_evaluation(
     evaluation: EvaluationDimension,
     findings: list[Finding],
 ) -> ReviewEvaluation:
-    evaluation_findings = [
-        finding for finding in findings if finding.evaluation == evaluation
-    ]
+    evaluation_findings = [finding for finding in findings if finding.evaluation == evaluation]
     counts = FindingCounts(
         blocking=sum(1 for finding in evaluation_findings if finding.severity == "blocking"),
         high=sum(1 for finding in evaluation_findings if finding.severity == "high"),

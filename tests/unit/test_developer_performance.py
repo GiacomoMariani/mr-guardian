@@ -80,9 +80,7 @@ def test_summarizes_developer_performance_by_ticket() -> None:
     assert ticket.total_review_days == 2.5
     assert ticket.average_score == 90
 
-    unapproved_ticket = next(
-        item for item in summary.tickets if item.ticket_key == "TK-999"
-    )
+    unapproved_ticket = next(item for item in summary.tickets if item.ticket_key == "TK-999")
     assert unapproved_ticket.is_approved is False
     assert unapproved_ticket.approved_at is None
     assert unapproved_ticket.attempts_to_approval is None
@@ -96,9 +94,7 @@ def test_load_developer_performance_summary_filters_by_developer_and_days(
     expected_record = store.store_review_run(
         make_review_run(timestamp=now - timedelta(days=1), ticket_key="TK-234")
     )
-    store.store_review_run(
-        make_review_run(timestamp=now - timedelta(days=10), ticket_key="TK-999")
-    )
+    store.store_review_run(make_review_run(timestamp=now - timedelta(days=10), ticket_key="TK-999"))
     store.store_review_run(
         make_review_run(
             developer_id="Other Developer",

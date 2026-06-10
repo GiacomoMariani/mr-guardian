@@ -1,2 +1,1 @@
 """Shared typed domain models."""
-

@@ -7,7 +7,7 @@ from mr_guardian.core.pm_dashboard import (
     prepare_pm_dashboard_summary,
 )
 from mr_guardian.models.history import ReviewRunCreate
-from mr_guardian.models.review import RiskLevel
+from mr_guardian.models.review import LlmRuleMetric, RiskLevel
 from mr_guardian.storage import ReviewHistoryStore
 
 
@@ -18,6 +18,7 @@ def make_review_run(
     risk: RiskLevel,
     triggered_rule_ids: list[str] | None = None,
     is_final: bool = False,
+    llm_metrics: list[LlmRuleMetric] | None = None,
 ) -> ReviewRunCreate:
     rule_ids = triggered_rule_ids or (["RULE-001"] if risk != "none" else [])
     return ReviewRunCreate(
@@ -35,6 +36,7 @@ def make_review_run(
         info_count=1 if risk == "info" else 0,
         changed_file_count=2,
         changed_line_count=12,
+        llm_metrics=llm_metrics or [],
         triggered_rule_ids=rule_ids,
         generated_review_report="## MR Guardian Review\n",
         timestamp=timestamp,
@@ -47,6 +49,65 @@ def stored_runs(*runs: ReviewRunCreate) -> list:
         return [store.store_review_run(run) for run in runs]
     finally:
         store.close()
+
+
+def _metric(cost: float) -> LlmRuleMetric:
+    return LlmRuleMetric(
+        rule_id="LLM-1",
+        provider="openai",
+        model="gpt-4.1-mini",
+        status="succeeded",
+        duration_ms=100,
+        input_tokens=100,
+        output_tokens=10,
+        total_tokens=110,
+        estimated_cost_usd=cost,
+    )
+
+
+def test_pm_summary_totals_estimated_cost() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(
+            ticket_key="TK-1",
+            timestamp=base_time,
+            risk="warning",
+            llm_metrics=[_metric(0.0030)],
+        ),
+        make_review_run(
+            ticket_key="TK-2",
+            timestamp=base_time,
+            risk="none",
+            llm_metrics=[_metric(0.0008)],
+        ),
+        make_review_run(ticket_key="TK-3", timestamp=base_time, risk="none"),
+    )
+
+    summary = prepare_pm_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+
+    assert summary.total_estimated_cost_usd == 0.0038
+    assert summary.total_tokens == 220
+    assert summary.currency == "USD"
+
+
+def test_pm_summary_cost_is_none_without_priced_reviews() -> None:
+    base_time = datetime(2026, 5, 25, 10, tzinfo=timezone.utc)
+    review_runs = stored_runs(
+        make_review_run(ticket_key="TK-1", timestamp=base_time, risk="none"),
+    )
+
+    summary = prepare_pm_dashboard_summary(
+        review_runs=review_runs,
+        start_at=base_time - timedelta(days=1),
+        end_at=base_time + timedelta(days=1),
+    )
+
+    assert summary.total_estimated_cost_usd is None
+    assert summary.total_tokens is None
 
 
 def test_classifies_pm_ticket_status_from_latest_risk() -> None:
@@ -109,9 +170,7 @@ def test_pm_summary_groups_by_ticket_and_uses_latest_review_status() -> None:
     assert ticket_by_key["TK-100"].assumed_deployed_at == base_time + timedelta(days=1)
     assert ticket_by_key["TK-100"].delivery_state == "observed"
     assert ticket_by_key["TK-100"].approved_at is None
-    assert ticket_by_key["TK-100"].blocker_reason == (
-        "High-risk review risk from MR-META-001."
-    )
+    assert ticket_by_key["TK-100"].blocker_reason == ("High-risk review risk from MR-META-001.")
 
 
 def test_pm_summary_marks_ticket_approved_from_final_review() -> None:

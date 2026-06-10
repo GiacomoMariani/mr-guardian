@@ -238,11 +238,7 @@ def _ticket_lines(tickets: list[LeadTicketAttemptSummary]) -> Iterable[str]:
         yield "- none"
         return
     for ticket in tickets:
-        approved_at = (
-            ticket.approved_at.isoformat()
-            if ticket.approved_at is not None
-            else "none"
-        )
+        approved_at = ticket.approved_at.isoformat() if ticket.approved_at is not None else "none"
         yield (
             f"- {ticket.ticket_key}: attempts={ticket.review_attempt_count}, "
             f"state={'approved' if ticket.is_approved else 'observed'}, "

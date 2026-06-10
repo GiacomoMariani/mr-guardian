@@ -52,11 +52,7 @@ def process_gitlab_webhook(
 
 def _project_name(payload: Mapping[str, Any]) -> str:
     project = _mapping(payload.get("project"))
-    return (
-        _string(project.get("path_with_namespace"))
-        or _string(project.get("name"))
-        or "unknown"
-    )
+    return _string(project.get("path_with_namespace")) or _string(project.get("name")) or "unknown"
 
 
 def _project_id(payload: Mapping[str, Any]) -> str | None:

@@ -71,6 +71,8 @@ def prepare_pm_dashboard_summary(
         pass_rate=pass_rate,
         blocked_ticket_count=status_counts["fail"],
         unlinked_review_count=sum(1 for run in review_runs if run.ticket_key is None),
+        total_estimated_cost_usd=_total_estimated_cost(review_runs),
+        total_tokens=_total_tokens(review_runs),
         tickets=tickets,
         recurring_blockers=_recurring_blockers(review_runs),
     )
@@ -134,15 +136,35 @@ def _final_run(review_runs: list[ReviewRunRecord]) -> ReviewRunRecord | None:
 def _status_counts(tickets: list[PmTicketStatus]) -> dict[PmTicketStatusValue, int]:
     return {
         "fail": sum(1 for ticket in tickets if ticket.status == "fail"),
-        "pass_with_warnings": sum(
-            1 for ticket in tickets if ticket.status == "pass_with_warnings"
-        ),
+        "pass_with_warnings": sum(1 for ticket in tickets if ticket.status == "pass_with_warnings"),
         "pass": sum(1 for ticket in tickets if ticket.status == "pass"),
     }
 
 
 def _average_score(review_runs: list[ReviewRunRecord]) -> float:
     return round(sum(run.review_score for run in review_runs) / len(review_runs), 2)
+
+
+def _total_estimated_cost(review_runs: list[ReviewRunRecord]) -> float | None:
+    """Total estimated LLM spend across the window, or None when nothing is priced."""
+    costs = [run.estimated_cost_usd for run in review_runs if run.estimated_cost_usd is not None]
+    return round(sum(costs), 6) if costs else None
+
+
+def _total_tokens(review_runs: list[ReviewRunRecord]) -> int | None:
+    """Total LLM tokens across the window (rule metrics + summary + developer profile);
+    None when no call reported usage."""
+    total = 0
+    seen = False
+    for run in review_runs:
+        for art in (run.llm_summary, run.developer_profile, *run.llm_metrics):
+            if art is None:
+                continue
+            tokens = art.total_tokens or (art.input_tokens or 0) + (art.output_tokens or 0)
+            if tokens:
+                total += tokens
+                seen = True
+    return total if seen else None
 
 
 def _blocker_reason(run: ReviewRunRecord) -> str:
@@ -187,11 +209,7 @@ def _recurring_blocker(
     return PmRecurringBlocker(
         rule_id=rule_id,
         affected_ticket_count=len(
-            {
-                run.ticket_key
-                for run in review_runs
-                if run.ticket_key is not None
-            }
+            {run.ticket_key for run in review_runs if run.ticket_key is not None}
         ),
         review_run_count=len(review_runs),
         highest_severity_seen=max(
@@ -203,10 +221,6 @@ def _recurring_blocker(
 
 def _is_recurring(review_runs: list[ReviewRunRecord]) -> bool:
     affected_ticket_count = len(
-        {
-            run.ticket_key
-            for run in review_runs
-            if run.ticket_key is not None
-        }
+        {run.ticket_key for run in review_runs if run.ticket_key is not None}
     )
     return affected_ticket_count > 1 or len(review_runs) > 1

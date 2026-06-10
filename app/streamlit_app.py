@@ -34,8 +34,7 @@ if RUNTIME_ERROR is not None:
 
     st.error(RUNTIME_ERROR)
     st.code(
-        'python -m pip install -e ".[dashboard]"\n'
-        "python -m streamlit run app/streamlit_app.py",
+        'python -m pip install -e ".[dashboard]"\npython -m streamlit run app/streamlit_app.py',
         language="powershell",
     )
     st.stop()
@@ -70,6 +69,9 @@ from mr_guardian.core.dashboard_eta import (  # noqa: E402
     load_dashboard_eta_note,
     recent_dashboard_eta_notes,
 )
+from mr_guardian.core.developer_review import (  # noqa: E402
+    load_recent_developer_llm_reviews,
+)
 from mr_guardian.core.lead_dashboard import (  # noqa: E402
     load_lead_dashboard_summary,
     load_lead_developer_detail,
@@ -80,6 +82,7 @@ from mr_guardian.core.weekly_llm_review import (  # noqa: E402
     load_recent_weekly_llm_reviews,
 )
 from mr_guardian.models.dashboard import DashboardEtaNote  # noqa: E402
+from mr_guardian.models.developer_review import DeveloperLlmReviewRecord  # noqa: E402
 from mr_guardian.models.history import (  # noqa: E402
     ReviewRunRecord,
     TriggeredRuleStat,
@@ -147,9 +150,7 @@ def _policy_dir_mtime(policy_dir: str) -> float:
     """Newest mtime across the policy YAML files; refreshes the catalog cache."""
     directory = Path(policy_dir)
     mtimes = [
-        path.stat().st_mtime
-        for pattern in ("*.yml", "*.yaml")
-        for path in directory.glob(pattern)
+        path.stat().st_mtime for pattern in ("*.yml", "*.yaml") for path in directory.glob(pattern)
     ]
     return max(mtimes, default=0.0)
 
@@ -178,12 +179,8 @@ def _cached_lead_summary(database_path: Path, days: int, db_mtime: float):
 
 
 @st.cache_data(show_spinner=False)
-def _cached_developer_detail(
-    database_path: Path, developer_id: str, days: int, db_mtime: float
-):
-    return load_lead_developer_detail(
-        database_path, developer_id=developer_id, days=days
-    )
+def _cached_developer_detail(database_path: Path, developer_id: str, days: int, db_mtime: float):
+    return load_lead_developer_detail(database_path, developer_id=developer_id, days=days)
 
 
 @st.cache_data(show_spinner=False)
@@ -194,6 +191,11 @@ def _cached_weekly_review(database_path: Path, db_mtime: float):
 @st.cache_data(show_spinner=False)
 def _cached_recent_weekly_reviews(database_path: Path, db_mtime: float):
     return load_recent_weekly_llm_reviews(database_path)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_recent_developer_reviews(database_path: Path, developer_id: str, db_mtime: float):
+    return load_recent_developer_llm_reviews(database_path, developer_id=developer_id)
 
 
 @st.cache_data(show_spinner=False)
@@ -404,9 +406,7 @@ def _render_eta_note(st, database_path: Path) -> None:
     db_mtime = _db_mtime(database_path)
     note = _cached_eta_note(database_path, db_mtime)
     weekly_review = _cached_weekly_review(database_path, db_mtime)
-    phase_label = (
-        weekly_review.phase if weekly_review is not None else DEFAULT_PHASE_LABEL
-    )
+    phase_label = weekly_review.phase if weekly_review is not None else DEFAULT_PHASE_LABEL
     _render_html(
         st,
         render_section(
@@ -421,8 +421,7 @@ def _render_eta_note(st, database_path: Path) -> None:
 def _eta_note_panel(note: DashboardEtaNote | None, phase_label: str) -> str:
     phase_lower = phase_label.lower()
     disclaimer = (
-        f"Based on AI evaluation. Confirm {phase_lower} dates and delivery risk "
-        "with the team."
+        f"Based on AI evaluation. Confirm {phase_lower} dates and delivery risk with the team."
     )
     if note is None:
         return "\n".join(
@@ -455,12 +454,7 @@ def _eta_note_panel(note: DashboardEtaNote | None, phase_label: str) -> str:
 
 def _readiness_badge(weekly_review: WeeklyLlmReviewRecord | None) -> str:
     value = f"{weekly_review.score}%" if weekly_review is not None else "—"
-    return (
-        '<div class="mg-readiness-badge">'
-        '<span>Readiness</span>'
-        f"<strong>{value}</strong>"
-        "</div>"
-    )
+    return f'<div class="mg-readiness-badge"><span>Readiness</span><strong>{value}</strong></div>'
 
 
 def _render_eta_note_history(st, database_path: Path) -> None:
@@ -549,10 +543,7 @@ def _render_trend_chart(st, trend_points) -> None:
     _render_html(
         st,
         render_trend_chart(
-            [
-                (point.date, point.blocking_count, point.warning_count)
-                for point in trend_points
-            ]
+            [(point.date, point.blocking_count, point.warning_count) for point in trend_points]
         ),
     )
 
@@ -566,9 +557,7 @@ def _render_recent_reviews(st, database_path: Path) -> None:
         step=10,
         key="recent_reviews_limit",
     )
-    data = _cached_dashboard_data(
-        database_path, int(recent_limit), _db_mtime(database_path)
-    )
+    data = _cached_dashboard_data(database_path, int(recent_limit), _db_mtime(database_path))
     _render_html(
         st,
         render_section(
@@ -607,9 +596,10 @@ def _render_pm_dashboard(st, database_path: Path) -> None:
                     MetricCard("Fail", summary.fail_count, "blocking"),
                     MetricCard("Pass Rate", f"{summary.pass_rate:.1f}%", "pass"),
                     MetricCard(
-                        "Unlinked Reviews",
-                        summary.unlinked_review_count,
+                        "LLM Tokens",
+                        _format_tokens(summary.total_tokens),
                         "neutral",
+                        detail=_cost_detail(summary.total_estimated_cost_usd, summary.currency),
                     ),
                 ]
             ),
@@ -652,11 +642,7 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
     if len(summary.developers) > 5:
         show_all_developers = st.checkbox("Show all lead developers", value=False)
 
-    visible_developers = (
-        summary.developers
-        if show_all_developers
-        else summary.developers[:5]
-    )
+    visible_developers = summary.developers if show_all_developers else summary.developers[:5]
     _render_html(
         st,
         render_section(
@@ -664,7 +650,17 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
             title="Lead Review View",
             anchor_id="lead-review",
             eyebrow=f"{int(lookback_days)} days",
-            body_html=_lead_developers_table(visible_developers),
+            body_html=render_metric_grid(
+                [
+                    MetricCard(
+                        "LLM Tokens",
+                        _format_tokens(summary.total_tokens),
+                        "neutral",
+                        detail=_cost_detail(summary.total_estimated_cost_usd, summary.currency),
+                    ),
+                ]
+            )
+            + _lead_developers_table(visible_developers),
         ),
     )
 
@@ -680,11 +676,19 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
 
     coding_score = _evaluation_average_score(developer_summary, "coding")
     mr_structure_score = _evaluation_average_score(developer_summary, "mr_structure")
+    # Pull the selected developer's latest biweekly LLM review and render it INSIDE the same
+    # "Selected Developer" card (after the metrics/tables) so it reads as part of this
+    # developer's drill-down rather than a detached panel below it.
+    latest_developer_reviews = _cached_recent_developer_reviews(
+        database_path, selected_developer, _db_mtime(database_path)
+    )
+    latest_developer_review = latest_developer_reviews[0] if latest_developer_reviews else None
     _render_html(
         st,
         render_section(
             index=3,
             title=f"Selected Developer: {selected_developer}",
+            action_html=_developer_llm_review_badge(latest_developer_review),
             body_html=(
                 render_metric_grid(
                     [
@@ -694,22 +698,8 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
                             "accent",
                         ),
                         MetricCard(
-                            "Average Score",
-                            _score(developer_summary.average_score),
-                            "pass",
-                        ),
-                        MetricCard(
-                            "Avg Attempts",
-                            _score(developer_summary.average_attempts_per_ticket),
-                        ),
-                        MetricCard(
                             "Approved Tickets",
                             developer_summary.approved_ticket_count,
-                            "pass",
-                        ),
-                        MetricCard(
-                            "Avg Approval Attempts",
-                            _score(developer_summary.average_attempts_to_approval),
                             "pass",
                         ),
                         MetricCard("Coding Score", _score(coding_score), "info"),
@@ -719,11 +709,23 @@ def _render_lead_dashboard(st, database_path: Path) -> None:
                             "warning",
                         ),
                         MetricCard("Trend", *_trend_label_tone(developer_summary.trend_direction)),
+                        MetricCard(
+                            "LLM Tokens",
+                            _format_tokens(developer_summary.total_tokens),
+                            "neutral",
+                            detail=_cost_detail(
+                                developer_summary.total_estimated_cost_usd,
+                                developer_summary.currency,
+                            ),
+                        ),
                     ]
                 )
                 + _lead_tickets_table(developer_summary)
                 + _lead_repeated_rules_table(developer_summary)
                 + _lead_evaluations_table(developer_summary)
+                + '<div class="mg-card-subhead">Latest Developer LLM Review'
+                ' &middot; <span>AI-generated &middot; biweekly</span></div>'
+                + _developer_llm_review_panel(latest_developer_review)
             ),
         ),
     )
@@ -777,52 +779,38 @@ def _render_developer_detail_page(
                 body_html=render_table(
                     ["Review"],
                     [],
-                    empty_message=(
-                        "No review history is available for this developer and window."
-                    ),
+                    empty_message=("No review history is available for this developer and window."),
                 ),
             ),
         )
         return
 
     developer = detail.developer
-    coding_score = _evaluation_average_score(developer, "coding")
-    mr_structure_score = _evaluation_average_score(developer, "mr_structure")
-    # The "Average Score" card is a real average of the dimension scores it sits next to
-    # (coding + MR structure) — not the overall review-score average, which deducts every
-    # finding's penalty from 100 and so reads lower than the mean of the two.
-    average_score = _mean_score(coding_score, mr_structure_score)
-    settings = get_settings()
-    # Lead with the LLM developer profile (the headline artifact) — its scores plus the
-    # AI write-up — then the activity metrics below it.
+    # Lead with the biweekly developer LLM review (the headline artifact). The per-review
+    # profile is superseded — see the developer-review backend/display tickets.
+    developer_reviews = _cached_recent_developer_reviews(
+        database_path, developer.developer_id, _db_mtime(database_path)
+    )
+    selected_review = developer_reviews[0] if developer_reviews else None
+    if len(developer_reviews) > 1:
+        selected_index = st.selectbox(
+            "Review period",
+            list(range(len(developer_reviews))),
+            index=0,
+            format_func=lambda i: (
+                f"{developer_reviews[i].period_start.isoformat()} → "
+                f"{developer_reviews[i].period_end.isoformat()}"
+            ),
+            key="developer_review_period",
+        )
+        selected_review = developer_reviews[selected_index]
     _render_html(
         st,
         render_section(
-            title="Latest LLM Developer Profile",
-            eyebrow="AI-generated",
-            body_html=(
-                render_metric_grid(
-                    [
-                        _score_card(
-                            "Average Score",
-                            average_score,
-                            settings.score_target_average,
-                        ),
-                        _score_card(
-                            "Coding Score", coding_score, settings.score_target_coding
-                        ),
-                        _score_card(
-                            "MR Structure Score",
-                            mr_structure_score,
-                            settings.score_target_structure,
-                        ),
-                    ]
-                )
-                + _developer_profile_panel(
-                    _latest_developer_profile_run(detail.review_runs),
-                    show_title=False,
-                )
-            ),
+            title="Latest Developer LLM Review",
+            eyebrow="AI-generated · biweekly",
+            action_html=_developer_llm_review_badge(selected_review),
+            body_html=_developer_llm_review_panel(selected_review),
         ),
     )
 
@@ -839,6 +827,12 @@ def _render_developer_detail_page(
                     MetricCard("Avg Attempts", _score(developer.average_attempts_per_ticket)),
                     MetricCard("Approved Tickets", developer.approved_ticket_count, "pass"),
                     MetricCard("Trend", *_trend_label_tone(developer.trend_direction)),
+                    MetricCard(
+                        "LLM Tokens",
+                        _format_tokens(developer.total_tokens),
+                        "neutral",
+                        detail=_cost_detail(developer.total_estimated_cost_usd, developer.currency),
+                    ),
                 ]
             ),
         ),
@@ -885,9 +879,7 @@ def _render_developer_detail_page(
         "Developer review report",
         [run.review_id for run in detail.review_runs],
     )
-    selected_run = next(
-        run for run in detail.review_runs if run.review_id == selected_review_id
-    )
+    selected_run = next(run for run in detail.review_runs if run.review_id == selected_review_id)
     _render_review_report_tabs(st, selected_run, theme)
 
 
@@ -899,12 +891,6 @@ def _evaluation_average_score(
         if evaluation_summary.evaluation == evaluation:
             return evaluation_summary.average_score
     return None
-
-
-def _mean_score(*scores: float | int | None) -> float | None:
-    """Arithmetic mean of the present (non-None) scores; None when none are present."""
-    present = [score for score in scores if score is not None]
-    return sum(present) / len(present) if present else None
 
 
 def _review_pager_slots(
@@ -985,8 +971,7 @@ def _render_review_pager(st, review_ids: list[int]) -> int:
     )
     _render_html(st, '<div class="mg-pager-label">Review</div>')
     column_widths = [
-        AGENT_REVIEW_PAGER_ARROW_WIDTH if kind in ("prev", "next") else 1.0
-        for kind, _ in slots
+        AGENT_REVIEW_PAGER_ARROW_WIDTH if kind in ("prev", "next") else 1.0 for kind, _ in slots
     ]
     for column, (kind, value) in zip(st.columns(column_widths), slots, strict=False):
         with column:
@@ -1251,10 +1236,7 @@ def _recent_reviews_table(runs: list[ReviewRunRecord]) -> str:
                 cell_text(run.review_score, align="right"),
                 _risk_pill(run.risk),
                 cell_text(
-                    run.blocking_count
-                    + run.high_count
-                    + run.warning_count
-                    + run.info_count,
+                    run.blocking_count + run.high_count + run.warning_count + run.info_count,
                     align="right",
                 ),
                 cell_text(run.review_scope),
@@ -1468,7 +1450,6 @@ def _weekly_llm_review_panel(review: WeeklyLlmReviewRecord | None) -> str:
     if review is None:
         return render_empty_state("No weekly LLM review has been stored yet.")
 
-    tone = _weekly_llm_result_tone(review.result)
     summary = _html(review.summary).replace("\n", "<br>")
     return "\n".join(
         [
@@ -1496,7 +1477,7 @@ def _weekly_llm_review_panel(review: WeeklyLlmReviewRecord | None) -> str:
                     MetricCard(
                         label="LLM Score",
                         value=f"{review.score}/100",
-                        tone=tone,
+                        tone=_llm_score_tone(review.score),
                         detail="Calculated by LLM",
                     ),
                     MetricCard(
@@ -1528,6 +1509,12 @@ def _weekly_llm_review_panel(review: WeeklyLlmReviewRecord | None) -> str:
                         ),
                         tone=_weekly_risk_metric_tone(review),
                         detail=f"Info reviews {review.info_review_count}",
+                    ),
+                    MetricCard(
+                        label="LLM Tokens",
+                        value=_format_tokens(review.total_tokens),
+                        tone="neutral",
+                        detail=_cost_detail(review.estimated_cost_usd, review.currency),
                     ),
                 ]
             ),
@@ -1597,6 +1584,119 @@ def _weekly_risk_metric_tone(review: WeeklyLlmReviewRecord) -> Tone:
     return "pass"
 
 
+def _developer_review_risk_tone(review: DeveloperLlmReviewRecord) -> Tone:
+    if review.blocking_review_count > 0:
+        return "blocking"
+    if review.high_risk_review_count > 0:
+        return "high"
+    if review.warning_review_count > 0:
+        return "warning"
+    return "pass"
+
+
+def _llm_score_tone(score: int) -> Tone:
+    """Colour an LLM-calculated score (weekly or developer) by band — above 90 green,
+    75-90 amber, below 75 red — independent of the review result label, so a solid
+    mid-band score reads amber, not red."""
+    if score > 90:
+        return "pass"
+    if score >= 75:
+        return "warning"
+    return "blocking"
+
+
+def _developer_llm_review_badge(review: DeveloperLlmReviewRecord | None) -> str:
+    if review is None:
+        return ""
+    return cell_pill(
+        _weekly_llm_result_label(review.result),
+        _weekly_llm_result_tone(review.result),
+    ).html
+
+
+def _developer_llm_review_panel(review: DeveloperLlmReviewRecord | None) -> str:
+    if review is None:
+        return render_empty_state("No developer LLM review has been stored yet.")
+
+    summary = _html(review.summary).replace("\n", "<br>")
+    return "\n".join(
+        [
+            '<div class="mg-profile-card mg-weekly-review-card">',
+            '<div class="mg-profile-card-head">',
+            "<div>",
+            '<div class="mg-profile-card-title">Developer assessment</div>',
+            (
+                '<div class="mg-profile-card-meta">'
+                f"{_html(review.developer_id)} · "
+                f"{_html(review.period_start.isoformat())} to "
+                f"{_html(review.period_end.isoformat())} · "
+                f"Stored {_html(_format_datetime(review.created_at))}"
+                "</div>"
+            ),
+            "</div>",
+            (
+                '<div class="mg-weekly-score">'
+                "<span>LLM-calculated score</span>"
+                f"<strong>{review.score}/100</strong>"
+                "</div>"
+            ),
+            "</div>",
+            render_metric_grid(
+                [
+                    MetricCard(
+                        label="LLM Score",
+                        value=f"{review.score}/100",
+                        tone=_llm_score_tone(review.score),
+                        detail="Calculated by LLM",
+                    ),
+                    MetricCard(label="Reviews", value=review.review_request_count, tone="accent"),
+                    MetricCard(label="Tickets", value=review.ticket_count, tone="neutral"),
+                    MetricCard(
+                        label="Approved / Observed",
+                        value=f"{review.approved_ticket_count}/{review.observed_ticket_count}",
+                        tone="pass",
+                    ),
+                    MetricCard(
+                        label="Blocking / High / Warning",
+                        value=(
+                            f"{review.blocking_review_count}/"
+                            f"{review.high_risk_review_count}/"
+                            f"{review.warning_review_count}"
+                        ),
+                        tone=_developer_review_risk_tone(review),
+                        detail=f"Info reviews {review.info_review_count}",
+                    ),
+                    MetricCard(
+                        label="LLM Tokens",
+                        value=_format_tokens(review.total_tokens),
+                        tone="neutral",
+                        detail=_cost_detail(review.estimated_cost_usd, review.currency),
+                    ),
+                ]
+            ),
+            f'<div class="mg-profile-card-body">{summary}</div>',
+            '<div class="mg-weekly-review-lists">',
+            _weekly_review_list("Top risks", review.top_risks, "No top risks recorded."),
+            _weekly_review_list(
+                "Recommended actions",
+                review.recommended_actions,
+                "No recommended actions recorded.",
+            ),
+            "</div>",
+            '<div class="mg-profile-card-foot">',
+            "<span>LLM-generated developer review</span>",
+            f"<span>Provider <b>{_html(review.provider)}</b></span>",
+            f"<span>Model <b>{_html(review.model)}</b></span>",
+            f"<span>Window <b>{_html(review.period_start.isoformat())}</b> to "
+            f"<b>{_html(review.period_end.isoformat())}</b></span>",
+            f"<span>{_html(_developer_token_usage(review))}</span>",
+            f"<span>Estimated cost <b>{_html(_developer_cost(review))}</b></span>",
+            "</div>",
+            "</div>",
+        ]
+    )
+
+
 def _weekly_review_list(title: str, values: list[str], empty_message: str) -> str:
     if values:
         items = "".join(f"<li>{_html(value)}</li>" for value in values)
@@ -1622,69 +1722,41 @@ def _weekly_token_usage(review: WeeklyLlmReviewRecord) -> str:
     return usage or "token usage unavailable"
 
 
+def _format_tokens(count: int | None) -> str:
+    """Dashboard token count with thousands separators; '-' when there are none."""
+    if count is None:
+        return "-"
+    return f"{count:,}"
+
+
+def _cost_detail(amount: float | None, currency: str = "USD") -> str | None:
+    """Secondary 'est. cost' subtitle under a token figure; None (no subtitle) when unpriced.
+    A generic fallback rate (for unpriced models) is never flagged."""
+    if amount is None:
+        return None
+    return f"est. {amount:.4f} {currency}"
+
+
 def _weekly_cost(review: WeeklyLlmReviewRecord) -> str:
     if review.estimated_cost_usd is None:
         return "unavailable"
     return f"{review.estimated_cost_usd:.4f} {review.currency}"
 
 
-def _latest_developer_profile_run(
-    runs: list[ReviewRunRecord],
-) -> ReviewRunRecord | None:
-    for run in runs:
-        if run.developer_profile is not None:
-            return run
-    return None
-
-
-def _developer_profile_panel(run: ReviewRunRecord | None, *, show_title: bool = True) -> str:
-    profile = run.developer_profile if run is not None else None
-    if run is None or profile is None or not profile.text:
-        # No usable LLM write-up (never generated, or a failed generation).
-        return render_empty_state("No info found.")
-
-    profile_text = profile.text
+def _developer_token_usage(review: DeveloperLlmReviewRecord) -> str:
     usage_parts = [
-        _token_count("input", profile.input_tokens),
-        _token_count("output", profile.output_tokens),
-        _token_count("total", profile.total_tokens),
+        _token_count("input", review.input_tokens),
+        _token_count("output", review.output_tokens),
+        _token_count("total", review.total_tokens),
     ]
     usage = " · ".join(part for part in usage_parts if part)
-    if not usage:
-        usage = "token usage unavailable"
+    return usage or "token usage unavailable"
 
-    title_html = (
-        '<div class="mg-profile-card-title">Latest LLM Developer Profile</div>'
-        if show_title
-        else ""
-    )
-    body = _html(profile_text).replace("\n", "<br>")
-    return "\n".join(
-        [
-            '<div class="mg-profile-card">',
-            '<div class="mg-profile-card-head">',
-            "<div>",
-            title_html,
-            (
-                '<div class="mg-profile-card-meta">'
-                f"Review {_html(str(run.review_id))} · "
-                f"{_html(_format_datetime(run.timestamp))} · "
-                f"{_html(str(profile.lookback_days))} day window"
-                "</div>"
-            ),
-            "</div>",
-            _llm_status_pill(profile.status).html,
-            "</div>",
-            f'<div class="mg-profile-card-body">{body}</div>',
-            '<div class="mg-profile-card-foot">',
-            f"<span>Provider <b>{_html(profile.provider)}</b></span>",
-            f"<span>Model <b>{_html(profile.model)}</b></span>",
-            f"<span>Duration <b>{profile.duration_ms}ms</b></span>",
-            f"<span>{_html(usage)}</span>",
-            "</div>",
-            "</div>",
-        ]
-    )
+
+def _developer_cost(review: DeveloperLlmReviewRecord) -> str:
+    if review.estimated_cost_usd is None:
+        return "unavailable"
+    return f"{review.estimated_cost_usd:.4f} {review.currency}"
 
 
 def _token_count(label: str, value: int | None) -> str:
@@ -1763,14 +1835,6 @@ def _approval_attempts(value: int | None) -> str:
     return str(value)
 
 
-def _llm_status_pill(status: str) -> TableCell:
-    if status == "succeeded":
-        return cell_pill("Succeeded", "pass")
-    if status == "rate_limited":
-        return cell_pill("Rate Limited", "warning")
-    return cell_pill(status.replace("_", " ").title(), "blocking")
-
-
 def _trend_label_tone(trend: str) -> tuple[str, Tone]:
     """Map the raw ``TrendDirection`` enum to a human label + colour tone, shared by
     the table pills and the metric cards so the trend never shows as ``insufficient_data``."""
@@ -1821,15 +1885,6 @@ def _score(value: float | int | None) -> str:
     return str(value)
 
 
-def _score_card(label: str, value: float | int | None, target: int) -> MetricCard:
-    """A score card with a per-dimension target (from settings): green when the score
-    meets the target, amber when below, plus a "Target N" detail line for context."""
-    if value is None:
-        return MetricCard(label, "-", "neutral")
-    tone: Tone = "pass" if value >= target else "warning"
-    return MetricCard(label, _score(value), tone, detail=f"Target {target}")
-
-
 def _format_datetime(value: datetime | None) -> str:
     if value is None:
         return "-"
@@ -1852,10 +1907,7 @@ def _query_param(st, key: str) -> str | None:
 
 
 def _developer_link(developer_id: str) -> str:
-    return (
-        f"?view=developer&developer={quote(developer_id, safe='')}"
-        f"#{developer_id}"
-    )
+    return f"?view=developer&developer={quote(developer_id, safe='')}#{developer_id}"
 
 
 _DEVELOPER_LINK_DISPLAY_TEXT = r"#(.+)$"
