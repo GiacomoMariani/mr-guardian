@@ -43,7 +43,7 @@ COPY Caddyfile /etc/caddy/Caddyfile
 COPY scripts ./scripts
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -e ".[server,ai,dashboard]" \
+    && python -m pip install --prefer-binary --timeout 120 --retries 10 -e ".[server,ai,dashboard]" \
     && chmod +x scripts/docker-entrypoint.sh
 
 # Public port for the combined deployment (Render overrides via $PORT).

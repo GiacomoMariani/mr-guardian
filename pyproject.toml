@@ -52,7 +52,7 @@ gitlab = [
 ]
 
 ai = [
-  "openai>=1.35.0",
+  "openai>=1.35.0,<2",
 ]
 
 all = [
