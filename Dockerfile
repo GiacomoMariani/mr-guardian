@@ -29,7 +29,7 @@ RUN cp /usr/bin/caddy /tmp/caddy \
     && chmod 0755 /usr/bin/caddy
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data /tmp/mr-guardian-worktrees /app/repository \
